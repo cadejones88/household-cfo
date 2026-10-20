@@ -22,7 +22,7 @@ After Gate 3, Phase 4 builds the MVP against the BC sandbox and Plaid's test env
 
 ## Stack and hosting
 
-One Azure subscription owned by Cade T. Jones CPA, P.C., one resource group per environment, and TypeScript everywhere so the phone app, console, API and jobs share one language and one package of money math.
+One new pay-as-you-go Azure subscription under Cade T. Jones CPA, P.C.'s Microsoft tenant (the firm has none today; Cade creates it with a $100 monthly budget alert before anything deploys), one resource group per environment, and TypeScript everywhere so the phone app, console, API and jobs share one language and one package of money math.
 
 | Part | Choice | Notes |
 | --- | --- | --- |
@@ -34,7 +34,7 @@ One Azure subscription owned by Cade T. Jones CPA, P.C., one resource group per 
 | Database | Azure Database for PostgreSQL Flexible Server 16, Burstable B1ms, 32 GB, 7-day PITR, zone-redundant backups | Row-level security by household |
 | Blobs | Storage account, private containers `receipts` and `imports`, customer-managed key in Key Vault, versioning and 90-day soft delete | One container prefix per household |
 | Secrets | Key Vault; managed identities for API and jobs; BC app credential is a certificate, rotated yearly | No connection strings in app settings |
-| Identity | Entra External ID external tenant `homesteadfamily` (name to confirm), custom URL domain, Face ID unlock in the app | Separate from the firm's workforce tenant |
+| Identity | Entra External ID external tenant `homesteadfamily` (name to confirm), custom URL domain homestead.cadejonescpa.com, Face ID unlock in the app | Separate from the firm's workforce tenant |
 | Documents | Azure AI Document Intelligence S0: `prebuilt-receipt`, `prebuilt-payStub.us` | 500 free pages a month on F0 for dev |
 | Model | Claude on Microsoft Foundry, hosted on Azure, US Data Zone Standard | Receipt line mapping and Ask Homestead |
 | Monitoring | Application Insights + Log Analytics with a telemetry processor that drops account numbers, tokens and image bytes | 30-day retention |
@@ -247,7 +247,7 @@ Amazon: order confirmation emails forwarded to the household's receipts address 
 Every net-pay deposit becomes a paycheck record whose components post as one document, so the ledger shows gross pay, bonus, each tax and each deduction, and the year ties to the W-2.
 
 1. **Detect.** A deposit from a known employer (HFH or CTJ payroll descriptor) creates a `paychecks` row in state Needs Receipt with the employer's template applied provisionally.
-2. **Stub.** Cade snaps or uploads the stub (photo or PDF). It runs through `prebuilt-payStub.us` (generally available in Document Intelligence v4.0, API version 2024-11-30, en-US); the model's schema lists the compensation, tax and deduction fields it returns. Each extracted line is mapped to a component kind; anything unmapped is shown for a one-tap choice and remembered in the employer template.
+2. **Stub.** Cade forwards or uploads the stub PDF (Paychex for Henry's Fork Homes, Gusto for CTJ); a photo of a printed stub works too. It runs through `prebuilt-payStub.us` (generally available in Document Intelligence v4.0, API version 2024-11-30, en-US); the model's schema lists the compensation, tax and deduction fields it returns. Each extracted line is mapped to a component kind; anything unmapped is shown for a one-tap choice and remembered in the employer template.
 3. **Template fallback.** If no stub arrives within 3 days, the template (last stub's component ratios) proposes the breakdown with "estimated" shown; the next stub trues it up with a correction document.
 4. **Post.** One BC document in HHAPP/FEEDS, or AUTOPOST once the paycheck rule is approved:
 
@@ -263,7 +263,7 @@ Every net-pay deposit becomes a paycheck record whose components post as one doc
 | Other deductions | 701801 | REVIEW |
 | Net pay | the receiving bank account card | — |
 
-The bonus accounts are a proposed BC change (section "Proposed Business Central changes"); until approved, bonus posts to the gross wages account with a BONUS comment. Gusto's CTJ pay stubs can also arrive as PDF exports and take the same path.
+The bonus accounts 401102 and 401202 are approved (BC change 5) and are created in the sandbox in epic E2; until they exist, bonus posts to the gross wages account with a BONUS comment. Both employers' stubs arrive as PDFs (Paychex for Henry's Fork Homes, Gusto for CTJ), so the pipeline reads the PDF directly and never depends on a photo.
 
 ## Ask Homestead
 
@@ -475,20 +475,22 @@ Four changes were approved at Gate 1; this spec adds two. None is made yet; each
 | 2 | HH App Connector AL extension: `hhBankLedgerEntries`, `hhBudgetEntries` (non-ORIG budgets only), plus `hhJournalLineCheck` added by this spec | Approved at Gate 1; the third page is new | E2 |
 | 3 | Journal batch HHAPP/AUTOPOST; Text-to-Account Mapping unused on the app path | Approved at Gate 1 | E2 |
 | 4 | Change Log on Gen. Journal Line for the HHAPP template | Approved at Gate 1 (optional) | E4 |
-| 5 | **New:** bonus compensation accounts 401102 "Bonus Compensation - Henry's Fork Homes (Cade)" and 401202 "Bonus Compensation - Cade T. Jones CPA, P.C. (Cade)", Posting, Income, FAMILY\_AREA CADE, TAX\_TREATMENT TAXABLE, inside the 401000–401999 total; HH-IS and HH-GIVE row definitions widened to include them | For Cade's approval | E5 |
-| 6 | **New:** a source code HHAUTO and reason code AUTOPOST for rule-posted entries, so auto-posted documents are distinguishable from Cade's in every report and in the Change Log | For Cade's approval | Auto-post go-live |
+| 5 | **New:** bonus compensation accounts 401102 "Bonus Compensation - Henry's Fork Homes (Cade)" and 401202 "Bonus Compensation - Cade T. Jones CPA, P.C. (Cade)", Posting, Income, FAMILY\_AREA CADE, TAX\_TREATMENT TAXABLE, inside the 401000–401999 total; HH-IS and HH-GIVE row definitions widened to include them | Approved October 20, 2026 | E5 |
+| 6 | **New:** a source code HHAUTO and reason code AUTOPOST for rule-posted entries, so auto-posted documents are distinguishable from Cade's in every report and in the Change Log | Approved October 20, 2026 | Auto-post go-live |
 
 Change 5 keeps the W-2 tie-out intact: box 1 equals 401101 plus 401102 plus pre-tax deferrals. Change 6 costs nothing today and makes the first auto-post audit trivial.
 
-## Open questions for Cade
+## Decisions on the open questions
 
-Five answers this spec needs that the project records don't hold. Each has a default I will use if you'd rather not decide now.
+Cade answered all five on October 20, 2026; nothing in this spec is waiting on a question.
 
-1. **Azure subscription:** does Cade T. Jones CPA, P.C. already have one (the BC tenant suggests a Microsoft 365 tenant, which may not include Azure)? Default: create one under the firm's tenant with a $100 monthly budget alert.
-2. **Custom domain for sign-in:** passkeys bind to a domain. Default: a subdomain of the firm's domain (for example `homestead.<firm domain>`), which needs one DNS record you control.
-3. **HFH pay stubs:** where do they come from today (a payroll portal, PDF by email, paper)? It decides whether the stub pipeline starts with photo capture or a PDF drop. Default: both paths are built; photo first.
-4. **Auto-post go-live order:** approve R1–R7 as a set after the sandbox test, or one at a time? Default: R2, R3 and R7 (transfers, card payments, BC-native) first, the rest after one clean month.
-5. **Bonus accounts (change 5) and the HHAUTO codes (change 6):** approve as proposed? Default: bonus posts to gross wages with a comment until you say yes.
+| # | Question | Decision | What it changes |
+| --- | --- | --- | --- |
+| 1 | Azure subscription | The firm has none today; a new pay-as-you-go subscription will be created under Cade T. Jones CPA, P.C.'s Microsoft tenant (the one that hosts Business Central) with a $100 monthly budget alert | Cade creates it (it needs the firm's payment method); dev resources deploy only after that |
+| 2 | Custom sign-in domain | `cadejonescpa.com`; sign-in at `homestead.cadejonescpa.com` | One DNS record Cade controls; passkeys bind to this domain, so it is set before the first passkey is registered |
+| 3 | Pay stubs | PDFs from Paychex (Henry's Fork Homes) and Gusto (Cade T. Jones CPA, P.C.) | The paycheck pipeline is PDF-first: forward or upload the PDF; photo capture is the backup |
+| 4 | Auto-post rules R1–R7 | Approved as proposed: R2, R3 and R7 (transfers, card payments, BC-native recurring) go live first once the sandbox test passes; R1, R4, R5 and R6 after one clean month | The written approval is recorded with the rule versions; posting rights for HHAPP/AUTOPOST are added when the first three go live |
+| 5 | BC changes 5 and 6 | Approved as proposed: bonus accounts 401102 and 401202; source code HHAUTO and reason code AUTOPOST | Added to the runbook with the other four; made in the sandbox in epic E2 |
 
 ## Sources
 

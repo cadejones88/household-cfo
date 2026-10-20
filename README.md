@@ -2,7 +2,7 @@
 
 Household finance app for the Jones family: a phone-first app for both spouses, a desktop console for the CFO, and a backend that keeps Business Central as the single ledger. Built for the family first; structured so a client version is configuration, not a rewrite.
 
-**Status (Oct 19, 2026):** Phase 1 spec approved. Phase 2 prototype published for Vanessa's test. Phase 3 architecture in draft. No real accounts connected, nothing in Business Central production.
+**Status (Oct 20, 2026):** Phase 1 spec approved. Phase 2 prototype published for Vanessa's test (Gate 2 open). Phase 3 architecture complete with all open questions decided; awaiting Cade's Gate 3 sign-off. No real accounts connected, nothing in Business Central production.
 
 ## What's here
 
