@@ -1,0 +1,22 @@
+node_modules/
+dist/
+build/
+.turbo/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+# Expo
+apps/mobile/.expo/
+apps/mobile/ios/
+apps/mobile/android/
+# Azure / AL build output
+*.app
+bc/**/.alpackages/
+bc/**/.snapshots/
+infra/**/*.parameters.local.json
+# test output
+test-results/
+playwright-report/

@@ -1,0 +1,38 @@
+{
+  "name": "@homestead/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Homestead API: auth, households, transactions, receipts, paychecks, approvals, Ask Homestead, Plaid and BC webhooks",
+  "type": "module",
+  "main": "./dist/server.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@homestead/shared": "workspace:*",
+    "@homestead/ledger-adapter-bc": "workspace:*",
+    "fastify": "^5.2.0",
+    "fastify-plugin": "^5.0.0",
+    "@fastify/cors": "^10.0.0",
+    "@fastify/helmet": "^13.0.0",
+    "@fastify/multipart": "^9.0.0",
+    "@fastify/rate-limit": "^10.2.0",
+    "pg": "^8.13.0",
+    "zod": "^3.24.0",
+    "jose": "^5.9.0",
+    "pino": "^9.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.1.0"
+  }
+}

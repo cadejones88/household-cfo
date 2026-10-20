@@ -1,0 +1,23 @@
+{
+  "name": "homestead",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Homestead: household finance app for the Jones family, with Business Central as the ledger",
+  "packageManager": "pnpm@10.28.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "dev:api": "pnpm --filter @homestead/api dev",
+    "db:migrate": "pnpm --filter @homestead/api db:migrate",
+    "secrets:scan": "node scripts/secrets-scan.mjs"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.1.0",
+    "@types/node": "^22.10.0"
+  }
+}

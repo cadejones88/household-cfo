@@ -148,7 +148,7 @@ A transaction can be imported twice, sent twice and polled twice without ever pr
 | Paycheck | `pay:<employer_id>:<pay_date>:<net_cents>` | One deposit per employer per pay date |
 | Manual | `man:<uuid>` minted once in the app, kept on the device until acknowledged | A resend carries the same uuid |
 
-BC's External Document No. is `HHAPP-<SRC>-<yyyymmdd>-<hash8>` (20 characters, BC's limit): `SRC` is one of PLD, OFX, CSV, PDF, RCP, PAY, MAN; `hash8` is the first 8 hex characters of the SHA-256 of the idempotency key. Splits of one transaction share the document number and differ by line.
+BC's External Document No. is `HHAPP-<SRC>-<yyyymmdd>-<hash8>` (27 characters, inside BC's 35-character limit): `SRC` is one of PLD, OFX, CSV, PDF, RCP, PAY, MAN; `hash8` is the first 8 hex characters of the SHA-256 of the idempotency key. Splits of one transaction share the document number and differ by line.
 
 1. **Write path.** The approval (or the auto-post rule) changes the state and writes an `outbox` row in the same database transaction. A relay publishes the row to Service Bus; the BC worker consumes it.
 2. **Pre-write check.** Before creating lines, the worker queries `journalLines` in the target batch and `generalLedgerEntries` for the External Document No. If either exists, the worker records the found IDs and moves on instead of writing.

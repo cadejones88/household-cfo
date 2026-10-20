@@ -1,0 +1,24 @@
+{
+  "name": "@homestead/acceptance",
+  "version": "0.1.0",
+  "private": true,
+  "description": "End-to-end and sandbox acceptance tests A1–A9, resilience tests, synthetic fixtures and the alert replay set",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@homestead/shared": "workspace:*",
+    "@homestead/ledger-adapter-bc": "workspace:*",
+    "@homestead/api": "workspace:*",
+    "@homestead/jobs": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.1.0"
+  }
+}

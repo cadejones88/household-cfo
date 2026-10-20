@@ -1,0 +1,25 @@
+{
+  "name": "@homestead/ledger-adapter-bc",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The ledger adapter interface and its Business Central implementation: API v2.0 client, Analytics client, HH App Connector client, dimension set builder",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@homestead/shared": "workspace:*",
+    "jose": "^5.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.1.0"
+  }
+}
