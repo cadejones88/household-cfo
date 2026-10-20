@@ -10,6 +10,7 @@ Household finance app for the Jones family: a phone-first app for both spouses, 
 | --- | --- |
 | `docs/phase1-product-spec.md` | The approved product spec: journeys, screens, decisions, Gate 1 outcome |
 | `docs/phase2-prototype-guide.md` | How to try the prototype and what to watch for at Gate 2 |
+| `docs/phase3-architecture-spec.md` | The architecture and integration spec: stack, data model, state machine, BC mapping, HH App Connector, auto-post rules, security, cost, DR, tests, backlog (awaiting Gate 3) |
 | `prototype/homestead.html` | The Phase 2 clickable prototype (single file, sample data, works offline once loaded). Published as a private artifact for phone testing |
 
 ## Planned layout (Phase 3)
