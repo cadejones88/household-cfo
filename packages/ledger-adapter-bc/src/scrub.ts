@@ -8,7 +8,7 @@ const BEARER_RE = /bearer\s+[a-z0-9._~+/=-]+/gi;
 const JWT_RE = /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g;
 const MONEY_RE = /\$\s?\d[\d,]*(\.\d{2})?/g;
 /** A bare decimal with two places inside an error message is almost always an amount. */
-const DECIMAL_RE = /(?<![\w.-])-?\d{1,3}(,\d{3})*\.\d{2}(?![\w.])/g;
+const DECIMAL_RE = /(?<![\w.-])-?\d{1,3}(,\d{3})*\.\d{2}(?![\w])/g;
 const ACCOUNT_RE = /\b(?:x|\*{2,})\d{4}\b/gi;
 const SAS_RE = /[?&](sig|sv|se|sp|validationToken)=[^&\s]+/gi;
 const PEM_RE = /-----BEGIN [A-Z ]+-----[\s\S]*?-----END [A-Z ]+-----/g;

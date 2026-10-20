@@ -86,9 +86,12 @@ export interface MappedDocument {
   clearingAccount?: string;
 }
 
-/** Turns buildPaycheckLines() output (BC-signed) into app-signed splits so a paycheck maps like any deposit. */
+/**
+ * Turns buildPaycheckLines() output (BC-signed) into app-signed splits so a paycheck maps like any deposit.
+ * The "net" line is the bank side; the mapper adds it from the receiving bank card, so it is dropped here.
+ */
 export function paycheckLinesToSplits(lines: readonly PaycheckLine[]): AppSplitForLedger[] {
-  return lines.map((l, i) => ({ lineNo: i + 1, amountCents: -l.amountCents, glAccount: l.glAccount, dims: l.dims, description: l.description }));
+  return lines.filter((l) => l.kind !== "net").map((l, i) => ({ lineNo: i + 1, amountCents: -l.amountCents, glAccount: l.glAccount, dims: l.dims, description: l.description }));
 }
 
 export function mapTransactionToJournalLines(tx: AppTransactionForLedger): MappedDocument {

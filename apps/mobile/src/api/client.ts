@@ -1,70 +1,65 @@
 /**
- * The typed HTTP client, hand-written against the route names in services/api/src/app.ts and the DTOs in
- * @homestead/shared. Every call goes through `request`, which adds the sign-in headers, the step-up proof
- * when the call needs it, and turns the API's error envelope `{ error: string }` into typed errors.
+ * The typed HTTP client, hand-written against services/api/openapi.yaml (Oct 20, 2026). Every call goes through
+ * `request`, which adds the sign-in headers, the step-up proof when the call needs it, and turns the API's error
+ * envelope `{ error, message }` into typed errors.
  *
- * Route map (to be reconciled with services/api/openapi.yaml when it lands):
- *   GET  /v1/me                              -> MeResponse
- *   GET  /v1/accounts                        -> AccountSummary[]
- *   GET  /v1/budget/safe-to-spend            -> SafeToSpendView       (falls back to composing it client-side on 404)
- *   GET  /v1/questions                       -> Question[]
- *   POST /v1/questions/:id/answer            { optionId, categoryId? }
- *   GET  /v1/transactions?q&limit&needsAnswer&withReceipt&memberId -> { items, dataThrough }
- *   GET  /v1/transactions/:id                -> Transaction
- *   POST /v1/transactions/:id/correction     { categoryId, proposeRule? } -> CorrectionResult
- *   POST /v1/transactions/:id/business       { flag } -> Transaction
- *   POST /v1/receipts (multipart: file, sha256, capturedAt, clientId) -> ReceiptSummary; 409 duplicate
- *   GET  /v1/receipts/:id                    -> ReceiptDetail
- *   GET  /v1/paychecks/:id                   -> PaycheckSummary
- *   GET  /v1/budget?month=YYYY-MM            -> BudgetStatus
- *   POST /v1/budget/moves                    { fromCategoryId, toCategoryId, amountCents, note? } -> Approval
- *   GET  /v1/approvals                       -> Approval[]
- *   POST /v1/approvals/:id/decide            { decision } (step-up) -> Approval
- *   GET  /v1/goals                           -> Goal[]
- *   GET  /v1/bills                           -> BillsView
- *   POST /v1/ask                             { question } -> AskAnswer
- *   GET  /v1/alerts                          -> Alert[]
- *   POST /v1/devices/push-token              { token, platform, deviceName? }   (TODO: confirm in openapi.yaml)
- *   POST /v1/export                          (step-up) -> { requested: true }
+ * Routes used (all under /v1; envelopes as the OpenAPI document gives them):
+ *   GET  /accounts                       -> { accounts, dataThrough }
+ *   GET  /transactions?q&status&kind&limit&cursor -> { transactions, next, dataThrough }
+ *   GET  /transactions/:id               -> Transaction
+ *   POST /transactions/:id/correct       { categoryId, splits?, reason? } -> { transaction, correctionRequestId? }
+ *   POST /transactions/:id/business      { flag } -> Transaction
+ *   GET  /questions                      -> { questions, dataThrough }
+ *   POST /questions/:id/answer           { optionId, categoryId?, splits?, note? } -> { transaction?, approval?, nextQuestion? }
+ *   POST /receipts (multipart: file, sha256, capturedAt, offlineId, kind) -> 201 ReceiptSummary | 200 same photo already held
+ *   GET  /receipts/:id                   -> ReceiptDetail
+ *   GET  /paychecks, /paychecks/:id
+ *   GET  /budget?month                   -> BudgetStatus
+ *   POST /budget/moves                   -> 201 Approval
+ *   GET  /approvals?state                -> { approvals }
+ *   POST /approvals/:id/decide           { decision, note? } (step-up) -> Approval
+ *   POST /rules                          { kind: merchant, name, match, action } -> 201 Rule   ("do this every time")
+ *   GET  /goals                          -> { goals, dataThrough }
+ *   GET  /bills?until                    -> { bills, nextPayday, dataThrough }
+ *   POST /ask, GET /ask/history
+ *
+ * Not in the OpenAPI document (handled with fallbacks, listed in README "OpenAPI reconciliation"):
+ *   GET /me (derived from the sign-in), GET /budget/safe-to-spend (composed client-side), GET /alerts (tries
+ *   /console/alerts, else empty), POST /devices/push-token (TODO; 404 ignored), POST /export (404 -> "not yet").
  */
-import type {
-  AccountSummary,
-  Alert,
-  Approval,
-  ApprovalDecision,
-  AskAnswer,
-  BillsView,
-  BudgetStatus,
-  BusinessFlag,
-  CorrectionResult,
-  Goal,
-  MeResponse,
-  PaycheckSummary,
-  PushTokenRegistration,
-  Question,
-  ReceiptSummary,
-  SafeToSpendView,
-  Transaction,
-} from "@homestead/shared";
+import type { Alert, Approval, ApprovalDecision, AskAnswer, BudgetStatus, BusinessFlag, MemberSummary, PaycheckSummary, Transaction } from "@homestead/shared";
 import { composeSafeToSpend } from "../model/safeToSpendVm";
 import { todayIso } from "../model/format";
 import {
   ApiError,
-  DuplicateReceiptError,
   StepUpRequiredError,
+  type AccountsResponse,
   type AnswerInput,
+  type AnswerResponse,
+  type AskHistoryItem,
+  type BillsResponse,
   type BudgetMoveInput,
   type CorrectionInput,
+  type CorrectionResponse,
+  type GoalsResponse,
   type HomesteadApi,
+  type Me,
+  type PushTokenRegistration,
+  type QuestionsResponse,
   type ReceiptDetail,
+  type RuleProposalInput,
+  type SafeToSpendView,
   type TransactionsPage,
   type TransactionsQuery,
   type UploadReceiptInput,
+  type UploadReceiptResult,
 } from "./types";
 
 export interface AuthHeaderSource {
   /** Headers that identify the member; with `stepUp`, the proof of a fresh local authentication too. */
   headers(opts?: { stepUp?: boolean }): Promise<Record<string, string>>;
+  /** The signed-in member as the sign-in knows them (dev seed name, or the id token's claims). */
+  currentMember(): MemberSummary;
   /** Called on 401 so the session can be refreshed or ended. */
   onUnauthorized?(): void;
 }
@@ -87,40 +82,42 @@ export class HttpApi implements HomesteadApi {
     this.timeoutMs = opts.timeoutMs ?? 20_000;
   }
 
-  me(): Promise<MeResponse> {
-    return this.request("GET", "/v1/me");
+  async me(): Promise<Me> {
+    // No /me route in the OpenAPI document. The member comes from the sign-in; the other spouse's name comes
+    // from approvals (requestedByName) when one exists; the payday from /bills.
+    const member = this.opts.auth.currentMember();
+    const [approvals, bills] = await Promise.all([this.approvals("all").catch(() => [] as readonly Approval[]), this.bills().catch(() => undefined)]);
+    const others = new Map<string, MemberSummary>();
+    for (const a of approvals) {
+      if (a.requestedBy !== member.id && a.requestedByName) others.set(a.requestedBy, { id: a.requestedBy, displayName: a.requestedByName, role: "member" });
+    }
+    return {
+      member,
+      household: { id: "household", name: "Our household", timezone: "America/Boise", quietHours: { start: "21:00", end: "07:00" }, ...(bills ? { nextPaydayIso: bills.nextPayday } : {}) },
+      members: [member, ...others.values()],
+    };
   }
 
-  accounts(): Promise<readonly AccountSummary[]> {
+  accounts(): Promise<AccountsResponse> {
     return this.request("GET", "/v1/accounts");
   }
 
   async safeToSpend(): Promise<SafeToSpendView> {
-    try {
-      return await this.request<SafeToSpendView>("GET", "/v1/budget/safe-to-spend");
-    } catch (err) {
-      if (!(err instanceof ApiError) || err.status !== 404) throw err;
-      // No dedicated endpoint: compose it from accounts, goals and bills with the shared calculation.
-      const [accounts, goals, bills, budget] = await Promise.all([this.accounts(), this.goals(), this.bills(), this.budget().catch(() => undefined)]);
-      return composeSafeToSpend({ accounts, goals, bills: bills.bills, nextPaydayIso: bills.nextPaydayIso, todayIso: todayIso(), ...(budget ? { budget } : {}) });
-    }
+    const [accounts, goals, bills, budget] = await Promise.all([this.accounts(), this.goals(), this.bills(), this.budget().catch(() => undefined)]);
+    return composeSafeToSpend({ accounts: accounts.accounts, goals: goals.goals, bills: bills.bills, nextPaydayIso: bills.nextPayday, todayIso: todayIso(), ...(budget ? { budget } : {}) });
   }
 
-  questions(): Promise<readonly Question[]> {
+  questions(): Promise<QuestionsResponse> {
     return this.request("GET", "/v1/questions");
   }
 
-  async answerQuestion(id: string, input: AnswerInput): Promise<void> {
-    await this.request("POST", `/v1/questions/${encodeURIComponent(id)}/answer`, input);
+  answerQuestion(id: string, input: AnswerInput, opts: { stepUp?: boolean } = {}): Promise<AnswerResponse> {
+    return this.request("POST", `/v1/questions/${encodeURIComponent(id)}/answer`, input, opts);
   }
 
   transactions(query: TransactionsQuery = {}): Promise<TransactionsPage> {
     const qs = new URLSearchParams();
-    if (query.q) qs.set("q", query.q);
-    if (query.limit) qs.set("limit", String(query.limit));
-    if (query.needsAnswer) qs.set("needsAnswer", "true");
-    if (query.withReceipt) qs.set("withReceipt", "true");
-    if (query.memberId) qs.set("memberId", query.memberId);
+    for (const [k, v] of Object.entries(query)) if (v !== undefined && v !== "") qs.set(k, String(v));
     const s = qs.toString();
     return this.request("GET", `/v1/transactions${s ? `?${s}` : ""}`);
   }
@@ -129,32 +126,45 @@ export class HttpApi implements HomesteadApi {
     return this.request("GET", `/v1/transactions/${encodeURIComponent(id)}`);
   }
 
-  correctTransaction(id: string, input: CorrectionInput): Promise<CorrectionResult> {
-    return this.request("POST", `/v1/transactions/${encodeURIComponent(id)}/correction`, input);
+  correctTransaction(id: string, input: CorrectionInput): Promise<CorrectionResponse> {
+    return this.request("POST", `/v1/transactions/${encodeURIComponent(id)}/correct`, input);
+  }
+
+  proposeRule(input: RuleProposalInput): Promise<{ id: string }> {
+    return this.request("POST", "/v1/rules", {
+      kind: "merchant",
+      name: input.name,
+      match: { merchantNorm: input.merchantNorm, direction: "out" },
+      action: { categoryId: input.categoryId },
+      mayAutoPost: false,
+    });
   }
 
   setBusinessFlag(id: string, flag: BusinessFlag): Promise<Transaction> {
     return this.request("POST", `/v1/transactions/${encodeURIComponent(id)}/business`, { flag });
   }
 
-  async uploadReceipt(input: UploadReceiptInput): Promise<ReceiptSummary> {
+  async uploadReceipt(input: UploadReceiptInput): Promise<UploadReceiptResult> {
     const form = new FormData();
     form.append("sha256", input.sha256);
     form.append("capturedAt", input.capturedAt);
-    form.append("clientId", input.clientId);
+    form.append("offlineId", input.offlineId);
+    form.append("kind", "receipt");
     // React Native's FormData takes { uri, name, type } for a file part.
-    form.append("file", { uri: input.fileUri, name: `${input.clientId}.jpg`, type: "image/jpeg" } as unknown as Blob);
+    form.append("file", { uri: input.fileUri, name: `${input.offlineId}.jpg`, type: "image/jpeg" } as unknown as Blob);
     const headers = await this.opts.auth.headers();
     const res = await this.fetchWithTimeout(`${this.base}/v1/receipts`, { method: "POST", headers, body: form }, 60_000);
-    if (res.status === 409) {
-      const body = (await safeJson(res)) as { existingReceiptId?: string; receiptId?: string } | undefined;
-      throw new DuplicateReceiptError(body?.existingReceiptId ?? body?.receiptId);
-    }
-    return this.handle<ReceiptSummary>(res);
+    const receipt = await this.handle<UploadReceiptResult["receipt"]>(res);
+    return { receipt, alreadyHeld: res.status === 200 };
   }
 
   receipt(id: string): Promise<ReceiptDetail> {
     return this.request("GET", `/v1/receipts/${encodeURIComponent(id)}`);
+  }
+
+  async paychecks(): Promise<readonly PaycheckSummary[]> {
+    const r = await this.request<{ paychecks: readonly PaycheckSummary[] }>("GET", "/v1/paychecks");
+    return r.paychecks;
   }
 
   paycheck(id: string): Promise<PaycheckSummary> {
@@ -169,19 +179,20 @@ export class HttpApi implements HomesteadApi {
     return this.request("POST", "/v1/budget/moves", input);
   }
 
-  approvals(): Promise<readonly Approval[]> {
-    return this.request("GET", "/v1/approvals");
+  async approvals(state: "open" | "decided" | "all" = "open"): Promise<readonly Approval[]> {
+    const r = await this.request<{ approvals: readonly Approval[] }>("GET", `/v1/approvals?state=${state}`);
+    return r.approvals;
   }
 
-  decideApproval(id: string, decision: ApprovalDecision): Promise<Approval> {
-    return this.request("POST", `/v1/approvals/${encodeURIComponent(id)}/decide`, { decision }, { stepUp: true });
+  decideApproval(id: string, decision: ApprovalDecision, note?: string): Promise<Approval> {
+    return this.request("POST", `/v1/approvals/${encodeURIComponent(id)}/decide`, note ? { decision, note } : { decision }, { stepUp: true });
   }
 
-  goals(): Promise<readonly Goal[]> {
+  goals(): Promise<GoalsResponse> {
     return this.request("GET", "/v1/goals");
   }
 
-  bills(): Promise<BillsView> {
+  bills(): Promise<BillsResponse> {
     return this.request("GET", "/v1/bills");
   }
 
@@ -189,13 +200,24 @@ export class HttpApi implements HomesteadApi {
     return this.request("POST", "/v1/ask", { question });
   }
 
-  alerts(): Promise<readonly Alert[]> {
-    return this.request("GET", "/v1/alerts");
+  async askHistory(): Promise<readonly AskHistoryItem[]> {
+    const r = await this.request<{ conversations?: readonly AskHistoryItem[] }>("GET", "/v1/ask/history");
+    return r.conversations ?? [];
+  }
+
+  async alerts(): Promise<readonly Alert[]> {
+    // No member-facing alerts route yet; the console one is scoped to the household by RLS. Empty when refused.
+    try {
+      const r = await this.request<{ alerts?: readonly Alert[] }>("GET", "/v1/console/alerts");
+      return r.alerts ?? [];
+    } catch (err) {
+      if (err instanceof ApiError && (err.status === 403 || err.status === 404)) return [];
+      throw err;
+    }
   }
 
   async registerPushToken(input: PushTokenRegistration): Promise<void> {
-    // TODO(openapi): confirm the push-token route once services/api/openapi.yaml exists; a 404 is ignored so
-    // the app keeps working against an API that has no push yet.
+    // TODO(openapi): no push-token route yet. A 404 is ignored so the app keeps working against today's API.
     try {
       await this.request("POST", "/v1/devices/push-token", input);
     } catch (err) {
@@ -204,8 +226,15 @@ export class HttpApi implements HomesteadApi {
     }
   }
 
-  requestExport(): Promise<{ requested: true }> {
-    return this.request("POST", "/v1/export", {}, { stepUp: true });
+  async requestExport(): Promise<{ requested: boolean; available: boolean }> {
+    // TODO(openapi): no export route yet (spec: "Audit and export"). Reported as unavailable on 404.
+    try {
+      await this.request("POST", "/v1/export", {}, { stepUp: true });
+      return { requested: true, available: true };
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return { requested: false, available: false };
+      throw err;
+    }
   }
 
   private async request<T>(method: "GET" | "POST" | "PUT" | "DELETE", path: string, body?: unknown, opts: { stepUp?: boolean } = {}): Promise<T> {

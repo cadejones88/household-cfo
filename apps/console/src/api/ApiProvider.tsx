@@ -18,8 +18,8 @@ export function ApiProvider({ children, api }: { children: ReactNode; api?: Cons
       mockSingleton ??= createMockApi();
       return mockSingleton;
     }
-    return createHttpApi(auth.getAuthHeaders);
-  }, [api, auth.getAuthHeaders]);
+    return createHttpApi(auth.getAuthHeaders, () => ({ id: auth.memberId ?? "", displayName: auth.memberName ?? "Member" }));
+  }, [api, auth.getAuthHeaders, auth.memberId, auth.memberName]);
   const queryClient = useMemo(
     () =>
       new QueryClient({

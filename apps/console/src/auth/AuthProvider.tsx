@@ -64,7 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (mode === "entra") await msal.signOut();
     else window.location.reload();
   }, [mode]);
-  const getAuthHeaders = useCallback(async () => {
+  const getAuthHeaders = useCallback(async (): Promise<Record<string, string>> => {
     if (mode === "entra") return { authorization: `Bearer ${await msal.getAccessToken()}` };
     if (mode === "dev") return { "x-dev-member": config.devMemberId };
     return {};

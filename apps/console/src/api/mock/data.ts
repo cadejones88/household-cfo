@@ -33,6 +33,7 @@ import {
   type RuleSummary,
   type SyncRunSummary,
   type TransactionState,
+  type BankCardCode,
 } from "@homestead/shared";
 
 export const NOW = Date.now();
@@ -151,7 +152,7 @@ const accountIdOf = (code: string) => `acct-${code.toLowerCase()}`;
 const txId = (n: number) => `tx-${String(n).padStart(4, "0")}`;
 
 function toTransaction(s: TxSeed): ConsoleTransactionRow {
-  const card = cardById.get(s.card) ?? { code: s.card, name: s.card, mask: "", institution: "", glAccount: "" };
+  const card = cardById.get(s.card as BankCardCode) ?? { code: s.card, name: s.card, mask: "", institution: "", glAccount: "" };
   const source = s.source ?? "plaid";
   const key =
     source === "plaid"

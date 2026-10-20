@@ -86,7 +86,7 @@ export interface ClassifyOneContext {
   autoPostOn: boolean;
   cats: CategoryMap;
   actor: string;
-  now?: Date;
+  now?: Date | undefined;
 }
 
 /** Hours since the account's feed last synced (file-only accounts: since the newest import). */

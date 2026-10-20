@@ -24,7 +24,7 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { BANK_CARD_LIST, CHART, DIMENSION_CODES, FAMILY_AREA, FUND_GOAL, PROJECT, SPEND_CLASS, TAX_TREATMENT, type DimensionCode } from "@homestead/shared";
-import { FilterError, matchesFilter, parseFilter } from "./filter.js";
+import { FilterError, assertFilterFields, matchesFilter, parseFilter } from "./filter.js";
 import { buildJsonBatchResponse, buildMultipartBatchResponse, parseJsonBatch, parseMultipartBatch, type InnerRequest, type InnerResponse } from "./multipart.js";
 
 export interface MockBcServerOptions {
@@ -481,6 +481,7 @@ export class MockBcServer {
       return row ? ok(row) : odataError(404, "BadRequest_NotFound", `No entity with id ${key}`);
     }
     const terms = parseFilter(ctx.query.get("$filter"));
+    assertFilterFields(terms, exposed);
     let out = rows.filter((r) => matchesFilter(r, terms, exposed));
     const top = Number(ctx.query.get("$top") ?? "0");
     if (top > 0) out = out.slice(0, top);

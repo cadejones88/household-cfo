@@ -30,7 +30,6 @@ export async function getMsal(): Promise<PublicClientApplication> {
       knownAuthorities,
       redirectUri: window.location.origin,
       postLogoutRedirectUri: window.location.origin,
-      navigateToLoginRequestUrl: true,
     },
     cache: { cacheLocation: "sessionStorage" },
     system: { allowPlatformBroker: false },
@@ -71,7 +70,8 @@ export async function signIn(): Promise<void> {
 export async function signOut(): Promise<void> {
   const msal = await getMsal();
   sessionStorage.removeItem(SIGNED_IN_AT_KEY);
-  await msal.logoutRedirect({ account: msal.getActiveAccount() ?? undefined });
+  const account = msal.getActiveAccount();
+  await msal.logoutRedirect(account ? { account } : {});
 }
 
 /** An access token for the API, silently when possible; otherwise redirects to sign in. */

@@ -40,6 +40,8 @@ export interface AccountSummary {
   balanceCents?: Cents;
   balanceAsOf?: string;
   feedStatus: "ok" | "stale" | "needs_relink" | "file_only" | "none";
+  /** Excluded from safe-to-spend (openapi: isRestricted). */
+  isRestricted?: boolean;
 }
 
 export interface TransactionSplit {
@@ -64,6 +66,8 @@ export interface Transaction {
   pending: boolean;
   state: TransactionState;
   status: PlainStatus;
+  /** The plain words for `status` (openapi: statusWord). */
+  statusWord?: string;
   kind: TransactionKind;
   categoryId?: string;
   dims: DimensionSet;
@@ -74,6 +78,10 @@ export interface Transaction {
   splits: TransactionSplit[];
   receiptId?: Id;
   receiptStatus: "none" | "needed" | "matched" | "estimated";
+  /** The other side of a transfer or card payment (openapi). */
+  pairId?: Id;
+  duplicateOfId?: Id;
+  exceptionReason?: string;
   bc?: {
     externalDocumentNo: string;
     journalId?: string;
@@ -115,6 +123,8 @@ export interface Question {
   amountCents?: Cents;
   merchant?: string;
   date?: string;
+  /** For confirm_split: the proposed split (openapi: splits). */
+  splits?: readonly TransactionSplit[];
   createdAt: string;
 }
 
@@ -124,6 +134,9 @@ export interface ReceiptSummary {
   uploadedAt?: string;
   sha256: string;
   ocrStatus: "queued" | "read" | "failed" | "needs_review";
+  kind?: "receipt" | "pay_stub" | "statement";
+  /** The device queue id echoed back (openapi: offlineId). */
+  offlineId?: string;
   merchant?: string;
   totalCents?: Cents;
   taxCents?: Cents;
@@ -152,7 +165,8 @@ export interface BudgetLine {
   leftCents: Cents;
   pace: "on_track" | "watch" | "over";
   forecastCents: Cents;
-  /** Added for E6: allowances never alert (I-10) and committed lines read "fixed". Optional; absent means neither. */
+  /** openapi: group, isAllowance. Allowances never alert (I-10). `isCommitted` is the app's hint for "fixed" lines. */
+  group?: string;
   isAllowance?: boolean;
   isCommitted?: boolean;
 }
@@ -162,7 +176,9 @@ export interface BudgetStatus {
   /** "sample" until the household budget is approved and loaded in BC. */
   budgetName: string;
   isSample: boolean;
+  revisionNo?: number;
   lines: readonly BudgetLine[];
+  totals?: { budgetCents: Cents; spentCents: Cents; leftCents: Cents };
   dataThrough: DataThrough;
 }
 
@@ -173,6 +189,8 @@ export interface Goal {
   currentCents: Cents;
   targetCents: Cents;
   nextMilestone?: string;
+  /** Target not approved yet (openapi: isSample). */
+  isSample?: boolean;
   dataThrough: DataThrough;
 }
 
@@ -182,7 +200,10 @@ export interface Bill {
   dueDate: string;
   amountCents: Cents;
   accountId?: Id;
+  categoryId?: string;
   isMinimum: boolean;
+  isBcNative?: boolean;
+  autopay?: boolean;
   beforePayday: boolean;
   paid: boolean;
 }
@@ -194,7 +215,9 @@ export interface Alert {
   fingerprint: string;
   title: string;
   body: string;
+  memberId?: Id;
   createdAt: string;
+  deliveredAt?: string;
   snoozedUntil?: string;
   resolvedAt?: string;
 }
@@ -217,6 +240,7 @@ export interface AskAnswer {
   used: readonly { fn: string; rows: unknown }[];
   /** A drafted budget move or other action that opens the normal approval screen. Never executed by Ask. */
   draftAction?: { kind: "budget_move"; fromCategoryId: string; toCategoryId: string; amountCents: Cents };
+  conversationId?: Id;
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -331,6 +355,9 @@ export interface PostBatchResult {
   outboxId: Id;
   queuedAt: string;
   lineCount: number;
+  /** openapi.yaml: true when enqueued for the AUTOPOST job; false when the request was recorded for Cade to post in BC. */
+  enqueued?: boolean;
+  message?: string;
 }
 
 export interface BankCardReconStatus {
@@ -527,29 +554,12 @@ export interface HealthReport {
   nightlyPoll?: { ranAt: string; differences: number };
 }
 
-/* ---- Added for E6 (phone app). Add-only: the API owns these shapes once services/api/openapi.yaml exists. ---- */
+/* ---- Added for E6 (phone app), mirroring services/api/openapi.yaml. Add-only. ---- */
 
-export interface HouseholdSummary {
-  id: Id;
-  name: string;
-  timezone: string;
-  /** Quiet hours in local 24h "HH:MM"; default 21:00–07:00 Mountain. */
-  quietHours: { start: string; end: string };
-  /** The next Henry's Fork payday, when the obligation calendar knows it. */
-  nextPaydayIso?: string;
-}
+export type ApprovalKind = "budget_move" | "correction" | "rule" | "business_flag" | "auto_post_rule" | "settings";
+export type ApprovalDecision = "approved" | "declined";
 
-/** GET /v1/me: who is signed in, who the other spouse is, and the household. */
-export interface MeResponse {
-  member: MemberSummary;
-  household: HouseholdSummary;
-  members: readonly MemberSummary[];
-}
-
-export type ApprovalKind = "budget_move" | "correction" | "rule" | "business_flag" | "auto_post_rule";
-export type ApprovalDecision = "approved" | "declined" | "later";
-
-/** One request that the other spouse decides (approvals table). */
+/** One request the other spouse decides (openapi: Approval). `payload` keys depend on `kind`. */
 export interface Approval {
   id: Id;
   kind: ApprovalKind;
@@ -557,60 +567,20 @@ export interface Approval {
     fromCategoryId?: string;
     toCategoryId?: string;
     amountCents?: Cents;
+    month?: string;
     note?: string;
     transactionId?: Id;
     categoryId?: string;
     merchant?: string;
+    [key: string]: unknown;
   };
-  requestedBy: MemberSummary;
-  decidedBy?: MemberSummary;
+  requestedBy: Id;
+  requestedByName?: string;
+  decidedBy?: Id;
   decision?: ApprovalDecision;
-  stepUpVerified?: boolean;
+  stepUpVerified: boolean;
   requestedAt: string;
   decidedAt?: string;
-  /** Budget revision number written to BC on approval, when applicable. */
-  revisionNo?: number;
-}
-
-/** Safe to spend as the app shows it: the shared calculation plus its data-through stamp. */
-export interface SafeToSpendView {
-  safeCents: Cents;
-  cashCents: Cents;
-  setAsideCents: Cents;
-  billsBeforePaydayCents: Cents;
-  billsBeforePayday: readonly { name?: string; dueDateIso: string; amountCents: Cents }[];
-  givingDueCents: Cents;
-  liquidityFloorCents: Cents;
-  nextPaydayIso: string;
-  daysUntilPayday: number;
-  perDayCents: Cents;
-  balanceAsOf: string;
-  status: "on_track" | "watch" | "short";
-  /** One plain sentence about the month, rendered from the forecast rows. */
-  forecast?: string;
-  /** When the result is short: the one small move that fixes it, phrased for a person. */
-  suggestion?: string;
-  dataThrough: DataThrough;
-}
-
-export interface BillsView {
-  bills: readonly Bill[];
-  nextPaydayIso: string;
-  /** The paycheck expected on the next payday, when known (last HFH net). */
-  nextPaycheckNetCents?: Cents;
-  dataThrough: DataThrough;
-}
-
-export interface CorrectionResult {
-  /** "fixed" before posting; "fix_pending" after posting (a correction request to the CFO queue). */
-  outcome: "fixed" | "fix_pending";
-  approvalId?: Id;
-  /** When "Do this every time" was asked: the proposed rule's id (a proposal, never a rule). */
-  ruleProposalId?: Id;
-}
-
-export interface PushTokenRegistration {
-  token: string;
-  platform: "ios" | "android";
-  deviceName?: string;
+  /** Plain words for what approving does. */
+  effect?: string;
 }

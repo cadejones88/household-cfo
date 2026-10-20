@@ -371,6 +371,10 @@ function Audit() {
   );
 }
 
+function durationOf(a: { id: string; durationMs?: number }): string {
+  return typeof a.durationMs === "number" && a.durationMs > 0 ? `${Math.round(a.durationMs / 1000)} s` : "—";
+}
+
 function Nightly() {
   const q = useHealthReport();
   if (q.isLoading) return <Loading what="Reading the nightly result" />;
@@ -429,7 +433,7 @@ function Nightly() {
                 <td>
                   <Tag tone={a.status === "pass" ? "good" : a.status === "fail" ? "action" : "muted"}>{a.status}</Tag>
                 </td>
-                <td>{"durationMs" in a && a.durationMs ? `${Math.round(a.durationMs / 1000)} s` : "—"}</td>
+                <td>{durationOf(a)}</td>
                 <td>{a.note ?? ""}</td>
               </tr>
             ))}

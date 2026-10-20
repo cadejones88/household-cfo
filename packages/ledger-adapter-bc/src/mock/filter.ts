@@ -55,6 +55,13 @@ function compare(a: unknown, b: string | number | boolean): number {
   return String(a ?? "").localeCompare(b);
 }
 
+/** Throws FilterError for a field the entity does not expose, as Business Central does (even on an empty set). */
+export function assertFilterFields(terms: readonly FilterTerm[], exposedFields: readonly string[]): void {
+  for (const t of terms) {
+    if (!exposedFields.includes(t.field)) throw new FilterError(`Could not find a property named '${t.field}' on type 'Microsoft.NAV.${exposedFields[0] ?? "entity"}'.`);
+  }
+}
+
 /** Throws FilterError for a field the entity does not expose, as Business Central does. */
 export function matchesFilter(row: Record<string, unknown>, terms: readonly FilterTerm[], exposedFields: readonly string[]): boolean {
   for (const t of terms) {
