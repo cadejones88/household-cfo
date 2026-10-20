@@ -1,0 +1,6 @@
+{
+  "generatedAt": null,
+  "environment": "not yet run",
+  "acceptance": [],
+  "note": "The nightly acceptance job (.github/workflows/ci.yml, sandbox-acceptance) writes this file after A1-A9 run against the BC sandbox. Until then the Console shows 'No nightly run yet.'"
+}

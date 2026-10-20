@@ -1,0 +1,180 @@
+import { useReconciliation } from "../api/hooks";
+import { ErrorNotice, Loading, PageHead, Tag } from "../components/ui";
+import { date, dateTime, money } from "../lib/format";
+import { feedStatusView } from "../lib/status";
+import { bcBankLedgerUrl, bcLinksConfigured } from "../lib/bcLinks";
+
+export function Reconciliation() {
+  const q = useReconciliation();
+  const totalOpen = q.data?.bankCards.reduce((n, c) => n + c.openCount, 0) ?? 0;
+  const totalDiff = q.data?.bankCards.reduce((n, c) => n + c.differences.length, 0) ?? 0;
+
+  return (
+    <>
+      <PageHead
+        title="Reconciliation status"
+        lede="Bank reconciliation runs in BC as today. The app reads Bank Account Ledger Entry status through the HH App Connector (hhBankLedgerEntries) and marks lines Reconciled; differences come here and to the Exceptions queue."
+        dataThrough={q.data?.dataThrough}
+      />
+      {q.isLoading ? <Loading what="Reading reconciliation status" /> : q.error ? <ErrorNotice error={q.error} /> : null}
+      {q.data ? (
+        <>
+          <div className="grid cols-3" style={{ marginBottom: 14 }}>
+            <div className="card stat">
+              <span className="label">Open bank ledger lines</span>
+              <span className="value">{totalOpen}</span>
+              <span className="sub">across {q.data.bankCards.length} bank cards</span>
+            </div>
+            <div className="card stat">
+              <span className="label">Differences</span>
+              <span className="value" style={{ color: totalDiff > 0 ? "var(--watch)" : undefined }}>
+                {totalDiff}
+              </span>
+              <span className="sub">app vs BC bank ledger after the last statement</span>
+            </div>
+            <div className="card stat">
+              <span className="label">Loans matched this period</span>
+              <span className="value">
+                {q.data.loans.filter((l) => l.matchedEntryNo).length} / {q.data.loans.length}
+              </span>
+              <span className="sub">BC-native recurring entries (R7)</span>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-head">
+              <h2>Bank cards</h2>
+              <span className="hint">Cards, Venmo and CareCredit are bank account cards in BC; loans are G/L liabilities below</span>
+            </div>
+            <div className="table-wrap" style={{ maxHeight: "none" }}>
+              <table className="data" data-testid="recon-table">
+                <thead>
+                  <tr>
+                    <th>Bank card</th>
+                    <th>G/L</th>
+                    <th>Feed</th>
+                    <th className="num">Open</th>
+                    <th className="num">Reconciled</th>
+                    <th className="num">Open sum</th>
+                    <th>Last statement</th>
+                    <th>Reconciled through</th>
+                    <th>Differences</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {q.data.bankCards.map((c) => {
+                    const fs = feedStatusView(c.feedStatus);
+                    return (
+                      <tr key={c.code}>
+                        <td>
+                          <strong>{c.code}</strong>
+                          <span className="sub">
+                            {c.name}
+                            {c.mask ? ` · x${c.mask}` : ""} · {c.institution}
+                          </span>
+                        </td>
+                        <td className="mono">
+                          {c.glAccount}
+                          {bcLinksConfigured() ? (
+                            <span className="sub">
+                              <a href={bcBankLedgerUrl(c.code)} target="_blank" rel="noreferrer">
+                                ledger in BC
+                              </a>
+                            </span>
+                          ) : null}
+                        </td>
+                        <td>
+                          <Tag tone={fs.tone}>{fs.label}</Tag>
+                        </td>
+                        <td className="num">{c.openCount}</td>
+                        <td className="num">{c.reconciledCount}</td>
+                        <td className="num">{money(c.openSumCents)}</td>
+                        <td>
+                          {c.lastStatementNo ?? "—"}
+                          <span className="sub">{c.lastStatementDate ? date(c.lastStatementDate) : ""}</span>
+                        </td>
+                        <td>{c.reconciledThrough ? date(c.reconciledThrough) : <span className="sub">never</span>}</td>
+                        <td>
+                          {c.differences.length === 0 ? (
+                            <Tag tone="good">none</Tag>
+                          ) : (
+                            <ul style={{ margin: 0, paddingLeft: 16 }}>
+                              {c.differences.map((d, i) => (
+                                <li key={i}>
+                                  {date(d.postedDate)} · {money(d.amountCents)} · {d.note}
+                                  {d.transactionId ? (
+                                    <>
+                                      {" "}
+                                      <a href={`/queues?tab=exceptions`}>{d.transactionId}</a>
+                                    </>
+                                  ) : null}
+                                  {d.bankLedgerEntryNo ? <span className="sub">BC bank ledger entry {d.bankLedgerEntryNo}</span> : null}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-head">
+              <h2>Loan rollforwards</h2>
+              <span className="hint">Posted by BC's recurring journals; the app matches the bank line to BC's entry and never creates lines for them</span>
+            </div>
+            <div className="grid cols-3">
+              {q.data.loans.map((l) => (
+                <div key={l.id} className="card" data-testid={`loan-${l.id}`}>
+                  <div className="card-head">
+                    <h3>{l.name}</h3>
+                    {l.matchedEntryNo ? <Tag tone="good">matched · entry {l.matchedEntryNo}</Tag> : <Tag tone="watch">not matched</Tag>}
+                  </div>
+                  <dl className="kv">
+                    <dt>Lender</dt>
+                    <dd>
+                      {l.lender} · x{l.mask} · G/L {l.glAccount}
+                    </dd>
+                    <dt>Period</dt>
+                    <dd>{l.period}</dd>
+                    <dt>Opening</dt>
+                    <dd>{money(l.openingCents)}</dd>
+                    <dt>Principal</dt>
+                    <dd>−{money(l.principalCents)}</dd>
+                    <dt>Interest</dt>
+                    <dd>{money(l.interestCents)} (expense)</dd>
+                    {l.escrowCents !== undefined ? (
+                      <>
+                        <dt>Escrow</dt>
+                        <dd>{money(l.escrowCents)} (prepaid)</dd>
+                      </>
+                    ) : null}
+                    {l.feesCents ? (
+                      <>
+                        <dt>Fees</dt>
+                        <dd>{money(l.feesCents)}</dd>
+                      </>
+                    ) : null}
+                    <dt>Closing</dt>
+                    <dd>
+                      <strong>{money(l.closingCents)}</strong>
+                    </dd>
+                    <dt>Next due</dt>
+                    <dd>{date(l.nextDueDate)}</dd>
+                    <dt>Matched</dt>
+                    <dd>{l.matchedAt ? dateTime(l.matchedAt) : "—"}</dd>
+                  </dl>
+                  {l.openingCents - l.principalCents !== l.closingCents ? <div className="notice action" style={{ marginTop: 8 }}>Rollforward does not tie: opening − principal ≠ closing.</div> : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      ) : null}
+    </>
+  );
+}

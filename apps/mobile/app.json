@@ -1,0 +1,64 @@
+{
+  "expo": {
+    "name": "Homestead",
+    "slug": "homestead",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "homestead",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "bundleIdentifier": "com.cadejonescpa.homestead",
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.cadejonescpa.homestead",
+      "adaptiveIcon": {
+        "backgroundColor": "#2E6B4E",
+        "foregroundImage": "./assets/adaptive-icon.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#F1F3EC",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 96,
+          "dark": { "backgroundColor": "#121815" }
+        }
+      ],
+      [
+        "expo-camera",
+        { "cameraPermission": "Homestead uses the camera to snap receipts." }
+      ],
+      [
+        "expo-local-authentication",
+        { "faceIDPermission": "Homestead uses Face ID to open the app and to say yes to a budget change." }
+      ],
+      [
+        "expo-secure-store",
+        { "faceIDPermission": "Homestead uses Face ID to protect your sign-in." }
+      ],
+      [
+        "expo-notifications",
+        { "icon": "./assets/notification-icon.png", "color": "#2E6B4E", "defaultChannel": "homestead" }
+      ],
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": false
+    },
+    "extra": {
+      "eas": {
+        "projectId": ""
+      }
+    }
+  }
+}

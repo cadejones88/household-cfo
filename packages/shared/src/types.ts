@@ -152,6 +152,9 @@ export interface BudgetLine {
   leftCents: Cents;
   pace: "on_track" | "watch" | "over";
   forecastCents: Cents;
+  /** Added for E6: allowances never alert (I-10) and committed lines read "fixed". Optional; absent means neither. */
+  isAllowance?: boolean;
+  isCommitted?: boolean;
 }
 
 export interface BudgetStatus {
@@ -214,4 +217,400 @@ export interface AskAnswer {
   used: readonly { fn: string; rows: unknown }[];
   /** A drafted budget move or other action that opens the normal approval screen. Never executed by Ask. */
   draftAction?: { kind: "budget_move"; fromCategoryId: string; toCategoryId: string; amountCents: Cents };
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Console DTOs (E7). Added by the Console build; the API's /v1/console routes return these shapes.
+// Add fields, never change existing ones.
+// ---------------------------------------------------------------------------------------------------
+
+/** A page of anything the Console lists. Every list carries its data-through line. */
+export interface ConsolePage<T> {
+  items: readonly T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  dataThrough: DataThrough;
+}
+
+/** The household the signed-in member belongs to, as the Console header shows it. */
+export interface ConsoleMe {
+  member: MemberSummary;
+  household: { id: Id; name: string; timezone: string; settingsVersion: number };
+  /** The BC connection, without any credential: used for deep links into BC. */
+  ledger: { tenantId: string; environment: string; companyId: string; journalTemplate: string; autoPostEnabled: boolean };
+}
+
+/** Queue filter for Console function 1. */
+export type ConsoleTransactionQueue = "possible_duplicate" | "needs_receipt" | "needs_classification" | "ready_for_review" | "exception";
+
+/** A transaction in the Console queue, with the account's display name and the household category name. */
+export interface ConsoleTransactionRow extends Transaction {
+  accountName: string;
+  accountMask: string;
+  categoryName?: string;
+  /** For exceptions: why, and the keys on both sides. */
+  exception?: ExceptionDetail;
+  /** For possible duplicates: the transaction it may repeat. */
+  duplicateOfId?: Id;
+}
+
+export interface ExceptionDetail {
+  reason: string;
+  /** What the app holds: idempotency key, External Document No., line IDs if any. */
+  appSide: { idempotencyKey: string; externalDocumentNo?: string; lineIds?: readonly string[]; state: TransactionState; amountCents: Cents };
+  /** What BC reported, if anything: document, entry numbers, posting date, count and sum on BC's side. */
+  bcSide?: { documentNo?: string; entryNos?: readonly number[]; postingDate?: string; lineCount?: number; sumCents?: Cents; note?: string };
+  raisedAt: string;
+  raisedBy: string;
+}
+
+export type ExceptionResolution =
+  | { to: "ready_for_review"; note: string }
+  | { to: "posted"; note: string; bcEntryNos: readonly number[]; bcDocumentNo?: string; bcPostingDate?: string };
+
+export interface ConsoleReceiptRow extends ReceiptSummary {
+  memberName: string;
+  /** Candidate bank lines the matcher found but could not decide between. */
+  candidates?: readonly { transactionId: Id; postedDate: string; amountCents: Cents; merchant: string; confidence: number }[];
+}
+
+export interface RuleSummary {
+  id: Id;
+  ruleNo?: string;
+  kind: "merchant" | "transfer" | "card_payment" | "recurring_bill" | "paycheck" | "loan_payment" | "bc_native" | "small_merchant";
+  name: string;
+  match: Record<string, unknown>;
+  action: Record<string, unknown>;
+  mayAutoPost: boolean;
+  state: "proposed" | "approved" | "retired";
+  proposedBy: string;
+  proposedByName?: string;
+  approvedBy?: Id;
+  approvedAt?: string;
+  effectiveFrom?: string;
+  version: number;
+  testPassedAt?: string;
+  /** Approved classifications this rule has explained, and how many were later corrected. */
+  stats?: { fired: number; corrected: number };
+}
+
+export type BcBatch = "FEEDS" | "RECEIPTS" | "AUTOPOST";
+
+export interface BatchStatus {
+  batch: BcBatch;
+  journalId?: string;
+  /** Lines the app believes are drafts in this batch (state bc_draft_created). */
+  appDraftCount: number;
+  appDraftSumCents: Cents;
+  /** Lines BC reported in the batch at the last poll. */
+  bcDraftCount?: number;
+  bcDraftSumCents?: Cents;
+  /** Approved but not yet written (sent_to_bc) and waiting in the outbox. */
+  inFlightCount: number;
+  /** Transactions whose draft was found changed or missing in BC. */
+  differenceCount: number;
+  lastPostRequestedAt?: string;
+  lastPostedAt?: string;
+}
+
+export interface SyncStatus {
+  batches: readonly BatchStatus[];
+  lastWebhookAt?: string;
+  lastPollAt?: string;
+  lastPollStatus?: "ok" | "failed" | "running";
+  outbox: { depth: number; deadLetters: number; oldestPendingAt?: string };
+  subscriptions: readonly BcSubscriptionSummary[];
+  autoPostEnabled: boolean;
+  dataThrough: DataThrough;
+}
+
+export interface PostBatchResult {
+  batch: BcBatch;
+  /** The outbox row created. The API only enqueues: posting runs with Cade's BC sign-in or the AUTOPOST job. */
+  outboxId: Id;
+  queuedAt: string;
+  lineCount: number;
+}
+
+export interface BankCardReconStatus {
+  code: string;
+  name: string;
+  glAccount: string;
+  institution: string;
+  mask: string;
+  openCount: number;
+  reconciledCount: number;
+  openSumCents: Cents;
+  lastStatementNo?: string;
+  lastStatementDate?: string;
+  reconciledThrough?: string;
+  /** Lines the app shows as posted that BC's bank ledger says are still open after the statement date, or vice versa. */
+  differences: readonly { transactionId?: Id; bankLedgerEntryNo?: number; postedDate: string; amountCents: Cents; note: string }[];
+  feedStatus: AccountSummary["feedStatus"];
+}
+
+export interface LoanRollforward {
+  id: string;
+  name: string;
+  lender: string;
+  mask: string;
+  glAccount: string;
+  openingCents: Cents;
+  principalCents: Cents;
+  interestCents: Cents;
+  feesCents: Cents;
+  escrowCents?: Cents;
+  closingCents: Cents;
+  /** The BC-native recurring-journal entry matched this month, if any. */
+  matchedEntryNo?: number;
+  matchedAt?: string;
+  period: string; // YYYY-MM
+  nextDueDate?: string;
+}
+
+export interface ReconciliationStatus {
+  bankCards: readonly BankCardReconStatus[];
+  loans: readonly LoanRollforward[];
+  dataThrough: DataThrough;
+}
+
+export interface CategoryMapping {
+  id: string;
+  name: string;
+  group: string;
+  glAccount: string;
+  glAccountName?: string;
+  dims: DimensionSet;
+  spendClass?: string;
+  isAllowance: boolean;
+  isTransfer: boolean;
+  householdVisible: boolean;
+  version: number;
+  retiredAt?: string;
+}
+
+export interface DimensionDictionaryEntry {
+  code: string;
+  name: string;
+  slot: "global1" | "global2" | "shortcut3" | "shortcut4" | "shortcut5";
+  values: readonly { code: string; name: string; blocked?: boolean }[];
+}
+
+export interface BankCardMapping {
+  code: string;
+  glAccount: string;
+  name: string;
+  kind: string;
+  institution: string;
+  mask: string;
+  accountId?: Id;
+  feedProvider?: "plaid" | "file" | "simplefin";
+}
+
+export interface EmployerMapping {
+  id: Id;
+  code: "HFH" | "CTJ";
+  name: string;
+  memberName: string;
+  descriptorPattern: string;
+  grossAccount: string;
+  bonusAccount: string;
+  /** Component kind → G/L account from the employer template. */
+  components: readonly { kind: PaycheckComponentKind; label: string; glAccount: string; dims: DimensionSet }[];
+  lastStubAt?: string;
+}
+
+export interface MappingSet {
+  catalogVersion: number;
+  categories: readonly CategoryMapping[];
+  dimensions: readonly DimensionDictionaryEntry[];
+  bankCards: readonly BankCardMapping[];
+  employers: readonly EmployerMapping[];
+  /** Mapping proposals waiting for the other spouse. */
+  pendingProposals: readonly { approvalId: Id; categoryId: string; requestedBy: string; requestedAt: string }[];
+  dataThrough: DataThrough;
+}
+
+export interface MappingProposal {
+  categoryId: string;
+  glAccount: string;
+  dims: DimensionSet;
+  reason: string;
+}
+
+export interface AuthorityRow {
+  action: string;
+  who: string;
+  stepUp: string;
+  notes: string;
+  /** Settings keys this row reads from (for example I-09). */
+  settingKeys?: readonly string[];
+  /** True while a threshold in this row is still TBD. */
+  tbd?: boolean;
+}
+
+export interface AuthorityMatrix {
+  version: number;
+  approvedAt?: string;
+  approvedBy?: readonly string[];
+  rows: readonly AuthorityRow[];
+  settings: {
+    version: number;
+    effectiveFrom: string;
+    values: Record<string, unknown>;
+    history: readonly { version: number; effectiveFrom: string; approvedBy: readonly string[] }[];
+  };
+  autoPostRules: readonly { ruleNo: string; name: string; state: RuleSummary["state"]; mayAutoPost: boolean; testPassedAt?: string }[];
+}
+
+export interface FeedConnectionSummary {
+  id: Id;
+  provider: "plaid" | "file" | "simplefin";
+  institutionName: string;
+  ownerName: string;
+  status: "ok" | "stale" | "needs_relink" | "disabled";
+  needsRelink: boolean;
+  lastSyncedAt?: string;
+  accountCount: number;
+  cursorPresent: boolean;
+}
+
+export interface BcSubscriptionSummary {
+  resource: string;
+  subscriptionId: string;
+  expiresAt: string;
+  lastRenewedAt?: string;
+  /** Expires inside 24 hours or already expired. */
+  needsRenewal: boolean;
+}
+
+export interface SyncRunSummary {
+  id: Id;
+  kind: "plaid" | "bc_poll" | "bc_webhook" | "webhook_renewal" | "autopost" | "ocr" | "file_import" | "alerts";
+  startedAt: string;
+  finishedAt?: string;
+  status: "running" | "ok" | "failed";
+  counts: Record<string, number>;
+  /** Scrubbed already: no amounts, masks, merchants, tokens. */
+  error?: string;
+}
+
+export interface OutboxItem {
+  id: Id;
+  aggregate: "transaction" | "budget_revision" | "receipt" | "paycheck";
+  aggregateId: Id;
+  operation: string;
+  attempts: number;
+  nextAttemptAt: string;
+  lastError?: string;
+  deadLettered: boolean;
+  publishedAt?: string;
+  completedAt?: string;
+  createdAt: string;
+}
+
+export interface ConnectionHealth {
+  feeds: readonly FeedConnectionSummary[];
+  subscriptions: readonly BcSubscriptionSummary[];
+  ledger: { lastPollAt?: string; lastWebhookAt?: string; apiReachable?: boolean; checkedAt?: string };
+  dataThrough: DataThrough;
+}
+
+/** What the nightly acceptance job writes to the Console's health page (a static JSON file for now). */
+export interface HealthReport {
+  generatedAt: string;
+  commit?: string;
+  environment: string;
+  acceptance: readonly { id: string; name: string; status: "pass" | "fail" | "skipped"; durationMs?: number; note?: string }[];
+  resilience?: readonly { id: string; name: string; status: "pass" | "fail" | "skipped"; note?: string }[];
+  nightlyPoll?: { ranAt: string; differences: number };
+}
+
+/* ---- Added for E6 (phone app). Add-only: the API owns these shapes once services/api/openapi.yaml exists. ---- */
+
+export interface HouseholdSummary {
+  id: Id;
+  name: string;
+  timezone: string;
+  /** Quiet hours in local 24h "HH:MM"; default 21:00–07:00 Mountain. */
+  quietHours: { start: string; end: string };
+  /** The next Henry's Fork payday, when the obligation calendar knows it. */
+  nextPaydayIso?: string;
+}
+
+/** GET /v1/me: who is signed in, who the other spouse is, and the household. */
+export interface MeResponse {
+  member: MemberSummary;
+  household: HouseholdSummary;
+  members: readonly MemberSummary[];
+}
+
+export type ApprovalKind = "budget_move" | "correction" | "rule" | "business_flag" | "auto_post_rule";
+export type ApprovalDecision = "approved" | "declined" | "later";
+
+/** One request that the other spouse decides (approvals table). */
+export interface Approval {
+  id: Id;
+  kind: ApprovalKind;
+  payload: {
+    fromCategoryId?: string;
+    toCategoryId?: string;
+    amountCents?: Cents;
+    note?: string;
+    transactionId?: Id;
+    categoryId?: string;
+    merchant?: string;
+  };
+  requestedBy: MemberSummary;
+  decidedBy?: MemberSummary;
+  decision?: ApprovalDecision;
+  stepUpVerified?: boolean;
+  requestedAt: string;
+  decidedAt?: string;
+  /** Budget revision number written to BC on approval, when applicable. */
+  revisionNo?: number;
+}
+
+/** Safe to spend as the app shows it: the shared calculation plus its data-through stamp. */
+export interface SafeToSpendView {
+  safeCents: Cents;
+  cashCents: Cents;
+  setAsideCents: Cents;
+  billsBeforePaydayCents: Cents;
+  billsBeforePayday: readonly { name?: string; dueDateIso: string; amountCents: Cents }[];
+  givingDueCents: Cents;
+  liquidityFloorCents: Cents;
+  nextPaydayIso: string;
+  daysUntilPayday: number;
+  perDayCents: Cents;
+  balanceAsOf: string;
+  status: "on_track" | "watch" | "short";
+  /** One plain sentence about the month, rendered from the forecast rows. */
+  forecast?: string;
+  /** When the result is short: the one small move that fixes it, phrased for a person. */
+  suggestion?: string;
+  dataThrough: DataThrough;
+}
+
+export interface BillsView {
+  bills: readonly Bill[];
+  nextPaydayIso: string;
+  /** The paycheck expected on the next payday, when known (last HFH net). */
+  nextPaycheckNetCents?: Cents;
+  dataThrough: DataThrough;
+}
+
+export interface CorrectionResult {
+  /** "fixed" before posting; "fix_pending" after posting (a correction request to the CFO queue). */
+  outcome: "fixed" | "fix_pending";
+  approvalId?: Id;
+  /** When "Do this every time" was asked: the proposed rule's id (a proposal, never a rule). */
+  ruleProposalId?: Id;
+}
+
+export interface PushTokenRegistration {
+  token: string;
+  platform: "ios" | "android";
+  deviceName?: string;
 }

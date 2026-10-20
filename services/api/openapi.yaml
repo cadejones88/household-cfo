@@ -1,0 +1,1375 @@
+openapi: 3.1.0
+info:
+  title: Homestead API
+  version: 0.1.0
+  summary: The household finance API behind the Homestead phone app and the Homestead Console.
+  description: |
+    Every route except `/health` and `/v1/webhooks/*` needs a signed-in member (Entra External ID bearer token, or
+    `x-dev-member: <member id>` when `AUTH_MODE=dev`). Every response is scoped to the signed-in member's household by
+    row-level security. Money is integer cents. Dates are `YYYY-MM-DD` in America/Boise. Timestamps are ISO 8601.
+    Every number a person sees carries a `dataThrough`.
+
+    Step-up (approvals, rule approvals, settings): the token must attest a fresh local authentication inside the last
+    two minutes (`amr` mfa/fido/ngcmfa); in dev, the header `x-step-up: true`.
+
+    Plain status words (`status` on a transaction): `needs_answer` "Needs a quick answer", `recorded` "Recorded",
+    `in_books` "In the books", `matched` "Matched to the bank", `being_checked` "Being checked", `dropped` "Removed as a repeat".
+
+    The app never moves money. Nothing here writes to a bank. Posting approved drafts in Business Central is Cade's
+    BC sign-in; the Console's "post batch" only enqueues the request for the AUTOPOST job when the batch is AUTOPOST,
+    and records the intent for FEEDS/RECEIPTS.
+servers:
+  - url: https://homestead-dev-api.example.invalid
+    description: dev (Azure Container Apps); the real host is set per environment
+  - url: http://localhost:8080
+    description: local
+tags:
+  - name: accounts
+  - name: transactions
+  - name: questions
+  - name: receipts
+  - name: paychecks
+  - name: budget
+  - name: goals
+  - name: bills
+  - name: ask
+  - name: approvals
+  - name: rules
+  - name: console
+  - name: webhooks
+security:
+  - bearer: []
+  - devMember: []
+
+paths:
+  /health:
+    get:
+      security: []
+      summary: Liveness
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { ok: { type: boolean }, service: { type: string }, at: { type: string, format: date-time } }
+
+  /v1/accounts:
+    get:
+      tags: [accounts]
+      summary: The household's accounts with their last known balance
+      responses:
+        "200":
+          description: Accounts
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accounts, dataThrough]
+                properties:
+                  accounts: { type: array, items: { $ref: "#/components/schemas/AccountSummary" } }
+                  dataThrough: { $ref: "#/components/schemas/DataThrough" }
+
+  /v1/transactions:
+    get:
+      tags: [transactions]
+      summary: Recent activity, searchable
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: q, in: query, schema: { type: string }, description: Merchant text, matched against the normalized merchant }
+        - { name: categoryId, in: query, schema: { type: string } }
+        - { name: accountId, in: query, schema: { type: string, format: uuid } }
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/PlainStatus" }, description: One of the plain status words }
+        - { name: kind, in: query, schema: { $ref: "#/components/schemas/TransactionKind" } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: cursor, in: query, schema: { type: string }, description: Opaque cursor from `next` }
+      responses:
+        "200":
+          description: Transactions, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [transactions, dataThrough]
+                properties:
+                  transactions: { type: array, items: { $ref: "#/components/schemas/Transaction" } }
+                  next: { type: string }
+                  dataThrough: { $ref: "#/components/schemas/DataThrough" }
+    post:
+      tags: [transactions]
+      summary: Add a manual transaction (cash spending, a check). Idempotent by clientId.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [clientId, accountId, postedDate, amountCents, merchant]
+              properties:
+                clientId: { type: string, format: uuid, description: Minted once on the device; a resend carries the same uuid }
+                accountId: { type: string, format: uuid }
+                postedDate: { type: string, format: date }
+                amountCents: { type: integer, description: Bank sign. Negative is money out. }
+                merchant: { type: string, maxLength: 200 }
+                categoryId: { type: string }
+                note: { type: string, maxLength: 500 }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Transaction" } } } }
+        "200": { description: Already existed (same clientId), content: { application/json: { schema: { $ref: "#/components/schemas/Transaction" } } } }
+
+  /v1/transactions/{id}:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    get:
+      tags: [transactions]
+      summary: One transaction with its splits, receipt and BC references
+      responses:
+        "200": { description: Transaction, content: { application/json: { schema: { $ref: "#/components/schemas/Transaction" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/transactions/{id}/correct:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    post:
+      tags: [transactions]
+      summary: '"This is wrong": re-classify before it reaches BC, or request a correction after posting'
+      description: |
+        Before the item is sent to BC (states needs_classification, ready_for_review, approved) the category or
+        splits change in place and the item is approved with the new values. After posting, a correction request
+        (approval kind `correction`) is opened for Cade, who reverses and reposts in BC.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                categoryId: { type: string }
+                splits: { type: array, items: { $ref: "#/components/schemas/SplitInput" } }
+                reason: { type: string, maxLength: 500 }
+      responses:
+        "200":
+          description: Corrected in place, or a correction request was opened
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transaction: { $ref: "#/components/schemas/Transaction" }
+                  correctionRequestId: { type: string, format: uuid, description: Present when the item was already posted }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/transactions/{id}/business:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    post:
+      tags: [transactions]
+      summary: Mark an item as business (CTJ or lash) or back to personal
+      description: |
+        `ctj` on money out of a household account or card posts Dr 112101 (CTJ owes us); `ctj` on money in (CTJ paid
+        a personal bill) posts Cr 404102 with the natural debit. `lash` keeps the line in Vanessa's Schedule C accounts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [flag]
+              properties:
+                flag: { $ref: "#/components/schemas/BusinessFlag" }
+      responses:
+        "200": { description: Updated, content: { application/json: { schema: { $ref: "#/components/schemas/Transaction" } } } }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/transactions/{id}/splits:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    put:
+      tags: [transactions]
+      summary: Replace the splits of a transaction (must sum to the amount)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [splits]
+              properties:
+                splits: { type: array, minItems: 1, items: { $ref: "#/components/schemas/SplitInput" } }
+      responses:
+        "200": { description: Updated, content: { application/json: { schema: { $ref: "#/components/schemas/Transaction" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/questions:
+    get:
+      tags: [questions]
+      summary: '"Needs your answer" for the signed-in member'
+      responses:
+        "200":
+          description: Questions, oldest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [questions, dataThrough]
+                properties:
+                  questions: { type: array, items: { $ref: "#/components/schemas/Question" } }
+                  dataThrough: { $ref: "#/components/schemas/DataThrough" }
+
+  /v1/questions/{id}/answer:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    post:
+      tags: [questions]
+      summary: Answer a question
+      description: |
+        The option ids come from the question. `confirm_category`/`pick_category`: `confirm` or `category:<id>` (or
+        `categoryId`). `confirm_split`: `confirm` or `edit` with `splits`. `possible_duplicate`: `not_repeat` or
+        `same_thing`. `needs_receipt`: `no_receipt` (estimated split now) or `later`. `approve_budget_move`,
+        `approve_rule`: `approve` or `decline` (step-up). `paycheck_component`: `kind:<component kind>`.
+        Only approved answers are learned from.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [optionId]
+              properties:
+                optionId: { type: string }
+                categoryId: { type: string }
+                splits: { type: array, items: { $ref: "#/components/schemas/SplitInput" } }
+                note: { type: string, maxLength: 500 }
+      responses:
+        "200":
+          description: Applied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transaction: { $ref: "#/components/schemas/Transaction" }
+                  approval: { $ref: "#/components/schemas/Approval" }
+                  nextQuestion: { $ref: "#/components/schemas/Question" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/receipts:
+    get:
+      tags: [receipts]
+      summary: Receipts, newest first
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
+      responses:
+        "200":
+          description: Receipts
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [receipts]
+                properties:
+                  receipts: { type: array, items: { $ref: "#/components/schemas/ReceiptSummary" } }
+    post:
+      tags: [receipts]
+      summary: Upload a receipt image (or a pay stub PDF with kind=pay_stub)
+      description: |
+        Multipart. `sha256` is the hex digest the device computed; the API recomputes it and refuses a mismatch.
+        The same hash uploaded twice returns 200 with the existing receipt (offline queue replays are safe).
+        `offlineId` is the device queue id, echoed back so the queue entry can be cleared.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, sha256, capturedAt]
+              properties:
+                file: { type: string, format: binary }
+                sha256: { type: string, pattern: "^[0-9a-f]{64}$" }
+                capturedAt: { type: string, format: date-time }
+                offlineId: { type: string, maxLength: 100 }
+                kind: { type: string, enum: [receipt, pay_stub], default: receipt }
+                paycheckId: { type: string, format: uuid, description: For a pay stub, the paycheck it belongs to }
+      responses:
+        "201": { description: Stored and queued for reading, content: { application/json: { schema: { $ref: "#/components/schemas/ReceiptSummary" } } } }
+        "200": { description: Same photo already held, content: { application/json: { schema: { $ref: "#/components/schemas/ReceiptSummary" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /v1/receipts/{id}:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    get:
+      tags: [receipts]
+      summary: A receipt with its lines and the split it proposes
+      responses:
+        "200":
+          description: Receipt detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReceiptDetail" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/receipts/amazon-email:
+    post:
+      tags: [receipts]
+      summary: Intake of a forwarded Amazon order-confirmation email (plain text)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string, maxLength: 200000 }
+                receivedAt: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Parsed orders and what matched
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orders:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        orderId: { type: string }
+                        orderDate: { type: string, format: date }
+                        totalCents: { type: integer }
+                        items: { type: array, items: { type: object, properties: { description: { type: string }, amountCents: { type: integer }, qty: { type: number } } } }
+                        receiptId: { type: string, format: uuid }
+                        matchedTransactionId: { type: string, format: uuid }
+
+  /v1/paychecks:
+    get:
+      tags: [paychecks]
+      summary: Paychecks, newest first
+      responses:
+        "200":
+          description: Paychecks
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [paychecks]
+                properties:
+                  paychecks: { type: array, items: { $ref: "#/components/schemas/PaycheckSummary" } }
+
+  /v1/paychecks/{id}:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    get:
+      tags: [paychecks]
+      summary: One paycheck with its components
+      responses:
+        "200": { description: Paycheck, content: { application/json: { schema: { $ref: "#/components/schemas/PaycheckSummary" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/paychecks/{id}/stub:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    post:
+      tags: [paychecks]
+      summary: Upload the pay stub PDF (Paychex or Gusto) for a paycheck
+      description: Reads it with Document Intelligence `prebuilt-payStub.us`, maps components with the employer template, and ties to net. Unmapped lines come back as `paycheck_component` questions.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, sha256]
+              properties:
+                file: { type: string, format: binary }
+                sha256: { type: string, pattern: "^[0-9a-f]{64}$" }
+      responses:
+        "200":
+          description: Paycheck updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  paycheck: { $ref: "#/components/schemas/PaycheckSummary" }
+                  questions: { type: array, items: { $ref: "#/components/schemas/Question" } }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/budget:
+    get:
+      tags: [budget]
+      summary: Budget status for a month (sample until an approved budget is in BC)
+      parameters:
+        - { name: month, in: query, schema: { type: string, pattern: "^\\d{4}-\\d{2}$" }, description: Defaults to the current month }
+      responses:
+        "200": { description: Budget status, content: { application/json: { schema: { $ref: "#/components/schemas/BudgetStatus" } } } }
+
+  /v1/budget/moves:
+    post:
+      tags: [budget]
+      summary: Propose a budget move (the other spouse approves with step-up)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fromCategoryId, toCategoryId, amountCents]
+              properties:
+                fromCategoryId: { type: string }
+                toCategoryId: { type: string }
+                amountCents: { type: integer, minimum: 1 }
+                month: { type: string, pattern: "^\\d{4}-\\d{2}$" }
+                note: { type: string, maxLength: 500 }
+      responses:
+        "201": { description: Approval opened, content: { application/json: { schema: { $ref: "#/components/schemas/Approval" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /v1/goals:
+    get:
+      tags: [goals]
+      summary: Goals from BC FUND_GOAL balances
+      responses:
+        "200":
+          description: Goals
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [goals, dataThrough]
+                properties:
+                  goals: { type: array, items: { $ref: "#/components/schemas/Goal" } }
+                  dataThrough: { $ref: "#/components/schemas/DataThrough" }
+
+  /v1/bills:
+    get:
+      tags: [bills]
+      summary: Upcoming bills and minimums, with whether each falls before the next payday
+      parameters:
+        - { name: until, in: query, schema: { type: string, format: date }, description: Default 35 days out }
+      responses:
+        "200":
+          description: Bills
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [bills, nextPayday, dataThrough]
+                properties:
+                  bills: { type: array, items: { $ref: "#/components/schemas/Bill" } }
+                  nextPayday: { type: string, format: date }
+                  dataThrough: { $ref: "#/components/schemas/DataThrough" }
+
+  /v1/ask:
+    post:
+      tags: [ask]
+      summary: Ask Homestead a question (read-only; a "move money" request returns a drafted budget move)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question]
+              properties:
+                question: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "200": { description: Answer, content: { application/json: { schema: { $ref: "#/components/schemas/AskAnswer" } } } }
+  /v1/ask/history:
+    get:
+      tags: [ask]
+      summary: The member's questions from the last 90 days
+      responses:
+        "200":
+          description: History
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        question: { type: string }
+                        answer: { type: string }
+                        dataThrough: { type: string, format: date-time }
+                        createdAt: { type: string, format: date-time }
+
+  /v1/approvals:
+    get:
+      tags: [approvals]
+      summary: Approvals (open ones first)
+      parameters:
+        - { name: state, in: query, schema: { type: string, enum: [open, decided, all], default: open } }
+      responses:
+        "200":
+          description: Approvals
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [approvals]
+                properties:
+                  approvals: { type: array, items: { $ref: "#/components/schemas/Approval" } }
+    post:
+      tags: [approvals]
+      summary: Open an approval that is not a budget move (settings change, business flag review)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, payload]
+              properties:
+                kind: { type: string, enum: [settings, business_flag, correction] }
+                payload: { type: object, additionalProperties: true }
+      responses:
+        "201": { description: Opened, content: { application/json: { schema: { $ref: "#/components/schemas/Approval" } } } }
+
+  /v1/approvals/{id}/decide:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    post:
+      tags: [approvals]
+      summary: Decide an approval (the other spouse; step-up required for budget moves, rules and settings)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [approved, declined] }
+                note: { type: string, maxLength: 1000, description: For an auto-post rule, Cade's written approval }
+      responses:
+        "200": { description: Decided, content: { application/json: { schema: { $ref: "#/components/schemas/Approval" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/rules:
+    get:
+      tags: [rules]
+      summary: The rule register (current versions)
+      parameters:
+        - { name: state, in: query, schema: { type: string, enum: [proposed, approved, retired, all], default: all } }
+      responses:
+        "200":
+          description: Rules
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rules]
+                properties:
+                  rules: { type: array, items: { $ref: "#/components/schemas/Rule" } }
+    post:
+      tags: [rules]
+      summary: Propose a rule (or a new version of one)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, name, match, action]
+              properties:
+                kind: { $ref: "#/components/schemas/RuleKind" }
+                name: { type: string, maxLength: 120 }
+                match: { $ref: "#/components/schemas/RuleMatch" }
+                action: { $ref: "#/components/schemas/RuleAction" }
+                mayAutoPost: { type: boolean, default: false }
+                supersedesRuleId: { type: string, format: uuid }
+      responses:
+        "201": { description: Proposed, content: { application/json: { schema: { $ref: "#/components/schemas/Rule" } } } }
+
+  /v1/rules/{id}/approve:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    post:
+      tags: [rules]
+      summary: Approve a rule (the spouse who did not propose it; step-up). An auto-post flag needs Cade's written note.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                approvalNote: { type: string, maxLength: 2000 }
+      responses:
+        "200": { description: Approved, content: { application/json: { schema: { $ref: "#/components/schemas/Rule" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/rules/{id}/retire:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    post:
+      tags: [rules]
+      summary: Retire a rule (step-up)
+      responses:
+        "200": { description: Retired, content: { application/json: { schema: { $ref: "#/components/schemas/Rule" } } } }
+
+  /v1/console/queues:
+    get:
+      tags: [console]
+      summary: Work queues (transactions, receipts, rules, exceptions) with counts and items
+      responses:
+        "200":
+          description: Queues
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  counts: { type: object, additionalProperties: { type: integer } }
+                  transactions: { type: array, items: { $ref: "#/components/schemas/Transaction" } }
+                  receipts: { type: array, items: { $ref: "#/components/schemas/ReceiptSummary" } }
+                  rules: { type: array, items: { $ref: "#/components/schemas/Rule" } }
+                  exceptions: { type: array, items: { $ref: "#/components/schemas/Transaction" } }
+                  dataThrough: { $ref: "#/components/schemas/DataThrough" }
+
+  /v1/console/sync:
+    get:
+      tags: [console]
+      summary: Sync runs and feed status
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 500 } }
+      responses:
+        "200":
+          description: Sync status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runs: { type: array, items: { $ref: "#/components/schemas/SyncRun" } }
+                  feeds: { type: array, items: { $ref: "#/components/schemas/FeedConnection" } }
+
+  /v1/console/posting:
+    get:
+      tags: [console]
+      summary: Posting status per BC batch
+      responses:
+        "200":
+          description: Batches
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  batches:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        batch: { type: string, enum: [FEEDS, RECEIPTS, AUTOPOST] }
+                        approved: { type: integer, description: Waiting for the relay }
+                        sentToBc: { type: integer }
+                        draftCreated: { type: integer }
+                        posted: { type: integer }
+                        exceptions: { type: integer }
+                        deadLettered: { type: integer }
+                  autoPostEnabled: { type: boolean }
+                  outboxDue: { type: integer }
+
+  /v1/console/posting/post-batch:
+    post:
+      tags: [console]
+      summary: Request a batch post
+      description: |
+        For AUTOPOST, enqueues `post_batch` for the autopost job (which runs only when the household switch is on).
+        For FEEDS and RECEIPTS this records the request and returns the BC deep link; Cade's own BC sign-in posts the
+        batch, because the app credential has no posting right on those batches.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [batch]
+              properties:
+                batch: { type: string, enum: [FEEDS, RECEIPTS, AUTOPOST] }
+      responses:
+        "202":
+          description: Enqueued or recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  batch: { type: string }
+                  enqueued: { type: boolean }
+                  draftCount: { type: integer }
+                  message: { type: string }
+
+  /v1/console/reconciliation:
+    get:
+      tags: [console]
+      summary: Reconciliation status per account (posted vs matched to the bank, BC-native matches)
+      responses:
+        "200":
+          description: Reconciliation status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accounts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        accountId: { type: string, format: uuid }
+                        displayName: { type: string }
+                        bcBankAccountCode: { type: string }
+                        posted: { type: integer }
+                        reconciled: { type: integer }
+                        bcNative: { type: integer }
+                        differences: { type: integer }
+                        lastPollAt: { type: string, format: date-time }
+
+  /v1/console/mappings:
+    get:
+      tags: [console]
+      summary: Categories to BC accounts and dimensions; accounts to bank cards
+      responses:
+        "200":
+          description: Mappings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  categories: { type: array, items: { $ref: "#/components/schemas/Category" } }
+                  accounts: { type: array, items: { $ref: "#/components/schemas/AccountSummary" } }
+                  dimensions: { type: object, additionalProperties: { type: array, items: { type: string } } }
+
+  /v1/console/authority-matrix:
+    get:
+      tags: [console]
+      summary: The draft authority matrix (read-only, from household settings version 1)
+      responses:
+        "200":
+          description: Matrix
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version: { type: integer }
+                  rows:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        action: { type: string }
+                        who: { type: string }
+                        stepUp: { type: string }
+                        notes: { type: string }
+
+  /v1/console/connections:
+    get:
+      tags: [console]
+      summary: Connection health (feeds, ledger, webhooks, outbox)
+      responses:
+        "200":
+          description: Health
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  feeds: { type: array, items: { $ref: "#/components/schemas/FeedConnection" } }
+                  ledger:
+                    type: object
+                    properties:
+                      environment: { type: string }
+                      companyId: { type: string }
+                      autoPostEnabled: { type: boolean }
+                      lastPollAt: { type: string, format: date-time }
+                      lastWebhookAt: { type: string, format: date-time }
+                  webhooks: { type: array, items: { type: object, properties: { resource: { type: string }, expiresAt: { type: string, format: date-time }, lastRenewedAt: { type: string, format: date-time } } } }
+                  outbox: { type: object, properties: { due: { type: integer }, deadLettered: { type: integer } } }
+
+  /v1/console/audit:
+    get:
+      tags: [console]
+      summary: The audit log, paged, newest first
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 100, maximum: 500 } }
+        - { name: before, in: query, schema: { type: string, format: date-time } }
+        - { name: entity, in: query, schema: { type: string } }
+        - { name: entityId, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Audit entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries: { type: array, items: { $ref: "#/components/schemas/AuditEntry" } }
+                  next: { type: string, format: date-time }
+
+  /v1/console/exceptions/{id}/resolve:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    post:
+      tags: [console]
+      summary: Resolve an exception (Cade); the resolution records the keys on both sides
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to]
+              properties:
+                to: { type: string, enum: [ready_for_review, posted] }
+                entryNos: { type: array, items: { type: integer }, description: Required when resolving to posted }
+                postingDate: { type: string, format: date }
+                note: { type: string, maxLength: 1000 }
+      responses:
+        "200": { description: Resolved, content: { application/json: { schema: { $ref: "#/components/schemas/Transaction" } } } }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/console/imports:
+    post:
+      tags: [console]
+      summary: Import a CSV or OFX/QFX file (statement PDFs are accepted and parked until Document Intelligence runs)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, accountId, profileName]
+              properties:
+                file: { type: string, format: binary }
+                accountId: { type: string, format: uuid }
+                profileName: { type: string, description: An import profile name (see /console/imports/profiles) }
+      responses:
+        "200":
+          description: Import result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  imported: { type: integer }
+                  alreadyHeld: { type: integer }
+                  possibleDuplicates: { type: integer }
+                  skipped: { type: integer }
+                  syncRunId: { type: string, format: uuid }
+                  needs: { type: string, description: e.g. "document_intelligence" for a PDF }
+  /v1/console/imports/profiles:
+    get:
+      tags: [console]
+      summary: Import profiles (parser profiles per institution)
+      responses:
+        "200":
+          description: Profiles
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profiles: { type: array, items: { type: object, properties: { name: { type: string }, institution: { type: string }, format: { type: string } } } }
+
+  /v1/console/alerts:
+    get:
+      tags: [console]
+      summary: Open and recent alerts
+      responses:
+        "200":
+          description: Alerts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  alerts: { type: array, items: { $ref: "#/components/schemas/Alert" } }
+
+  /v1/console/settings:
+    get:
+      tags: [console]
+      summary: Household settings (current version)
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version: { type: integer }
+                  settings: { $ref: "#/components/schemas/HouseholdSettings" }
+
+  /v1/webhooks/plaid:
+    post:
+      security: []
+      tags: [webhooks]
+      summary: Plaid webhook receiver (verifies Plaid's JWT in `Plaid-Verification`)
+      description: |
+        Handles `TRANSACTIONS.SYNC_UPDATES_AVAILABLE` (enqueue a sync for the Item) and `ITEM.ERROR` with
+        `ITEM_LOGIN_REQUIRED` (mark the connection needs_relink and tell only its owner). Unknown webhooks are acknowledged.
+      parameters:
+        - { name: Plaid-Verification, in: header, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200": { description: Acknowledged }
+        "401": { description: Signature not verified }
+
+  /v1/webhooks/bc:
+    get:
+      security: []
+      tags: [webhooks]
+      summary: Business Central subscription handshake
+      parameters:
+        - { name: validationToken, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: The validationToken, as text/plain, content: { text/plain: { schema: { type: string } } } }
+    post:
+      security: []
+      tags: [webhooks]
+      summary: Business Central change notifications
+      description: |
+        Returns 200 with the token on a handshake (`validationToken` query), otherwise 202 at once; the clientState
+        of each notification is checked against the stored one and the read-back is enqueued. Never returns 4xx for
+        its own errors, because BC deletes the subscription on any reply other than 408, 429 or 5xx.
+      parameters:
+        - { name: validationToken, in: query, required: false, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                value:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      subscriptionId: { type: string }
+                      clientState: { type: string }
+                      lastModifiedDateTime: { type: string }
+                      changeType: { type: string }
+                      resource: { type: string }
+      responses:
+        "200": { description: Handshake echo }
+        "202": { description: Accepted }
+
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer, bearerFormat: JWT, description: Entra External ID access token }
+    devMember: { type: apiKey, in: header, name: x-dev-member, description: Dev only (AUTH_MODE=dev) }
+  parameters:
+    id: { name: id, in: path, required: true, schema: { type: string } }
+  responses:
+    NotFound: { description: Not found, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    BadRequest: { description: Validation failed, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    Forbidden: { description: Not allowed for this member or without step-up, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    Conflict: { description: The item is not in a state that allows this, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string, description: A stable code, e.g. not_found, illegal_transition, step_up_required, other_spouse_decides }
+        message: { type: string }
+        details: { type: object, additionalProperties: true }
+    DataThrough:
+      type: object
+      required: [at, quality, pendingCount]
+      properties:
+        at: { type: string, format: date-time }
+        quality: { type: string, enum: [posted_reconciled, posted_unreconciled, imported_pending, estimated, stale, missing] }
+        pendingCount: { type: integer }
+    PlainStatus: { type: string, enum: [needs_answer, recorded, in_books, matched, being_checked, dropped] }
+    TransactionState:
+      type: string
+      enum: [imported, possible_duplicate, needs_receipt, needs_classification, ready_for_review, approved, sent_to_bc, bc_draft_created, posted, reconciled, exception, reversed, dropped]
+    TransactionKind: { type: string, enum: [spend, income, transfer, loan_payment, paycheck, bc_native] }
+    BusinessFlag: { type: string, enum: [none, ctj, lash] }
+    DimensionSet:
+      type: object
+      properties:
+        SPEND_CLASS: { type: string }
+        FUND_GOAL: { type: string }
+        FAMILY_AREA: { type: string }
+        TAX_TREATMENT: { type: string }
+        PROJECT: { type: string }
+    AccountSummary:
+      type: object
+      required: [id, displayName, institution, kind, mask, feedStatus]
+      properties:
+        id: { type: string, format: uuid }
+        displayName: { type: string }
+        institution: { type: string }
+        kind: { type: string, enum: [checking, savings, card, loan, mortgage, wallet, cash, share, line] }
+        mask: { type: string, description: Last four only }
+        bcBankAccountCode: { type: string }
+        bcGlAccount: { type: string }
+        balanceCents: { type: integer }
+        balanceAsOf: { type: string, format: date-time }
+        feedStatus: { type: string, enum: [ok, stale, needs_relink, file_only, none] }
+        isRestricted: { type: boolean }
+    SplitInput:
+      type: object
+      required: [amountCents, categoryId]
+      properties:
+        amountCents: { type: integer, description: Bank sign, same as the transaction }
+        categoryId: { type: string }
+        description: { type: string, maxLength: 100 }
+    TransactionSplit:
+      type: object
+      required: [lineNo, amountCents, categoryId, glAccount, dims]
+      properties:
+        lineNo: { type: integer }
+        amountCents: { type: integer }
+        categoryId: { type: string }
+        glAccount: { type: string }
+        dims: { $ref: "#/components/schemas/DimensionSet" }
+        description: { type: string }
+        receiptLineId: { type: string, format: uuid }
+    Transaction:
+      type: object
+      required: [id, accountId, source, sourceRef, idempotencyKey, postedDate, amountCents, merchantRaw, merchantNorm, pending, state, status, kind, dims, businessFlag, splits, receiptStatus, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        accountId: { type: string, format: uuid }
+        source: { type: string, enum: [plaid, ofx, csv, pdf, receipt, paycheck, manual] }
+        sourceRef: { type: string }
+        idempotencyKey: { type: string }
+        postedDate: { type: string, format: date }
+        amountCents: { type: integer }
+        merchantRaw: { type: string }
+        merchantNorm: { type: string }
+        pending: { type: boolean }
+        state: { $ref: "#/components/schemas/TransactionState" }
+        status: { $ref: "#/components/schemas/PlainStatus" }
+        statusWord: { type: string, description: The plain words for `status` }
+        kind: { $ref: "#/components/schemas/TransactionKind" }
+        categoryId: { type: string }
+        dims: { $ref: "#/components/schemas/DimensionSet" }
+        businessFlag: { $ref: "#/components/schemas/BusinessFlag" }
+        confidence: { type: number }
+        tier: { type: string, enum: [high, medium, low] }
+        ruleId: { type: string, format: uuid }
+        pairId: { type: string, format: uuid, description: The other side of a transfer or card payment }
+        duplicateOfId: { type: string, format: uuid }
+        splits: { type: array, items: { $ref: "#/components/schemas/TransactionSplit" } }
+        receiptId: { type: string, format: uuid }
+        receiptStatus: { type: string, enum: [none, needed, matched, estimated] }
+        exceptionReason: { type: string }
+        bc:
+          type: object
+          properties:
+            externalDocumentNo: { type: string }
+            journalId: { type: string }
+            lineIds: { type: array, items: { type: string } }
+            documentNo: { type: string }
+            entryNos: { type: array, items: { type: integer } }
+            postingDate: { type: string, format: date }
+            batch: { type: string, enum: [FEEDS, RECEIPTS, AUTOPOST] }
+            lastSyncAt: { type: string, format: date-time }
+            syncStatus: { type: string, enum: [pending, in_sync, difference, error] }
+            difference: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    Question:
+      type: object
+      required: [id, kind, prompt, why, options, createdAt]
+      properties:
+        id: { type: string, description: "`tx:<transaction id>` or `apr:<approval id>` or `pay:<paycheck id>:<line>`" }
+        kind: { type: string, enum: [confirm_category, pick_category, confirm_split, possible_duplicate, needs_receipt, approve_budget_move, approve_rule, paycheck_component] }
+        transactionId: { type: string, format: uuid }
+        approvalId: { type: string, format: uuid }
+        prompt: { type: string }
+        why: { type: string }
+        options:
+          type: array
+          items:
+            type: object
+            required: [id, label]
+            properties: { id: { type: string }, label: { type: string }, categoryId: { type: string } }
+        defaultOptionId: { type: string }
+        amountCents: { type: integer }
+        merchant: { type: string }
+        date: { type: string, format: date }
+        splits: { type: array, items: { $ref: "#/components/schemas/TransactionSplit" } }
+        createdAt: { type: string, format: date-time }
+    ReceiptSummary:
+      type: object
+      required: [id, capturedAt, sha256, ocrStatus, syncState]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [receipt, pay_stub, statement] }
+        capturedAt: { type: string, format: date-time }
+        uploadedAt: { type: string, format: date-time }
+        sha256: { type: string }
+        offlineId: { type: string }
+        ocrStatus: { type: string, enum: [queued, read, failed, needs_review] }
+        merchant: { type: string }
+        totalCents: { type: integer }
+        taxCents: { type: integer }
+        receiptDate: { type: string, format: date }
+        matchedTransactionId: { type: string, format: uuid }
+        matchConfidence: { type: number }
+        syncState: { type: string, enum: [not_synced, uploading, synced] }
+    ReceiptDetail:
+      allOf:
+        - $ref: "#/components/schemas/ReceiptSummary"
+        - type: object
+          properties:
+            lines:
+              type: array
+              items:
+                type: object
+                properties:
+                  lineNo: { type: integer }
+                  description: { type: string }
+                  qty: { type: number }
+                  amountCents: { type: integer }
+                  suggestedCategoryId: { type: string }
+                  suggestedConfidence: { type: number }
+            split:
+              type: object
+              properties:
+                lines: { type: array, items: { $ref: "#/components/schemas/TransactionSplit" } }
+                needsConfirmation: { type: boolean }
+            transaction: { $ref: "#/components/schemas/Transaction" }
+    PaycheckSummary:
+      type: object
+      required: [id, employer, payDate, netCents, source, estimated, components]
+      properties:
+        id: { type: string, format: uuid }
+        employer: { type: string, enum: [HFH, CTJ] }
+        payDate: { type: string, format: date }
+        periodStart: { type: string, format: date }
+        periodEnd: { type: string, format: date }
+        netCents: { type: integer }
+        source: { type: string, enum: [stub_pdf, stub_image, template] }
+        estimated: { type: boolean }
+        needsStub: { type: boolean }
+        components:
+          type: array
+          items:
+            type: object
+            required: [kind, label, amountCents, glAccount]
+            properties:
+              kind: { type: string, enum: [regular, bonus, overtime, fit, state_tax, social_security, medicare, benefit, other_deduction] }
+              label: { type: string }
+              amountCents: { type: integer }
+              glAccount: { type: string }
+        transactionId: { type: string, format: uuid }
+        stubReceiptId: { type: string, format: uuid }
+    BudgetLine:
+      type: object
+      required: [categoryId, name, budgetCents, spentCents, leftCents, pace, forecastCents]
+      properties:
+        categoryId: { type: string }
+        name: { type: string }
+        group: { type: string }
+        budgetCents: { type: integer }
+        spentCents: { type: integer }
+        leftCents: { type: integer }
+        pace: { type: string, enum: [on_track, watch, over] }
+        forecastCents: { type: integer }
+        isAllowance: { type: boolean }
+    BudgetStatus:
+      type: object
+      required: [month, budgetName, isSample, lines, dataThrough]
+      properties:
+        month: { type: string }
+        budgetName: { type: string }
+        isSample: { type: boolean }
+        revisionNo: { type: integer }
+        lines: { type: array, items: { $ref: "#/components/schemas/BudgetLine" } }
+        totals: { type: object, properties: { budgetCents: { type: integer }, spentCents: { type: integer }, leftCents: { type: integer } } }
+        dataThrough: { $ref: "#/components/schemas/DataThrough" }
+    Goal:
+      type: object
+      required: [id, name, fundGoal, currentCents, targetCents, dataThrough]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        fundGoal: { type: string }
+        currentCents: { type: integer }
+        targetCents: { type: integer }
+        nextMilestone: { type: string }
+        isSample: { type: boolean }
+        dataThrough: { $ref: "#/components/schemas/DataThrough" }
+    Bill:
+      type: object
+      required: [id, name, dueDate, amountCents, isMinimum, beforePayday, paid]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        dueDate: { type: string, format: date }
+        amountCents: { type: integer }
+        accountId: { type: string, format: uuid }
+        categoryId: { type: string }
+        isMinimum: { type: boolean }
+        isBcNative: { type: boolean }
+        autopay: { type: boolean }
+        beforePayday: { type: boolean }
+        paid: { type: boolean }
+    AskAnswer:
+      type: object
+      required: [answer, dataThrough, used]
+      properties:
+        answer: { type: string }
+        dataThrough: { $ref: "#/components/schemas/DataThrough" }
+        used:
+          type: array
+          items:
+            type: object
+            required: [fn, rows]
+            properties:
+              fn: { type: string, enum: [get_safe_to_spend, get_budget_status, search_transactions, get_bills, get_goals, get_paycheck] }
+              rows: {}
+        draftAction:
+          type: object
+          properties:
+            kind: { type: string, enum: [budget_move] }
+            fromCategoryId: { type: string }
+            toCategoryId: { type: string }
+            amountCents: { type: integer }
+        conversationId: { type: string, format: uuid }
+    Approval:
+      type: object
+      required: [id, kind, payload, requestedBy, requestedAt, stepUpVerified]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [budget_move, correction, rule, business_flag, auto_post_rule, settings] }
+        payload: { type: object, additionalProperties: true }
+        requestedBy: { type: string, format: uuid }
+        requestedByName: { type: string }
+        decidedBy: { type: string, format: uuid }
+        decision: { type: string, enum: [approved, declined] }
+        stepUpVerified: { type: boolean }
+        requestedAt: { type: string, format: date-time }
+        decidedAt: { type: string, format: date-time }
+        effect: { type: string, description: Plain words for what approving does }
+    RuleKind: { type: string, enum: [merchant, transfer, card_payment, recurring_bill, paycheck, loan_payment, bc_native, small_merchant] }
+    RuleMatch:
+      type: object
+      description: Merchant pattern (regex source, case-insensitive), normalized merchant, account, amount band, cadence
+      properties:
+        merchantPattern: { type: string }
+        merchantNorm: { type: string }
+        accountId: { type: string, format: uuid }
+        bcBankAccountCode: { type: string }
+        band: { type: object, properties: { minCents: { type: integer }, maxCents: { type: integer } } }
+        cadence: { type: string, enum: [weekly, biweekly, monthly, annual, any] }
+        maxCents: { type: integer }
+        direction: { type: string, enum: [in, out, any] }
+        standingAmountCents: { type: integer }
+        billId: { type: string, format: uuid }
+        requires: { type: array, items: { type: string } }
+    RuleAction:
+      type: object
+      properties:
+        categoryId: { type: string }
+        kind: { $ref: "#/components/schemas/TransactionKind" }
+        dims: { $ref: "#/components/schemas/DimensionSet" }
+        businessFlag: { $ref: "#/components/schemas/BusinessFlag" }
+        confidence: { type: number }
+        splitTemplate: { type: array, items: { type: object, properties: { categoryId: { type: string }, fraction: { type: number } } } }
+    Rule:
+      type: object
+      required: [id, kind, name, match, action, mayAutoPost, state, proposedBy, version]
+      properties:
+        id: { type: string, format: uuid }
+        ruleNo: { type: string, description: R1..R7 for the auto-post candidates }
+        kind: { $ref: "#/components/schemas/RuleKind" }
+        name: { type: string }
+        match: { $ref: "#/components/schemas/RuleMatch" }
+        action: { $ref: "#/components/schemas/RuleAction" }
+        mayAutoPost: { type: boolean }
+        state: { type: string, enum: [proposed, approved, retired] }
+        proposedBy: { type: string }
+        approvedBy: { type: string, format: uuid }
+        approvedAt: { type: string, format: date-time }
+        approvalNote: { type: string }
+        effectiveFrom: { type: string, format: date }
+        version: { type: integer }
+        supersedesRuleId: { type: string, format: uuid }
+        testPassedAt: { type: string, format: date-time }
+        evidence: { type: object, properties: { approvedCount: { type: integer }, band: { type: object } } }
+    Category:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        group: { type: string }
+        glAccount: { type: string }
+        dims: { $ref: "#/components/schemas/DimensionSet" }
+        isAllowance: { type: boolean }
+        isTransfer: { type: boolean }
+        householdVisible: { type: boolean }
+    SyncRun:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        status: { type: string, enum: [running, ok, failed] }
+        counts: { type: object, additionalProperties: true }
+        error: { type: string }
+    FeedConnection:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        provider: { type: string, enum: [plaid, file, simplefin] }
+        institutionName: { type: string }
+        ownerMemberId: { type: string, format: uuid }
+        status: { type: string, enum: [ok, stale, needs_relink, disabled] }
+        needsRelink: { type: boolean }
+        lastSyncedAt: { type: string, format: date-time }
+        staleHours: { type: number }
+    Alert:
+      type: object
+      required: [id, kind, level, fingerprint, title, body, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string }
+        level: { type: string, enum: [action, watch, pulse] }
+        fingerprint: { type: string }
+        title: { type: string }
+        body: { type: string }
+        memberId: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        deliveredAt: { type: string, format: date-time }
+        snoozedUntil: { type: string, format: date-time }
+        resolvedAt: { type: string, format: date-time }
+    AuditEntry:
+      type: object
+      required: [id, actor, action, entity, entityId, at]
+      properties:
+        id: { type: string, format: uuid }
+        actor: { type: string }
+        action: { type: string }
+        entity: { type: string }
+        entityId: { type: string }
+        at: { type: string, format: date-time }
+        before: {}
+        after: {}
+    HouseholdSettings:
+      type: object
+      description: Versioned through approvals of kind `settings` (both spouses).
+      properties:
+        paydayAnchor: { type: string, format: date, description: Any known Henry's Fork payday; paydays are every 14 days from it }
+        liquidityFloorCents: { type: integer }
+        materialityCents: { type: integer }
+        quietHours: { type: object, properties: { start: { type: string, example: "21:00" }, end: { type: string, example: "07:00" } } }
+        criticalAlertKinds: { type: array, items: { type: string } }
+        budget: { type: object, properties: { approvedName: { type: string, nullable: true }, revisionName: { type: string }, sampleName: { type: string } } }
+        goals: { type: array, items: { type: object, properties: { id: { type: string }, name: { type: string }, fundGoal: { type: string }, targetCents: { type: integer }, nextMilestone: { type: string } } } }
+        merchantWatchList: { type: array, items: { type: string } }
+        givingRate: { type: number, description: Tithing on gross income received, 0.10 }
+        authorityMatrix: { type: array, items: { type: object } }
