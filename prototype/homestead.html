@@ -1,0 +1,581 @@
+<title>Homestead</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap" rel="stylesheet">
+<style>
+/* Layout: a single phone-width column (max 430px) centered on wide screens; one view at a time,
+   sticky header, fixed bottom tabs with a raised Snap button, bottom sheets for detail. */
+:root{
+  --bg:#F1F3EC; --surface:#FFFFFF; --surface-2:#E8ECE2; --line:#D7DDD0;
+  --ink:#1E2922; --muted:#5E6A62; --faint:#8B968E;
+  --accent:#2E6B4E; --accent-ink:#FFFFFF; --accent-soft:#DDEBE2;
+  --wheat:#B8812A; --wheat-soft:#F3E7D0;
+  --good:#2E6B4E; --good-soft:#DDEBE2; --watch:#A86A12; --watch-soft:#F6E9D2; --action:#A33B3B; --action-soft:#F3DCDC;
+  --shadow:0 10px 30px rgba(30,41,34,.12);
+  --display:"Fraunces",Georgia,"Times New Roman",serif;
+  --body:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --r:14px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#121815; --surface:#1B231E; --surface-2:#243029; --line:#33403A;
+  --ink:#ECEFE8; --muted:#A3AEA6; --faint:#76827A;
+  --accent:#73B892; --accent-ink:#0F1A14; --accent-soft:#1F3A2C;
+  --wheat:#D9A24C; --wheat-soft:#3A2E17;
+  --good:#73B892; --good-soft:#1F3A2C; --watch:#D9A24C; --watch-soft:#3A2E17; --action:#E07A7A; --action-soft:#3F2323;
+  --shadow:0 10px 30px rgba(0,0,0,.45); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#121815; --surface:#1B231E; --surface-2:#243029; --line:#33403A;
+  --ink:#ECEFE8; --muted:#A3AEA6; --faint:#76827A;
+  --accent:#73B892; --accent-ink:#0F1A14; --accent-soft:#1F3A2C;
+  --wheat:#D9A24C; --wheat-soft:#3A2E17;
+  --good:#73B892; --good-soft:#1F3A2C; --watch:#D9A24C; --watch-soft:#3A2E17; --action:#E07A7A; --action-soft:#3F2323;
+  --shadow:0 10px 30px rgba(0,0,0,.45); color-scheme:dark}
+
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 var(--body);-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+*{box-sizing:border-box}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--wheat);outline-offset:2px}
+input,select,textarea{font:inherit;color:inherit}
+h1,h2,h3{margin:0;text-wrap:balance}
+.num{font-variant-numeric:tabular-nums}
+
+#app{min-height:100%;max-width:430px;margin:0 auto;position:relative;background:var(--bg)}
+@media (min-width:700px){#app{border-left:1px solid var(--line);border-right:1px solid var(--line);min-height:100vh}}
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:10px 6px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;align-items:center;justify-content:space-between;gap:12px}
+.brand{font:600 22px/1 var(--display);letter-spacing:-.01em;display:flex;align-items:center;gap:8px}
+.brand .mark{width:22px;height:22px;border-radius:7px;background:var(--accent);display:inline-grid;place-items:center}
+.brand .mark svg{width:14px;height:14px}
+.avatar{width:36px;height:36px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-weight:600;font-size:14px}
+.syncbar{display:flex;align-items:center;gap:10px;margin:0 16px 8px;padding:10px 12px;border-radius:12px;background:var(--wheat-soft);color:var(--ink);font-size:14px}
+.syncbar.off{background:var(--surface-2)}
+.syncbar .dot{width:9px;height:9px;border-radius:50%;background:var(--wheat);flex:none}
+.syncbar.off .dot{background:var(--faint)}
+.syncbar.busy .dot{animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.3}}
+@media (prefers-reduced-motion:reduce){.syncbar.busy .dot{animation:none}}
+
+.view{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:4px calc(110px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:14px}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.h1{font:600 26px/1.15 var(--display);letter-spacing:-.01em}
+.h2{font:600 17px/1.3 var(--body)}
+.sub{color:var(--muted);font-size:14px}
+.card{background:var(--surface);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:10px}
+.card.hero{padding:18px 16px 16px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.row>*{min-width:0}
+.big{font:600 36px/1.05 var(--display);letter-spacing:-.02em}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:13px;font-weight:600;white-space:nowrap}
+.pill::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
+.pill.good{background:var(--good-soft);color:var(--good)}
+.pill.watch{background:var(--watch-soft);color:var(--watch)}
+.pill.action{background:var(--action-soft);color:var(--action)}
+.pill.neutral{background:var(--surface-2);color:var(--muted)}
+.btn{min-height:44px;padding:10px 16px;border-radius:12px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--surface-2);color:var(--ink)}
+.btn.primary{background:var(--accent);color:var(--accent-ink)}
+.btn.ghost{background:transparent;color:var(--accent)}
+.btn.block{width:100%}
+.btn.sm{min-height:40px;padding:8px 14px;font-size:15px}
+.btnrow{display:flex;gap:10px;flex-wrap:wrap}
+.btnrow .btn{flex:1}
+.list{display:flex;flex-direction:column;background:var(--surface);border-radius:var(--r);overflow:hidden}
+.item{display:flex;align-items:center;gap:12px;padding:12px 14px;min-height:60px;text-align:left;width:100%;border-top:1px solid var(--line)}
+.item:first-child{border-top:0}
+.item .ico{width:38px;height:38px;border-radius:11px;background:var(--surface-2);display:grid;place-items:center;flex:none;font-size:15px;font-weight:600;color:var(--muted)}
+.item .ico.in{background:var(--good-soft);color:var(--good)}
+.item .ico.q{background:var(--wheat-soft);color:var(--wheat)}
+.item .ico.rc{background:var(--accent-soft);color:var(--accent)}
+.item .main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.item .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .s{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .amt{font-weight:600;text-align:right;flex:none}
+.item .amt.in{color:var(--good)}
+.item .amt small{display:block;font-weight:500;font-size:12px;color:var(--muted)}
+.chev{color:var(--faint);flex:none}
+.ask{display:flex;align-items:center;gap:10px;background:var(--surface);border-radius:var(--r);padding:12px 14px;color:var(--muted);min-height:48px;width:100%;text-align:left}
+.ask .q{color:var(--ink)}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{min-height:40px;padding:8px 14px;border-radius:999px;background:var(--surface-2);font-weight:600;font-size:15px}
+.chip.on{background:var(--accent);color:var(--accent-ink)}
+.qcard{background:var(--surface);border-radius:var(--r);padding:14px 16px;display:flex;flex-direction:column;gap:10px;border-left:4px solid var(--wheat)}
+.qcard .why{font-size:13px;color:var(--muted)}
+.bar{height:10px;border-radius:999px;background:var(--surface-2);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:999px}
+.bar.wheat i{background:var(--wheat)}
+.bar.watch i{background:var(--watch)}
+.bar.action i{background:var(--action)}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid var(--line);font-size:15px}
+.kv:first-child{border-top:0}
+.kv b{font-weight:600;white-space:nowrap;flex:none}
+.note{font-size:13px;color:var(--muted)}
+.stamp{font-size:12px;color:var(--faint)}
+.banner{background:var(--wheat-soft);color:var(--ink);border-radius:12px;padding:10px 12px;font-size:14px}
+.search{display:flex;gap:10px}
+.search input{flex:1;min-width:0;min-height:44px;border-radius:12px;border:1px solid var(--line);background:var(--surface);padding:0 12px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label{font-size:13px;color:var(--muted);font-weight:600}
+.field input,.field select{min-height:46px;border-radius:12px;border:1px solid var(--line);background:var(--surface);padding:0 12px;width:100%}
+.amountfield{display:flex;align-items:center;gap:6px;font:600 34px/1 var(--display)}
+.amountfield input{font:inherit;width:100%;border:0;background:transparent;padding:0;min-width:0}
+.photo{width:100%;aspect-ratio:3/4;max-height:38vh;border-radius:12px;object-fit:cover;background:var(--surface-2)}
+.receiptart{width:100%;aspect-ratio:3/4;max-height:38vh;border-radius:12px;background:#F7F4EA;color:#333;padding:14px;font:12px/1.5 ui-monospace,Menlo,monospace;overflow:hidden;position:relative}
+.receiptart .l{display:flex;justify-content:space-between}
+.toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;font-size:14px;z-index:40;box-shadow:var(--shadow);max-width:calc(100% - 32px);text-align:center}
+
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px);padding-left:max(0px,env(safe-area-inset-left,0px));padding-right:max(0px,env(safe-area-inset-right,0px))}
+.tabs .inner{max-width:430px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr 1.2fr 1fr 1fr;align-items:end;height:64px}
+.tab{height:64px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;font-weight:600;color:var(--muted)}
+.tab.on{color:var(--accent)}
+.tab svg{width:22px;height:22px}
+.snap{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:64px;padding-bottom:6px;font-size:11px;font-weight:600;color:var(--accent);gap:4px}
+.snap .b{width:58px;height:58px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;box-shadow:var(--shadow);margin-top:-26px}
+.snap .b svg{width:26px;height:26px}
+
+.scrim{position:fixed;inset:0;background:rgba(10,16,12,.45);z-index:30;display:flex;align-items:flex-end;justify-content:center}
+.sheet{width:100%;max-width:430px;max-height:92%;overflow:auto;background:var(--bg);border-radius:20px 20px 0 0;padding:10px 16px calc(20px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:14px;animation:up .22s ease-out}
+@keyframes up{from{transform:translateY(24px);opacity:0}}
+@media (prefers-reduced-motion:reduce){.sheet{animation:none}}
+.grab{width:40px;height:5px;border-radius:999px;background:var(--line);margin:0 auto}
+.sheet .head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.close{min-width:44px;min-height:44px;display:grid;place-items:center;border-radius:12px;color:var(--muted)}
+.cam{position:fixed;inset:0;z-index:35;background:#0E130F;color:#fff;display:flex;flex-direction:column;max-width:430px;margin:0 auto}
+.cam .finder{flex:1;position:relative;display:grid;place-items:center;padding:24px}
+.cam .frame{position:absolute;inset:14% 10%;border:2px solid rgba(255,255,255,.7);border-radius:12px}
+.cam .paper{width:min(70%,260px);background:#F7F4EA;color:#333;border-radius:4px;padding:12px;font:11px/1.5 ui-monospace,Menlo,monospace;transform:rotate(-2deg);box-shadow:0 20px 40px rgba(0,0,0,.5)}
+.cam .ctl{padding:18px 16px calc(24px + env(safe-area-inset-bottom,0px));display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px}
+.cam .shutter{width:72px;height:72px;border-radius:50%;background:#fff;border:6px solid rgba(255,255,255,.4);box-shadow:0 0 0 2px #fff inset}
+.cam .hint{text-align:center;font-size:14px;color:#D7DDD0;padding:12px 16px 0}
+.cam .x,.cam .alt{color:#fff;font-weight:600;min-height:44px;font-size:15px}
+.faceid{position:fixed;inset:0;z-index:50;display:grid;place-items:center;background:rgba(10,16,12,.6)}
+.faceid .box{background:var(--surface);color:var(--ink);border-radius:20px;padding:24px 28px;display:flex;flex-direction:column;align-items:center;gap:10px;font-weight:600}
+.faceid svg{width:64px;height:64px;color:var(--accent)}
+.welcome{position:fixed;inset:0;z-index:45;background:var(--bg);display:flex;flex-direction:column;justify-content:center;gap:18px;padding:0 max(24px,env(safe-area-inset-left,0px)) 0 max(24px,env(safe-area-inset-right,0px));max-width:430px;margin:0 auto}
+.welcome .h1{font-size:34px}
+.hidden{display:none!important}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.calrow{display:grid;grid-template-columns:52px 1fr auto;gap:12px;align-items:center;padding:10px 14px;border-top:1px solid var(--line)}
+.calrow:first-child{border-top:0}
+.calrow .d{font-weight:600;font-size:13px;color:var(--muted);line-height:1.2}
+.calrow .d b{display:block;font-size:18px;color:var(--ink)}
+.payline{padding:8px 14px;background:var(--accent-soft);color:var(--accent);font-weight:600;font-size:13px;text-align:center}
+.split{display:flex;flex-direction:column}
+.split .kv{font-size:15px}
+.tag{display:inline-block;padding:2px 8px;border-radius:6px;background:var(--surface-2);font-size:12px;font-weight:600;color:var(--muted)}
+.answer{background:var(--surface);border-radius:var(--r);padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+.answer .me{align-self:flex-end;background:var(--accent-soft);color:var(--ink);padding:8px 12px;border-radius:14px 14px 4px 14px;max-width:85%}
+.answer .ai{background:var(--surface-2);padding:10px 12px;border-radius:14px 14px 14px 4px;max-width:92%}
+.seg{display:flex;background:var(--surface-2);border-radius:12px;padding:3px}
+.seg button{flex:1;min-height:40px;border-radius:10px;font-weight:600;font-size:14px;color:var(--muted)}
+.seg button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px;width:100%;text-align:left;padding:4px 0}
+.sw{width:50px;height:30px;border-radius:999px;background:var(--line);position:relative;flex:none;transition:background .15s}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:transform .15s;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+.sw.on{background:var(--accent)}
+.sw.on::after{transform:translateX(20px)}
+.dim{opacity:.55}
+</style>
+
+<div id="app">
+  <div id="welcome" class="welcome hidden"></div>
+  <div class="topbar">
+    <div class="brand"><span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M6 10v9h12v-9"/></svg></span>Homestead</div>
+    <button class="avatar" id="avatarBtn" aria-label="Settings">V</button>
+  </div>
+  <div id="syncbar" class="syncbar hidden" role="status"></div>
+  <main id="view" class="view" aria-live="polite"></main>
+  <nav class="tabs" aria-label="Main">
+    <div class="inner">
+      <button class="tab" data-tab="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M6 10v9h12v-9"/></svg>Home</button>
+      <button class="tab" data-tab="activity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h10M4 18h7"/></svg>Activity</button>
+      <button class="snap" id="snapBtn" aria-label="Snap a receipt"><span class="b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></span>Snap</button>
+      <button class="tab" data-tab="budget"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V9M12 20V4M19 20v-7"/></svg>Budget</button>
+      <button class="tab" data-tab="goals"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 20V9l6-5 6 5v11"/><path d="M10 20v-6h4v6"/></svg>Goals</button>
+    </div>
+  </nav>
+  <div id="layer"></div>
+  <input type="file" id="camInput" accept="image/*" capture="environment" class="hidden" aria-hidden="true" tabindex="-1">
+</div>
+
+<script>
+(function(){
+'use strict';
+/* ---------- helpers ---------- */
+const $=(s,r=document)=>r.querySelector(s);
+const DAY=864e5;
+const now=new Date(); now.setHours(0,0,0,0);
+const d=(off)=>new Date(now.getTime()+off*DAY);
+const WD=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], MO=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const fmtD=(dt)=>`${WD[dt.getDay()]}, ${MO[dt.getMonth()]} ${dt.getDate()}`;
+const fmtShort=(dt)=>`${MO[dt.getMonth()]} ${dt.getDate()}`;
+const money=(n,sign)=>{const a=Math.abs(n);const s=a.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});return (n<0?'−':(sign&&n>0?'+':''))+'$'+s;};
+const money0=(n)=>'$'+Math.round(Math.abs(n)).toLocaleString('en-US');
+const esc=(s)=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const rel=(off)=>off===0?'Today':off===-1?'Yesterday':off<0?fmtD(d(off)):off===1?'Tomorrow':fmtD(d(off));
+const monthDays=new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
+const monthPct=now.getDate()/monthDays;
+const monthName=['January','February','March','April','May','June','July','August','September','October','November','December'][now.getMonth()];
+const PAYDAY_OFF=(()=>{let o=(5-now.getDay()+7)%7;if(o<3)o+=7;return o;})(); const payday=d(PAYDAY_OFF); // next Friday, at least 3 days out
+const asOf=`as of today ${now.toLocaleDateString('en-US',{month:'short',day:'numeric'})} · bank data through ${fmtShort(d(-1))}`;
+
+/* ---------- storage ---------- */
+const KEY='homestead-proto-v1';
+function load(){try{return JSON.parse(localStorage.getItem(KEY)||'{}')}catch(e){return {}}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+
+/* ---------- sample data (examples, not real balances) ---------- */
+const SCEN={
+  ontrack:{cash:1012.02,status:'good',label:'On track',forecast:'At this pace you’ll finish the month about $120 under budget.'},
+  watch:{cash:650.00,status:'watch',label:'Watch',forecast:'It’s tight until payday. Groceries is the category to go easy on this week.'},
+  short:{cash:380.00,status:'action',label:'Action needed',forecast:'Two bills land before payday and cash won’t cover them. One small move fixes it.'}
+};
+const SET_ASIDE=300.00; // emergency fund + sinking funds held in savings
+const P=PAYDAY_OFF; // bills are placed around payday so the "before payday" set stays the same whatever today is
+const BILLS=[
+  {id:'b1',name:'Verizon · phones',amt:153.20,off:P-3,cat:'Utilities'},
+  {id:'b2',name:'Rocky Mountain Power',amt:118.40,off:P-1,cat:'Utilities'},
+  {id:'b3',name:'Capital One · minimum',amt:363.00,off:P+1,cat:'Card payment'},
+  {id:'b4',name:'Frontier CU · Suburban',amt:1047.11,off:P+4,cat:'Car loan'},
+  {id:'b5',name:'America First Visa · minimum',amt:222.00,off:P+6,cat:'Card payment'},
+  {id:'b6',name:'PennyMac · mortgage',amt:5670.39,off:P+8,cat:'Housing'},
+  {id:'b7',name:'Internet',amt:79.99,off:P+10,cat:'Utilities'},
+  {id:'b8',name:'Clear Management · trash',amt:150.00,off:P+12,cat:'Utilities'},
+  {id:'b9',name:'Frontier CU · F-350',amt:1496.09,off:P+14,cat:'Car loan'},
+];
+const CATS=['Giving','Housing','Utilities','Groceries & household','Eating out & treats','Gas & car','Kids & school','Fun & shopping','Subscriptions','Health','Clothes','Gifts','Cade’s allowance','Vanessa’s allowance','Lash supplies'];
+const BUDGET0=[
+  {cat:'Giving',b:1700,s:850,kind:'committed'},
+  {cat:'Housing',b:5670,s:5670,kind:'committed'},
+  {cat:'Utilities',b:650,s:420},
+  {cat:'Groceries & household',b:1900,s:1410},
+  {cat:'Eating out & treats',b:450,s:388},
+  {cat:'Gas & car',b:600,s:310},
+  {cat:'Kids & school',b:350,s:95},
+  {cat:'Fun & shopping',b:400,s:260},
+  {cat:'Subscriptions',b:180,s:180,kind:'committed'},
+  {cat:'Cade’s allowance',b:150,s:90,kind:'allowance'},
+  {cat:'Vanessa’s allowance',b:150,s:40,kind:'allowance'},
+];
+const PAY={gross:3880.77,regular:3650.00,bonus:230.77,fit:298.30,idaho:150.00,ss:240.61,medicare:56.27,benefits:0,net:3135.59};
+const TX0=[
+  {id:'t1',off:0,name:'Maverik',amt:-58.40,cat:'Gas & car',st:'recorded',who:'Cade',acct:'Capital One'},
+  {id:'t2',off:0,name:'Broulim’s',amt:-64.12,cat:'Groceries & household',st:'recorded',who:'Vanessa',acct:'Beehive checking'},
+  {id:'t3',off:-1,name:'Walmart',amt:-142.37,cat:'Groceries & household',st:'question',q:'walmart',who:'Vanessa',acct:'Beehive checking',receipt:true,split:[['Groceries & household',88.20],['Groceries & household · supplies',31.17],['Kids & school · toys',23.00]]},
+  {id:'t4',off:-1,name:'Venmo · Kayla M.',amt:85.00,cat:'Lash income',st:'question',q:'venmo',who:'Vanessa',acct:'Venmo'},
+  {id:'t5',off:-2,name:'Amazon',amt:-46.18,cat:'',st:'question',q:'amazon',who:'Vanessa',acct:'Capital One'},
+  {id:'t6',off:-2,name:'DoorDash',amt:-31.55,cat:'Eating out & treats',st:'books',who:'Cade',acct:'Capital One'},
+  {id:'t7',off:-3,name:'Madison School District',amt:-45.00,cat:'Kids & school',st:'books',who:'Vanessa',acct:'Beehive checking'},
+  {id:'t8',off:-4,name:'Capital One payment',amt:-400.00,cat:'Card payment',st:'matched',kind:'transfer',who:'Cade',acct:'America First checking'},
+  {id:'t9',off:-5,name:'Cade’s paycheck · Henry’s Fork Homes',amt:3135.59,cat:'Paycheck',st:'books',kind:'paycheck',who:'Cade',acct:'America First checking'},
+  {id:'t10',off:-5,name:'To savings',amt:-200.00,cat:'Transfer',st:'matched',kind:'transfer',who:'Cade',acct:'Beehive checking'},
+  {id:'t11',off:-6,name:'Crumbl',amt:-23.00,cat:'Eating out & treats',st:'books',who:'Vanessa',acct:'Beehive checking'},
+  {id:'t12',off:-7,name:'Frontier CU · F-350 payment',amt:-1496.09,cat:'Car loan',st:'books',kind:'loan',who:'Cade',acct:'America First checking'},
+  {id:'t13',off:-8,name:'Valley Wide Co-op',amt:-71.20,cat:'Gas & car',st:'matched',who:'Cade',acct:'Capital One'},
+  {id:'t14',off:-9,name:'Tithing',amt:-388.08,cat:'Giving',st:'matched',who:'Joint',acct:'Beehive checking'},
+  {id:'t15',off:-10,name:'Walmart',amt:-89.90,cat:'Groceries & household',st:'books',est:true,who:'Vanessa',acct:'Beehive checking'},
+  {id:'t16',off:-12,name:'PennyMac · mortgage',amt:-5670.39,cat:'Housing',st:'books',kind:'loan',who:'Joint',acct:'America First checking'},
+];
+const STATUS={question:'Needs a quick answer',recorded:'Recorded',books:'In the books',matched:'Matched to the bank',checking:'Being checked',unsynced:'Not synced yet',fixpending:'Fix pending'};
+
+/* ---------- state ---------- */
+let S=Object.assign({user:null,scenario:'ontrack',answered:{},tx:[],budget:null,approvals:[{id:'a1',from:'Cade',fromCat:'Fun & shopping',toCat:'Gas & car',amt:75,state:'open',note:'Two trips to Idaho Falls this week.'}],sent:[],faceid:true,notif:true,quiet:true,corrections:{},business:{},rules:[],receipts:[],chat:[]},load());
+if(!S.budget) S.budget=BUDGET0.map(x=>({...x}));
+let online=navigator.onLine!==false;
+let view=(location.hash||'').replace('#','')||'home';
+if(!['home','activity','budget','goals','bills','ask','settings'].includes(view)) view='home';
+
+/* ---------- derived ---------- */
+function allTx(){ // sample list with user changes applied
+  const list=TX0.map(t=>{const c={...t};const a=S.answered[t.id];if(a){c.st=a.st||'recorded';if(a.cat)c.cat=a.cat;if(a.split)c.split=a.split;delete c.q;}
+    const fx=S.corrections[t.id];if(fx){c.cat=fx.cat;c.st=fx.st;}
+    if(S.business[t.id]){c.biz=S.business[t.id];}
+    return c;});
+  const rc=S.receipts.map(r=>({id:r.id,off:0,name:r.name,amt:-r.amt,cat:r.cat,st:r.synced?'recorded':'unsynced',who:S.user||'Vanessa',acct:'Beehive checking',receipt:true,photo:r.photo,split:r.split,fromSnap:true}));
+  return rc.concat(list);
+}
+function questions(){return allTx().filter(t=>t.st==='question');}
+function billsBefore(){return BILLS.filter(b=>b.off<PAYDAY_OFF);}
+function safe(){const sc=SCEN[S.scenario];const bills=billsBefore().reduce((a,b)=>a+b.amt,0);return {cash:sc.cash,setAside:SET_ASIDE,bills,val:sc.cash-SET_ASIDE-bills,...sc};}
+function catStatus(c){ if(c.kind==='allowance')return null; if(c.kind==='committed')return 'good'; const pace=c.s/c.b; if(c.s>c.b)return 'action'; if(pace>monthPct+0.12)return 'watch'; return 'good'; }
+const stLabel={good:'On track',watch:'Watch',action:'Action needed'};
+function pendingCount(){return allTx().filter(t=>t.st==='recorded'||t.st==='unsynced').length;}
+
+/* ---------- rendering ---------- */
+function nav(v){view=v;try{history.replaceState(null,'','#'+v)}catch(e){}render();window.scrollTo(0,0);}
+function render(){
+  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on',b.dataset.tab===view));
+  $('#avatarBtn').textContent=(S.user||'V')[0];
+  renderSync();
+  const V={home,activity,budget,goals,bills,ask,settings};
+  $('#view').innerHTML=(V[view]||home)();
+}
+function renderSync(){
+  const el=$('#syncbar');const un=S.receipts.filter(r=>!r.synced).length;
+  if(!online){el.className='syncbar off';el.innerHTML=`<span class="dot"></span><span>You’re offline. ${un?`${un} receipt${un>1?'s':''} saved on your phone — not synced yet.`:'Receipts you snap will be saved on your phone and sent when you’re back online.'}</span>`;}
+  else if(un){el.className='syncbar busy';el.innerHTML=`<span class="dot"></span><span>Uploading ${un} receipt${un>1?'s':''}…</span>`;}
+  else {el.className='syncbar hidden';el.innerHTML='';return;}
+}
+function pill(status,label){return `<span class="pill ${status}">${label||stLabel[status]}</span>`;}
+function statusLine(t){
+  if(t.kind==='transfer')return 'Transfer · not spending';
+  if(t.kind==='loan')return t.cat==='Housing'?'Mortgage · in the books':'Loan payment · in the books';
+  if(t.kind==='paycheck')return 'Paycheck · in the books';
+  let s=STATUS[t.st]||t.st; if(t.est)s='Estimated split · '+s; if(t.biz)s=`Business · ${t.biz} · `+s; return s;
+}
+function txItem(t){
+  const inflow=t.amt>0;const ico=t.st==='question'?'q':t.receipt?'rc':inflow?'in':'';
+  const glyph=t.kind==='paycheck'?'$':t.receipt?'▣':t.kind==='transfer'?'⇄':t.kind==='loan'?'▤':esc(t.name[0]);
+  return `<button class="item" data-tx="${t.id}"><span class="ico ${ico}" aria-hidden="true">${glyph}</span><span class="main"><span class="t">${esc(t.name)}</span><span class="s">${esc(t.cat||'Needs a category')} · ${statusLine(t)}</span></span><span class="amt num ${inflow?'in':''}">${money(t.amt,true)}<small>${rel(t.off)}</small></span><span class="chev">›</span></button>`;
+}
+function qcard(t){
+  const why={walmart:'Why we’re asking: receipts tell us what was groceries and what wasn’t. One tap keeps the budget honest.',venmo:'Why we’re asking: Venmo money in could be lash income or a friend paying you back. Lash income counts toward your business.',amazon:'Why we’re asking: Amazon charges don’t say what was in the box. Pick the closest category and we’ll remember it for next time.'}[t.q];
+  let body='';
+  if(t.q==='walmart')body=`<div class="h2">Walmart ${money(t.amt)} — split from your receipt. Look right?</div><div class="split">${t.split.map(s=>`<div class="kv"><span>${esc(s[0])}</span><b class="num">${money(s[1])}</b></div>`).join('')}</div><div class="btnrow"><button class="btn primary" data-ans="${t.id}" data-v="yes">Yes</button><button class="btn" data-ans="${t.id}" data-v="change">Change</button></div>`;
+  if(t.q==='venmo')body=`<div class="h2">Venmo +$85.00 from Kayla M. — lash appointment?</div><div class="btnrow"><button class="btn primary" data-ans="${t.id}" data-v="lash">Yes, lash</button><button class="btn" data-ans="${t.id}" data-v="other">Something else</button></div>`;
+  if(t.q==='amazon')body=`<div class="h2">Amazon ${money(t.amt)} — what was it?</div><div class="chips">${['Groceries & household','Kids & school','Gifts','Fun & shopping'].map(c=>`<button class="chip" data-ans="${t.id}" data-v="cat" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}<button class="chip" data-ans="${t.id}" data-v="change">Something else</button></div>`;
+  return `<div class="qcard">${body}<div class="why">${why}</div></div>`;
+}
+
+function home(){
+  const s=safe();const qs=questions();const bb=billsBefore();
+  const safeText=s.val>=0?`${money(s.val)} safe to spend`:`Short ${money(-s.val)}`;
+  const paycheckTx=allTx().find(t=>t.kind==='paycheck');
+  return `
+  <div class="eyebrow">Good ${now.getHours()<12?'morning':'afternoon'}, ${esc(S.user||'Vanessa')}</div>
+  <button class="card hero" id="safeBtn" style="text-align:left">
+    <div class="row"><span class="eyebrow">Until ${fmtD(payday)}</span>${pill(s.status,s.label)}</div>
+    <div class="big num">${safeText}</div>
+    <div class="sub">${s.val>=0?'after bills due before payday and money set aside':'before payday — one small move fixes it'}</div>
+    <div class="row"><span class="stamp">${asOf}</span><span class="stamp">Tap for the parts ›</span></div>
+  </button>
+  <div class="card" style="gap:6px"><div class="sub">${esc(s.forecast)}</div></div>
+  ${qs.length?`<div class="row" style="margin-top:4px"><h2 class="h2">Needs your answer</h2><span class="tag">${qs.length}</span></div>${qs.slice(0,3).map(qcard).join('')}`:`<div class="card"><div class="h2">Nothing needs your answer</div><div class="sub">We’ll ask only when a purchase could go two ways.</div></div>`}
+  ${paycheckTx?`<button class="card" data-tx="${paycheckTx.id}" style="text-align:left"><div class="row"><div><div class="h2">Cade’s paycheck arrived ${rel(paycheckTx.off)}</div><div class="sub">Henry’s Fork Homes · regular pay, bonus and taxes recorded</div></div><div class="num" style="font-weight:600;color:var(--good);flex:none">+${money(PAY.net)}</div></div></button>`:''}
+  <div class="row" style="margin-top:4px"><h2 class="h2">Coming up before payday</h2><button class="btn ghost sm" data-nav="bills">All bills</button></div>
+  <div class="list">${bb.map(b=>`<div class="calrow"><div class="d">${WD[d(b.off).getDay()]}<b>${d(b.off).getDate()}</b></div><div><div style="font-weight:600">${esc(b.name)}</div><div class="note">${esc(b.cat)}</div></div><div class="num" style="font-weight:600">${money(b.amt)}</div></div>`).join('')}<div class="payline">Payday ${fmtD(payday)} · Cade’s paycheck ${money(PAY.net)}</div></div>
+  <div class="row" style="margin-top:4px"><h2 class="h2">Goals</h2><button class="btn ghost sm" data-nav="goals">See all</button></div>
+  <div class="card"><div class="row"><span style="font-weight:600">Emergency fund · 1 month</span><span class="num sub">$1,240 of $15,600</span></div><div class="bar wheat"><i style="width:8%"></i></div><div class="note">Next milestone: $2,000 by Dec 1</div></div>
+  <button class="ask" data-nav="ask"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Ask Homestead anything… <span class="q">“How much have we spent eating out?”</span></span></button>`;
+}
+function activity(){
+  const q=(S.actQ||'').toLowerCase();const f=S.actF||'all';
+  let list=allTx().filter(t=>!q||t.name.toLowerCase().includes(q)||(t.cat||'').toLowerCase().includes(q));
+  if(f==='q')list=list.filter(t=>t.st==='question');if(f==='rc')list=list.filter(t=>t.receipt);if(f==='me')list=list.filter(t=>t.who===(S.user||'Vanessa'));
+  return `<h1 class="h1">Activity</h1>
+  <div class="search"><input id="actQ" type="search" placeholder="Search Walmart, gas, kids…" value="${esc(S.actQ||'')}" aria-label="Search activity"></div>
+  <div class="chips">${[['all','All'],['q','Needs answer'],['rc','With receipt'],['me','Mine']].map(x=>`<button class="chip ${f===x[0]?'on':''}" data-actf="${x[0]}">${x[1]}</button>`).join('')}</div>
+  <div class="list">${list.map(txItem).join('')||'<div class="item"><span class="main"><span class="s">Nothing matches.</span></span></div>'}</div>
+  <div class="stamp">${asOf}. Transfers, card payments and loan principal never count as spending.</div>`;
+}
+function budget(){
+  const total=S.budget.filter(c=>c.kind!=='committed').reduce((a,c)=>({b:a.b+c.b,s:a.s+c.s}),{b:0,s:0});
+  const waiting=S.sent.filter(x=>x.state==='open');const inbox=S.approvals.filter(a=>a.state==='open');
+  return `<h1 class="h1">${monthName} budget</h1>
+  <div class="banner">Sample budget — the real one isn’t approved yet. Numbers here are examples.</div>
+  ${inbox.length?`<div class="qcard"><div class="h2">Cade wants to move ${money0(inbox[0].amt)} from ${esc(inbox[0].fromCat)} to ${esc(inbox[0].toCat)}</div><div class="sub">“${esc(inbox[0].note)}” · ${esc(inbox[0].toCat)} would have ${money0(S.budget.find(c=>c.cat===inbox[0].toCat).b-S.budget.find(c=>c.cat===inbox[0].toCat).s+inbox[0].amt)} left.</div><div class="btnrow"><button class="btn primary" data-approve="${inbox[0].id}">Approve with Face ID</button><button class="btn" data-decline="${inbox[0].id}">Not now</button></div></div>`:''}
+  ${waiting.map(w=>`<div class="card" style="gap:4px"><div class="row"><span style="font-weight:600">Move ${money0(w.amt)} from ${esc(w.fromCat)} to ${esc(w.toCat)}</span>${pill('neutral','Waiting for Cade')}</div><div class="note">Sent ${esc(w.when)} · he gets one tap to approve.</div></div>`).join('')}
+  <div class="card"><div class="row"><span style="font-weight:600">Flexible spending</span><span class="num sub">${money0(total.s)} of ${money0(total.b)}</span></div><div class="bar"><i style="width:${Math.min(100,total.s/total.b*100)}%"></i></div><div class="note">${Math.round(monthPct*100)}% of the month is gone · ${Math.round(total.s/total.b*100)}% of flexible money is spent</div></div>
+  <div class="list">${S.budget.map((c,i)=>{const st=catStatus(c);const left=c.b-c.s;return `<button class="item" data-cat="${i}"><span class="main"><span class="row"><span class="t">${esc(c.cat)}</span>${st?pill(st):'<span class="tag">No alerts</span>'}</span><span class="bar ${st==='watch'?'watch':st==='action'?'action':''}" style="margin-top:6px"><i style="width:${Math.min(100,c.s/c.b*100)}%"></i></span><span class="s num">${money0(left)} left of ${money0(c.b)}${c.kind==='committed'?' · fixed':''}</span></span><span class="chev">›</span></button>`}).join('')}</div>
+  <div class="stamp">Tap a category to move money. Changes go to Cade for one tap of approval, and the reverse applies too.</div>`;
+}
+function goals(){
+  return `<h1 class="h1">Goals</h1>
+  <div class="card"><div class="eyebrow">Our current priority</div><div class="h2">A one-month emergency fund</div><div class="sub">Money we don’t touch unless something breaks. It stays out of “safe to spend.”</div><div class="row"><span class="num" style="font:600 28px/1 var(--display)">$1,240</span><span class="num sub">of $15,600 (sample target)</span></div><div class="bar wheat"><i style="width:8%"></i></div><div class="note">Next milestone: $2,000 by Dec 1 · about $190 a paycheck gets there</div></div>
+  <div class="card"><div class="eyebrow">Next debt to clear</div><div class="h2">Capital One card</div><div class="row"><span class="num" style="font:600 28px/1 var(--display)">$10,508</span><span class="num sub">down $420 since September</span></div><div class="bar"><i style="width:4%"></i></div><div class="note">Minimums only until the emergency fund has one month in it — that’s the plan, not a setback.</div></div>
+  <div class="card"><div class="eyebrow">Set aside this month</div><div class="kv"><span>Christmas</span><b class="num">$180</b></div><div class="kv"><span>Car repairs & registration</span><b class="num">$90</b></div><div class="kv"><span>Kids’ school fees</span><b class="num">$30</b></div><div class="note">These are already out of “safe to spend.”</div></div>
+  <div class="stamp">${asOf}</div>`;
+}
+function bills(){
+  return `<h1 class="h1">Bills</h1><div class="sub">Everything due in the next few weeks. Paychecks are marked.</div>
+  <div class="list">${BILLS.map((b,i)=>{const pay=b.off>=PAYDAY_OFF&&(i===0||BILLS[i-1].off<PAYDAY_OFF)?`<div class="payline">Payday ${fmtD(payday)} · Cade’s paycheck ${money(PAY.net)}</div>`:'';return pay+`<div class="calrow"><div class="d">${WD[d(b.off).getDay()]}<b>${d(b.off).getDate()}</b></div><div><div style="font-weight:600">${esc(b.name)}</div><div class="note">${esc(b.cat)}${b.off<PAYDAY_OFF?' · before payday':''}</div></div><div class="num" style="font-weight:600">${money(b.amt)}</div></div>`}).join('')}</div>
+  <div class="stamp">Due dates come from the bills themselves. Nothing here moves money.</div>`;
+}
+function ask(){
+  const chips=['How much have we spent eating out?','What’s due before payday?','How’s the emergency fund?','Can we afford $120 for Peyton’s cleats?'];
+  return `<h1 class="h1">Ask Homestead</h1><div class="sub">Plain questions about our money. Every answer says what date its numbers run through.</div>
+  <div class="chips">${chips.map(c=>`<button class="chip" data-askq="${esc(c)}">${esc(c)}</button>`).join('')}</div>
+  ${S.chat.map(m=>`<div class="answer"><div class="me">${esc(m.q)}</div><div class="ai">${m.a}</div><div class="stamp">Data through ${fmtShort(d(-1))} · ${pendingCount()} items still being recorded</div></div>`).join('')}
+  <form id="askForm" class="search"><input id="askIn" type="text" placeholder="Ask anything…" aria-label="Ask Homestead" autocomplete="off"><button class="btn primary" type="submit">Ask</button></form>`;
+}
+function settings(){
+  const sw=(k)=>`<span class="sw ${S[k]?'on':''}" aria-hidden="true"></span>`;
+  return `<h1 class="h1">Settings</h1>
+  <div class="card" style="gap:0">
+    <div class="eyebrow" style="padding-bottom:6px">Signed in as ${esc(S.user||'Vanessa')}</div>
+    <button class="toggle" data-tog="faceid"><span>Unlock with Face ID</span>${sw('faceid')}</button>
+    <button class="toggle" data-tog="notif"><span>Notifications</span>${sw('notif')}</button>
+    <button class="toggle" data-tog="quiet"><span>Quiet hours 9 pm – 7 am<br><span class="note">Only an emergency gets through at night</span></span>${sw('quiet')}</button>
+  </div>
+  <div class="card" style="gap:0"><div class="eyebrow" style="padding-bottom:6px">Linked logins</div>
+    <div class="kv"><span>Beehive FCU · Vanessa</span><b style="color:var(--good)">Connected</b></div>
+    <div class="kv"><span>Venmo · Vanessa</span><b style="color:var(--good)">Connected</b></div>
+    <div class="kv"><span>America First · Cade</span><b style="color:var(--good)">Connected</b></div>
+    <div class="kv"><span>Capital One · Cade</span><b style="color:var(--good)">Connected</b></div>
+    <div class="kv"><span>CareCredit</span><b style="color:var(--watch)">Statement upload</b></div>
+    <div class="note" style="padding-top:8px">Homestead never sees your bank password and can’t move money.</div></div>
+  <div class="card" style="gap:8px"><button class="btn block" id="exportBtn">Export my data</button><div class="note">Everything in Homestead, as a file you can open anywhere.</div></div>
+  <div class="card" style="gap:10px"><div class="eyebrow">Prototype</div>
+    <div class="note">Sample data only. Switch the scene to see how Home reads when money is tight.</div>
+    <div class="seg">${[['ontrack','On track'],['watch','Watch'],['short','Short']].map(x=>`<button class="${S.scenario===x[0]?'on':''}" data-scen="${x[0]}">${x[1]}</button>`).join('')}</div>
+    <div class="seg">${[['Vanessa','Vanessa'],['Cade','Cade']].map(x=>`<button class="${(S.user||'Vanessa')===x[0]?'on':''}" data-user="${x[0]}">${x[1]}</button>`).join('')}</div>
+    <button class="btn block" id="resetBtn">Reset the prototype</button></div>`;
+}
+
+/* ---------- sheets and overlays ---------- */
+function openSheet(html){$('#layer').innerHTML=`<div class="scrim" id="scrim"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${html}</div></div>`;}
+function closeSheet(){$('#layer').innerHTML='';}
+function toast(msg,ms=2200){const t=document.createElement('div');t.className='toast';t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),ms);}
+function faceId(cb){$('#layer').insertAdjacentHTML('beforeend',`<div class="faceid" id="faceid"><div class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M9 9v1M15 9v1M12 9v4h-1M9 15c1 1 5 1 6 0"/></svg><div>Face ID</div><div class="note">${S.faceid?'Confirming it’s you…':'Confirm with your passcode…'}</div></div></div>`);setTimeout(()=>{const f=$('#faceid');if(f)f.remove();cb();},900);}
+
+function txSheet(id){
+  const t=allTx().find(x=>x.id===id);if(!t)return;
+  const inflow=t.amt>0;let extra='';
+  if(t.kind==='paycheck'){extra=`<div class="card" style="gap:0"><div class="eyebrow" style="padding-bottom:6px">What’s in this paycheck</div>
+    <div class="kv"><span>Regular pay</span><b class="num">${money(PAY.regular)}</b></div><div class="kv"><span>Bonus</span><b class="num">${money(PAY.bonus)}</b></div><div class="kv"><span>Gross pay</span><b class="num">${money(PAY.gross)}</b></div>
+    <div class="kv"><span>Federal withholding</span><b class="num">${money(-PAY.fit)}</b></div><div class="kv"><span>Idaho withholding</span><b class="num">${money(-PAY.idaho)}</b></div><div class="kv"><span>Social Security</span><b class="num">${money(-PAY.ss)}</b></div><div class="kv"><span>Medicare</span><b class="num">${money(-PAY.medicare)}</b></div><div class="kv"><span>Benefits</span><b class="num">none</b></div>
+    <div class="kv"><span style="font-weight:600">Take-home to America First</span><b class="num">${money(PAY.net)}</b></div></div><div class="note">Each line is recorded in the books on its own, so the year ties to the W-2 and tithing can be figured either way.</div>`;}
+  else if(t.kind==='transfer'){extra=`<div class="card"><div class="h2">This isn’t spending</div><div class="sub">Money moved between our own accounts or paid onto a card. It never counts against a category.</div></div>`;}
+  else if(t.kind==='loan'){extra=`<div class="card"><div class="h2">Loan payment</div><div class="sub">The interest part shows in the ${esc(t.cat)} budget. The principal part isn’t spending — it’s debt going down.</div></div>`;}
+  else{
+    if(t.receipt)extra+=t.photo?`<img class="photo" src="${t.photo}" alt="Your receipt photo">`:receiptArt(t);
+    if(t.split)extra+=`<div class="card" style="gap:0"><div class="eyebrow" style="padding-bottom:6px">Split from the receipt</div>${t.split.map(s=>`<div class="kv"><span>${esc(s[0])}</span><b class="num">${money(s[1])}</b></div>`).join('')}</div>`;
+    if(t.est)extra+=`<div class="banner">No receipt for this one, so it was split the usual way: 60% groceries, 25% household, 15% other. Snap the receipt next time and it splits itself.</div>`;
+    extra+=`<div class="btnrow"><button class="btn" data-wrong="${t.id}">This is wrong</button>${!inflow?`<button class="btn" data-biz="${t.id}">${t.biz?'Business: '+esc(t.biz):'Mark as business'}</button>`:''}</div>`;
+  }
+  openSheet(`<div class="head"><div><div class="eyebrow">${rel(t.off)} · ${esc(t.acct)} · ${esc(t.who)}</div><h2 class="h1" style="font-size:22px">${esc(t.name)}</h2></div><button class="close" id="closeBtn" aria-label="Close">✕</button></div>
+  <div class="row"><span class="big num" style="font-size:34px;color:${inflow?'var(--good)':'var(--ink)'}">${money(t.amt,true)}</span>${pill(t.st==='question'?'watch':t.st==='unsynced'?'neutral':'good',statusLine(t).split(' · ').pop())}</div>
+  <div class="sub">${esc(t.cat||'Needs a category')}${t.st==='fixpending'?' · Fix pending — Cade will see it':''}</div>${extra}`);
+}
+function receiptArt(t){return `<div class="receiptart" aria-hidden="true"><div style="text-align:center;font-weight:700">${esc(t.name.toUpperCase())}</div><div style="text-align:center">Rexburg, ID · ${fmtShort(d(t.off))}</div><br>${(t.split||[[t.cat,-t.amt]]).map(s=>`<div class="l"><span>${esc(s[0].split(' · ').pop())}</span><span>${Math.abs(s[1]).toFixed(2)}</span></div>`).join('')}<br><div class="l"><b>TOTAL</b><b>${Math.abs(t.amt).toFixed(2)}</b></div><div class="l"><span>DEBIT</span><span>${Math.abs(t.amt).toFixed(2)}</span></div></div>`;}
+function wrongSheet(id){
+  const t=allTx().find(x=>x.id===id);const sug=['Groceries & household','Eating out & treats','Gas & car','Kids & school','Fun & shopping'].filter(c=>c!==t.cat).slice(0,5);
+  openSheet(`<div class="head"><h2 class="h1" style="font-size:22px">What should ${esc(t.name)} be?</h2><button class="close" id="closeBtn" aria-label="Close">✕</button></div>
+  <div class="chips">${sug.map(c=>`<button class="chip" data-fix="${t.id}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>
+  <div class="field"><label for="catSel">Or pick any category</label><select id="catSel"><option value="">Choose…</option>${CATS.map(c=>`<option>${esc(c)}</option>`).join('')}</select></div>
+  <button class="toggle" id="ruleTog"><span>Do this every time for ${esc(t.name.split(' ·')[0])}?<br><span class="note">We’ll ask Cade to approve the rule.</span></span><span class="sw" id="ruleSw" aria-hidden="true"></span></button>
+  <button class="btn primary block" id="fixSave" disabled style="opacity:.5">Save</button>`);
+  let chosen='',rule=false;const save=$('#fixSave');
+  $('#layer').addEventListener('click',e=>{const c=e.target.closest('[data-fix]');if(c){chosen=c.dataset.cat;document.querySelectorAll('[data-fix]').forEach(x=>x.classList.toggle('on',x===c));$('#catSel').value='';save.disabled=false;save.style.opacity=1;}
+    if(e.target.closest('#ruleTog')){rule=!rule;$('#ruleSw').classList.toggle('on',rule);}
+    if(e.target.closest('#fixSave')&&chosen){applyFix(t,chosen,rule);}});
+  $('#catSel').addEventListener('change',e=>{chosen=e.target.value;document.querySelectorAll('[data-fix]').forEach(x=>x.classList.remove('on'));save.disabled=!chosen;save.style.opacity=chosen?1:.5;});
+}
+function applyFix(t,cat,rule){
+  const posted=['books','matched'].includes(t.st);
+  if(t.fromSnap){const r=S.receipts.find(r=>r.id===t.id);if(r)r.cat=cat;}
+  else S.corrections[t.id]={cat,st:posted?'fixpending':t.st==='question'?'recorded':t.st};
+  if(rule)S.rules.push({merchant:t.name,cat});
+  save();closeSheet();render();
+  toast(posted?`Fix sent to Cade — ${cat}`:`Updated to ${cat}`+(rule?' · rule sent to Cade':''));
+}
+function bizSheet(id){
+  openSheet(`<div class="head"><h2 class="h1" style="font-size:22px">Mark as business</h2><button class="close" id="closeBtn" aria-label="Close">✕</button></div><div class="sub">Almost everything is personal, so this is the exception. Cade will see it in his list.</div>
+  <div class="btnrow"><button class="btn primary" data-bizset="${id}" data-v="CTJ">Cade’s firm (CTJ)</button><button class="btn primary" data-bizset="${id}" data-v="Lash">Lash business</button></div><button class="btn block" data-bizset="${id}" data-v="">Keep it personal</button>`);
+}
+function safeSheet(){
+  const s=safe();
+  openSheet(`<div class="head"><h2 class="h1" style="font-size:22px">Safe to spend, in parts</h2><button class="close" id="closeBtn" aria-label="Close">✕</button></div>
+  <div class="card" style="gap:0"><div class="kv"><span>Cash in checking</span><b class="num">${money(s.cash)}</b></div><div class="kv"><span>Set aside (emergency fund, Christmas, car)</span><b class="num">${money(-s.setAside)}</b></div><div class="kv"><span>Bills due before ${fmtShort(payday)}</span><b class="num">${money(-s.bills)}</b></div><div class="kv"><span style="font-weight:600">${s.val>=0?'Safe to spend':'Short'}</span><b class="num">${money(s.val)}</b></div></div>
+  ${s.val<0?`<div class="card"><div class="h2">One small move fixes it</div><div class="sub">Holding this week’s extra $400 card payment until payday covers it with ${money(400+s.val)} to spare. Want to send that to Cade?</div><div class="btnrow"><button class="btn primary" id="askCadeBtn">Send to Cade</button><button class="btn" id="closeBtn2">Not now</button></div></div>`:''}
+  <div class="stamp">${asOf}. Cash is from the bank; set-aside amounts are from the books.</div>`);
+}
+function moveSheet(i,prefill){
+  const c=S.budget[i];const src=S.budget.filter(x=>x.kind!=='committed'&&x.kind!=='allowance'&&x.cat!==c.cat);
+  openSheet(`<div class="head"><div><div class="eyebrow">${esc(c.cat)}</div><h2 class="h1" style="font-size:22px">Move money into ${esc(c.cat)}</h2></div><button class="close" id="closeBtn" aria-label="Close">✕</button></div>
+  <div class="sub num">${money0(c.b-c.s)} left of ${money0(c.b)} this month.</div>
+  <div class="card"><div class="amountfield">$<input id="mvAmt" type="number" inputmode="decimal" min="1" step="1" value="${prefill||50}" aria-label="Amount"></div>
+  <div class="field"><label for="mvFrom">Take it from</label><select id="mvFrom">${src.map(x=>`<option value="${esc(x.cat)}">${esc(x.cat)} · ${money0(x.b-x.s)} left</option>`).join('')}</select></div>
+  <div class="note" id="mvEffect"></div></div>
+  <button class="btn primary block" id="mvSend">Send to Cade for a tap of approval</button>
+  <div class="note">Budget changes need both of us. Cade gets one tap; nothing changes until he says yes.</div>`);
+  const eff=()=>{const a=Number($('#mvAmt').value)||0;const f=S.budget.find(x=>x.cat===$('#mvFrom').value);$('#mvEffect').textContent=`${c.cat} would have ${money0(c.b-c.s+a)} left · ${f.cat} would have ${money0(f.b-f.s-a)} left.`;};
+  eff();$('#mvAmt').addEventListener('input',eff);$('#mvFrom').addEventListener('change',eff);
+  $('#mvSend').addEventListener('click',()=>{const a=Number($('#mvAmt').value)||0;if(!a)return;S.sent.push({id:'s'+Date.now(),toCat:c.cat,fromCat:$('#mvFrom').value,amt:a,state:'open',when:'today'});save();closeSheet();nav('budget');toast('Sent to Cade. He’ll get a tap to approve.');});
+}
+
+/* ---------- camera / receipt capture ---------- */
+let camTimer=null;
+function openCam(){
+  $('#layer').innerHTML=`<div class="cam" role="dialog" aria-modal="true" aria-label="Snap a receipt"><div class="hint">Hold the receipt in the frame. It snaps by itself when it’s steady.</div><div class="finder"><div class="frame"></div><div class="paper"><div style="text-align:center;font-weight:700">BROULIM’S</div><div style="text-align:center">Rexburg, ID</div><br><div class="l"><span>MILK 2%</span><span>3.49</span></div><div class="l"><span>EGGS 18CT</span><span>5.29</span></div><div class="l"><span>BANANAS</span><span>1.84</span></div><div class="l"><span>PAPER TOWELS</span><span>12.98</span></div><div class="l"><span>DISH SOAP</span><span>4.27</span></div><div class="l"><span>CHIPS</span><span>3.99</span></div><br><div class="l"><b>TOTAL</b><b>31.86</b></div></div></div><div class="ctl"><button class="x" id="camX">Cancel</button><button class="shutter" id="shutter" aria-label="Take the photo"></button><button class="alt" id="camReal">Use my camera</button></div></div>`;
+  camTimer=setTimeout(()=>{if($('#shutter'))capture(null);},2600);
+}
+function capture(photo){
+  clearTimeout(camTimer);
+  const id='r'+Date.now();
+  const rec={id,name:'Broulim’s',amt:31.86,cat:'Groceries & household',split:[['Groceries & household',14.61],['Groceries & household · supplies',17.25]],photo,synced:false,ts:Date.now()};
+  S.receipts.unshift(rec);save();
+  openSheet(`<div class="head"><div><div class="eyebrow">${online?'Reading your receipt…':'Saved on your phone — not synced yet'}</div><h2 class="h1" style="font-size:22px">Broulim’s</h2></div><button class="close" id="closeBtn" aria-label="Close">✕</button></div>
+  ${photo?`<img class="photo" src="${photo}" alt="Your receipt photo">`:`<div class="receiptart" aria-hidden="true"><div style="text-align:center;font-weight:700">BROULIM’S</div><div style="text-align:center">Rexburg, ID · ${fmtShort(now)}</div><br><div class="l"><span>MILK 2%</span><span>3.49</span></div><div class="l"><span>EGGS 18CT</span><span>5.29</span></div><div class="l"><span>BANANAS</span><span>1.84</span></div><div class="l"><span>PAPER TOWELS</span><span>12.98</span></div><div class="l"><span>DISH SOAP</span><span>4.27</span></div><div class="l"><span>CHIPS</span><span>3.99</span></div><br><div class="l"><b>TOTAL</b><b>31.86</b></div></div>`}
+  <div class="card" style="gap:0"><div class="kv"><span>Merchant</span><b>Broulim’s</b></div><div class="kv"><span>Total</span><b class="num">$31.86</b></div><div class="kv"><span>Date</span><b>${fmtShort(now)}</b></div><div class="kv"><span>Category</span><b>Groceries & household</b></div></div>
+  <div class="note">${online?'We’ll match it to the bank when the charge shows up, usually in a day or two.':'We’ll send it and match it to the bank as soon as you’re back online.'}</div>
+  <button class="btn primary block" id="doneBtn">Done</button>`);
+  if(online)syncSoon();
+  renderSync();
+}
+function syncSoon(){setTimeout(()=>{if(!online)return;S.receipts.forEach(r=>{r.synced=true});save();renderSync();if(view==='activity'||view==='home')render();},1800);}
+function readFile(file){const r=new FileReader();r.onload=()=>{const img=new Image();img.onload=()=>{const c=document.createElement('canvas');const sc=Math.min(1,720/Math.max(img.width,img.height));c.width=img.width*sc;c.height=img.height*sc;c.getContext('2d').drawImage(img,0,0,c.width,c.height);capture(c.toDataURL('image/jpeg',.7));};img.src=r.result;};r.readAsDataURL(file);}
+
+/* ---------- Ask Homestead (canned, grounded in the sample data) ---------- */
+function answer(q){
+  const l=q.toLowerCase();const s=safe();const eat=S.budget.find(c=>c.cat==='Eating out & treats');const gro=S.budget.find(c=>c.cat==='Groceries & household');
+  if(/eat|dining|restaurant|treat|doordash/.test(l))return `${money0(eat.s)} so far this month on eating out and treats, with ${money0(eat.b-eat.s)} left in that budget. The biggest pieces: DoorDash $31.55 and Crumbl $23.00.`;
+  if(/grocer|walmart|food|broulim/.test(l))return `${money0(gro.s)} on groceries and household so far, ${money0(gro.b-gro.s)} left. One Walmart trip still needs your answer on the Home screen.`;
+  if(/safe|spend|afford|can we|cleats/.test(l)){const m=l.match(/\$?(\d{2,5})/);const a=m?Number(m[1]):0;if(a)return s.val-a>=0?`Yes. ${money0(a)} leaves ${money0(s.val-a)} safe to spend until ${fmtD(payday)}, with every bill before payday covered.`:`Not before payday without a move: safe to spend is ${money(s.val)} until ${fmtD(payday)}. After Cade’s paycheck lands it fits.`;return `${s.val>=0?money(s.val)+' is safe to spend':'We’re short '+money(-s.val)} until ${fmtD(payday)}. That’s cash in checking, minus money set aside, minus the ${money0(s.bills)} of bills due first.`;}
+  if(/due|bill|payday/.test(l))return `Before payday on ${fmtD(payday)}: ${billsBefore().map(b=>`${b.name} ${money(b.amt)} (${fmtShort(d(b.off))})`).join(', ')}. Then Cade’s paycheck lands.`;
+  if(/emergency|fund|goal|save/.test(l))return `The emergency fund has $1,240 toward a one-month target of $15,600 (sample). The next milestone is $2,000 by Dec 1, which is about $190 a paycheck.`;
+  if(/move|transfer/.test(l))return `I can’t move money myself, but I can draft the request. Open Budget, tap the category, and send it to Cade for his tap of approval.`;
+  if(/debt|capital one|card/.test(l))return `The Capital One balance is about $10,508, down $420 since September. The plan is minimums only until the emergency fund has one month in it.`;
+  return `I can answer questions about spending, bills, the budget and goals. Try “What’s due before payday?” or “How much have we spent on groceries?”`;
+}
+
+/* ---------- events ---------- */
+document.addEventListener('click',e=>{
+  const t=e.target;
+  const tab=t.closest('[data-tab]');if(tab){nav(tab.dataset.tab);return;}
+  const nv=t.closest('[data-nav]');if(nv){nav(nv.dataset.nav);return;}
+  if(t.closest('#avatarBtn')){nav('settings');return;}
+  if(t.closest('#snapBtn')){openCam();return;}
+  if(t.closest('#camX')){clearTimeout(camTimer);closeSheet();return;}
+  if(t.closest('#shutter')){capture(null);return;}
+  if(t.closest('#camReal')){clearTimeout(camTimer);$('#camInput').value='';$('#camInput').click();return;}
+  if(t.closest('#closeBtn')||t.closest('#closeBtn2')||t.closest('#doneBtn')||(t.id==='scrim')){closeSheet();render();return;}
+  if(t.closest('#safeBtn')){safeSheet();return;}
+  if(t.closest('#askCadeBtn')){closeSheet();toast('Sent to Cade: hold the $400 card payment until payday');return;}
+  const tx=t.closest('[data-tx]');if(tx){txSheet(tx.dataset.tx);return;}
+  const ans=t.closest('[data-ans]');if(ans){const id=ans.dataset.ans,v=ans.dataset.v;const tr=TX0.find(x=>x.id===id);
+    if(v==='yes'){S.answered[id]={st:'recorded'};toast('Recorded. Thanks!');}
+    else if(v==='lash'){S.answered[id]={st:'recorded',cat:'Lash income'};toast('Recorded as lash income');}
+    else if(v==='other'){S.answered[id]={st:'recorded',cat:'Money in'};toast('Recorded as money in');}
+    else if(v==='cat'){S.answered[id]={st:'recorded',cat:ans.dataset.cat};toast(`Amazon recorded as ${ans.dataset.cat}`);}
+    else if(v==='change'){S.answered[id]={st:'recorded',cat:tr.cat||'Groceries & household'};save();wrongSheet(id);return;}
+    save();render();return;}
+  const w=t.closest('[data-wrong]');if(w){wrongSheet(w.dataset.wrong);return;}
+  const bz=t.closest('[data-biz]');if(bz){bizSheet(bz.dataset.biz);return;}
+  const bs=t.closest('[data-bizset]');if(bs){const id=bs.dataset.bizset;if(bs.dataset.v)S.business[id]=bs.dataset.v;else delete S.business[id];save();closeSheet();render();toast(bs.dataset.v?`Marked as ${bs.dataset.v} business · Cade will see it`:'Kept personal');return;}
+  const cat=t.closest('[data-cat]:not([data-ans]):not([data-fix])');if(cat&&view==='budget'){moveSheet(Number(cat.dataset.cat));return;}
+  const ap=t.closest('[data-approve]');if(ap){faceId(()=>{const a=S.approvals.find(x=>x.id===ap.dataset.approve);a.state='done';const from=S.budget.find(c=>c.cat===a.fromCat),to=S.budget.find(c=>c.cat===a.toCat);from.b-=a.amt;to.b+=a.amt;save();render();toast('Approved · Budget revision 3 saved');});return;}
+  const dc=t.closest('[data-decline]');if(dc){const a=S.approvals.find(x=>x.id===dc.dataset.decline);a.state='later';save();render();toast('Cade will see “Not now”');return;}
+  const af=t.closest('[data-actf]');if(af){S.actF=af.dataset.actf;render();return;}
+  const aq=t.closest('[data-askq]');if(aq){S.chat.push({q:aq.dataset.askq,a:answer(aq.dataset.askq)});save();render();window.scrollTo(0,document.body.scrollHeight);return;}
+  const tg=t.closest('[data-tog]');if(tg){S[tg.dataset.tog]=!S[tg.dataset.tog];save();render();return;}
+  const sc=t.closest('[data-scen]');if(sc){S.scenario=sc.dataset.scen;save();render();toast(`Scene: ${SCEN[S.scenario].label}`);return;}
+  const us=t.closest('[data-user]');if(us){S.user=us.dataset.user;save();render();return;}
+  if(t.closest('#exportBtn')){toast('In the real app this saves a file. The prototype can’t.');return;}
+  if(t.closest('#resetBtn')){try{localStorage.removeItem(KEY)}catch(e){}location.reload();return;}
+  const wb=t.closest('[data-welcome]');if(wb){S.user=wb.dataset.welcome;save();welcomeStep2();return;}
+  if(t.closest('#welcomeFace')){faceId(()=>{$('#welcome').classList.add('hidden');render();toast(`Welcome, ${S.user}`)});return;}
+});
+document.addEventListener('input',e=>{if(e.target.id==='actQ'){S.actQ=e.target.value;const list=$('#view .list');if(list){const q=S.actQ.toLowerCase();const f=S.actF||'all';let l=allTx().filter(t=>!q||t.name.toLowerCase().includes(q)||(t.cat||'').toLowerCase().includes(q));if(f==='q')l=l.filter(t=>t.st==='question');if(f==='rc')l=l.filter(t=>t.receipt);if(f==='me')l=l.filter(t=>t.who===(S.user||'Vanessa'));list.innerHTML=l.map(txItem).join('')||'<div class="item"><span class="main"><span class="s">Nothing matches.</span></span></div>';}}});
+document.addEventListener('submit',e=>{if(e.target.id==='askForm'){e.preventDefault();const q=$('#askIn').value.trim();if(!q)return;S.chat.push({q,a:answer(q)});save();render();window.scrollTo(0,document.body.scrollHeight);}});
+$('#camInput').addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];if(f)readFile(f);});
+window.addEventListener('online',()=>{online=true;renderSync();syncSoon();toast('Back online — syncing');});
+window.addEventListener('offline',()=>{online=false;renderSync();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){clearTimeout(camTimer);closeSheet();}});
+
+/* ---------- first run ---------- */
+function welcomeStep2(){$('#welcome').innerHTML=`<div class="eyebrow">Hi, ${esc(S.user)}</div><h1 class="h1">One more thing: Face ID</h1><div class="sub">It keeps Homestead to the two of you. You’ll use it to open the app and to say yes to a budget change.</div><button class="btn primary block" id="welcomeFace">Turn on Face ID</button>`;}
+if(!S.user){$('#welcome').classList.remove('hidden');$('#welcome').innerHTML=`<div class="brand" style="font-size:28px"><span class="mark" style="width:30px;height:30px" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M6 10v9h12v-9"/></svg></span>Homestead</div><h1 class="h1">Our family’s money, at a glance.</h1><div class="sub">This is a try-it-out version with example numbers. Nothing here is connected to a real account.</div><div class="eyebrow">Who’s trying it?</div><div class="btnrow"><button class="btn primary" data-welcome="Vanessa">Vanessa</button><button class="btn primary" data-welcome="Cade">Cade</button></div>`;}
+render();
+})();
+</script>
