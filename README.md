@@ -2,7 +2,7 @@
 
 Household finance app for the Jones family: a phone-first app for both spouses, a desktop console for the CFO, and a backend that keeps Business Central as the single ledger. Built for the family first; structured so a client version is configuration, not a rewrite.
 
-**Status (Oct 20, 2026):** Phase 1 spec approved. Phase 2 prototype published for Vanessa's test (Gate 2 open). Phase 3 architecture complete with all open questions decided; awaiting Cade's Gate 3 sign-off. No real accounts connected, nothing in Business Central production.
+**Status (Oct 20, 2026):** Gates 1–3 approved. Phase 4 (MVP against the BC sandbox and Plaid Sandbox) in progress. No real accounts connected, nothing in Business Central production.
 
 ## What's here
 
@@ -10,7 +10,7 @@ Household finance app for the Jones family: a phone-first app for both spouses, 
 | --- | --- |
 | `docs/phase1-product-spec.md` | The approved product spec: journeys, screens, decisions, Gate 1 outcome |
 | `docs/phase2-prototype-guide.md` | How to try the prototype and what to watch for at Gate 2 |
-| `docs/phase3-architecture-spec.md` | The architecture and integration spec: stack, data model, state machine, BC mapping, HH App Connector, auto-post rules, security, cost, DR, tests, backlog (awaiting Gate 3) |
+| `docs/phase3-architecture-spec.md` | The architecture and integration spec: stack, data model, state machine, BC mapping, HH App Connector, auto-post rules, security, cost, DR, tests, backlog (approved at Gate 3) |
 | `prototype/homestead.html` | The Phase 2 clickable prototype (single file, sample data, works offline once loaded). Published as a private artifact for phone testing |
 
 ## Planned layout (Phase 3)
@@ -37,7 +37,7 @@ prototype/           Phase 2 prototype
 ## Gates
 
 1. Spec approved (done, Oct 19, 2026)
-2. Vanessa uses the prototype on her phone without help and says she'd use it
-3. Cade approves the architecture and integration spec
+2. Vanessa uses the prototype on her phone without help and says she'd use it (done, Oct 20, 2026)
+3. Cade approves the architecture and integration spec (done, Oct 20, 2026)
 4. All nine acceptance tests pass against the BC sandbox
 5. Both spouses approve production in writing

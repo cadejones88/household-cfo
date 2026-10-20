@@ -1,6 +1,6 @@
 # Homestead — Phase 3 Architecture and Integration Spec
 
-Snapshot of the live Claude Doc as of Oct 20, 2026 (https://claude.ai/code/artifact/0f25a801-eaf1-47cb-926f-818ff21286e0). Status: proposed, awaiting Gate 3 approval. The live doc wins if they differ.
+Snapshot of the live Claude Doc as of Oct 20, 2026 (https://claude.ai/code/artifact/0f25a801-eaf1-47cb-926f-818ff21286e0). Status: approved at Gate 3 on Oct 20, 2026 (Gate 2 approved the same day). The live doc wins if they differ.
 
 Oct 19, 2026 · @Cade Jones
 
@@ -10,7 +10,7 @@ Homestead is one Azure-hosted service that owns every connection to Business Cen
 
 This spec applies the Gate 1 decisions of October 19, 2026: all transactions default to personal; every paycheck posts by component; auto-posting is designed in from the start and switched on rule by rule; Cade T. Jones CPA, P.C. owns the accounts; the code lives in `cadejones88/household-cfo`.
 
-Gate 3 asks Cade to approve:
+**Gate 3 approved by Cade on October 20, 2026** (together with Gate 2, Vanessa's prototype verdict). What was approved:
 
 1. The stack, hosting and environment split (section 2) and the repository layout (section 3).
 2. The data model, state machine and idempotency design (sections 5–7).
@@ -18,7 +18,7 @@ Gate 3 asks Cade to approve:
 4. The initial auto-post rule candidates and the draft authority matrix (section 12), which stay off until each rule passes its test.
 5. The security model (section 13), the running cost (section 15) and the test strategy (section 17).
 
-After Gate 3, Phase 4 builds the MVP against the BC sandbox and Plaid's test environment; nothing in this spec touches production or a live account.
+Phase 4 began the same day: the MVP is built against the BC sandbox and Plaid's Sandbox environment; nothing in this spec touches production or a live account.
 
 ## Stack and hosting
 
