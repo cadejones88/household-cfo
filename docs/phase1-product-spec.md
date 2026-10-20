@@ -1,4 +1,4 @@
-# Keel — Phase 1 Product Spec and Decisions
+# Homestead — Phase 1 Product Spec and Decisions
 
 Snapshot of the live Claude Doc as of Oct 19, 2026 (https://claude.ai/code/artifact/26655575-3c74-4c8c-849e-44fbe866d4ea). Status: **approved at Gate 1 by Cade on Oct 19, 2026, with the amendments below.** The live doc wins if they differ.
 
@@ -8,7 +8,7 @@ Approved by Cade on October 19, 2026, with these amendments. Where they differ f
 
 | Topic | Decision |
 | --- | --- |
-| Name | The system is **Keel** (Cade declined "Keel" on 10/19). Vanessa's app is Keel; Cade's desktop view is Keel Console; the assistant in the app is "Ask Keel." The Czar stays the agent's name in the project records |
+| Name | The system is **Homestead** (Cade declined "Homestead" on 10/19). Vanessa's app is Homestead; Cade's desktop view is Homestead Console; the assistant in the app is "Ask Homestead." The Czar stays the agent's name in the project records |
 | Auto-posting | Hybrid: some transactions may post to BC automatically. Phase 3 drafts the first rule set and thresholds; each rule is tested and approved in writing before it is switched on |
 | Paychecks | Every paycheck is broken into its components in BC: regular pay, bonus, Social Security, Medicare, federal and Idaho withholding, benefits and other deductions, net to the bank. Phase 3 designs pay-stub capture and an employer template |
 | Business vs personal | Everything through the household accounts is personal unless Cade says otherwise. No prompt by default; "Mark as business" on the item; Venmo inflows suggested as lash income |
@@ -27,7 +27,7 @@ Build one phone app for both of you with Expo (React Native), a web CFO Console 
 | Backend and hosting | Azure: container API and scheduled jobs, PostgreSQL, Blob Storage, Key Vault, Entra | ~$16–32 |
 | Bank aggregation | Plaid on its free Trial plan (10 logins; you need 8), plus CSV/OFX import | $0 to start |
 | Receipts | Azure Document Intelligence reads the receipt; Claude maps lines to your categories | ~$0–5 |
-| Ask Keel | Claude through Microsoft Foundry, limited to read-only questions over BC-backed data | ~$2–10 |
+| Ask Homestead | Claude through Microsoft Foundry, limited to read-only questions over BC-backed data | ~$2–10 |
 | Business vs personal | Personal by default; "Mark as business" is the exception path | — |
 | Alerts | Forecast-based, one alert per problem, quiet hours 9 pm–7 am | — |
 | Multi-family | Household ID on every record and setting; the ledger sits behind an adapter | — |
@@ -58,9 +58,9 @@ Three things found that change the plan:
 
 ## Who it's for and the design rules
 
-The phone app is built for Vanessa; the accounting depth lives in BC and in Cade's Keel Console. Both sign in separately, see the same household, and have the same approval rights.
+The phone app is built for Vanessa; the accounting depth lives in BC and in Cade's Homestead Console. Both sign in separately, see the same household, and have the same approval rights.
 
-| | Vanessa (Keel) | Cade (Keel Console) |
+| | Vanessa (Homestead) | Cade (Homestead Console) |
 | --- | --- | --- |
 | Device | Phone first; works in a browser | Desktop browser first |
 | Wants | Fast, calm, plain words, few questions | Control, traceability, drill-down to BC |
@@ -80,9 +80,9 @@ Rules every screen follows:
 
 ## User journeys
 
-Vanessa's ten journeys are the Phase 2 prototype script; Cade's eight define the first Keel Console release. Either spouse can do every Household Home journey.
+Vanessa's ten journeys are the Phase 2 prototype script; Cade's eight define the first Homestead Console release. Either spouse can do every Household Home journey.
 
-### Vanessa (Keel)
+### Vanessa (Homestead)
 
 | # | Journey | What she does | What happens behind it |
 | --- | --- | --- | --- |
@@ -91,13 +91,13 @@ Vanessa's ten journeys are the Phase 2 prototype script; Cade's eight define the
 | V3 | Answer a question | From a notification or the queue: "Walmart $142.37 — split from your receipt. Look right?" **Yes** or **Change**. "Venmo +$85 from Kayla — lash appointment?" **Yes** or **Something else**. | Her answer approves the classification and the BC draft line is created right away (or posts, under an approved auto-post rule). |
 | V4 | This is wrong | Activity → the item → **This is wrong** → picks from five suggestions or searches. Optional "Do this every time for Maverik?" | Before posting: fixed at once. After posting: a correction request to the CFO queue, shown as "Fix pending." "Every time" becomes a rule proposal, not a rule. |
 | V5 | Check goals | Goals tab: emergency fund bar and next debt payoff. | Targets show only once approved in the budget chat; until then "Target not set yet." |
-| V6 | Ask Keel | "How much have we spent eating out this month?" | Plain answer with "Data through Oct 18 · 2 items pending." |
+| V6 | Ask Homestead | "How much have we spent eating out this month?" | Plain answer with "Data through Oct 18 · 2 items pending." |
 | V7 | Propose a budget change | Budget → category → **Move money** → amount and source. Sees the effect, sends. | Goes to Cade for one-tap approval (I-09). On approval a versioned revision is written to BC and both are told. |
 | V8 | Approve Cade's change | Notification → sees the effect → **Approve** with Face ID, or **Not now**. | Same flow in reverse; the step-up check proves it was her. |
 | V9 | Lash income and supplies | A Venmo payment shows "Lash appointment?" **Yes**. Supply purchases get **Mark as business → Lash**. | Posts to 402101 and the 731xxx lash accounts, tagged VANESSA and DED-BUS. |
 | V10 | First run | Opens an invite link, creates her sign-in, adds Face ID, links the logins she owns (Beehive, Venmo). | Plaid handles the bank sign-in; the app never sees or stores her bank password. |
 
-### Cade (Keel Console)
+### Cade (Homestead Console)
 
 | # | Journey | What he does | What happens behind it |
 | --- | --- | --- | --- |
@@ -114,7 +114,7 @@ Vanessa's ten journeys are the Phase 2 prototype script; Cade's eight define the
 
 The MVP is 14 phone screens and 6 of the 12 CFO Console functions; the other 6 follow once the budget and debt chats have approved outputs to show.
 
-### Keel (phone, also in a browser)
+### Homestead (phone, also in a browser)
 
 | Screen | What it shows or does | Release |
 | --- | --- | --- |
@@ -129,14 +129,14 @@ The MVP is 14 phone screens and 6 of the 12 CFO Console functions; the other 6 f
 | H9 Move money | Propose a budget change and see its effect before sending | MVP |
 | H10 Approvals | Requests from the other spouse, with effect and Face ID approve | MVP |
 | H11 Goals | Emergency fund and next debt payoff, progress and next milestone | MVP |
-| H12 Ask Keel | Question box, answers with data-through date and status | MVP |
+| H12 Ask Homestead | Question box, answers with data-through date and status | MVP |
 | H13 Bills | Calendar of bills and minimums until the next two paydays | MVP |
 | H14 Settings | Face ID, notifications and quiet hours, linked logins (status only), export my data, sign out | MVP |
 | H15 Kids' view | Goals and progress only, no balances (I-22, pending approval) | Later |
 
 An "Uploading 3 receipts" bar sits above every screen while anything is waiting to sync.
 
-### Keel Console (desktop browser)
+### Homestead Console (desktop browser)
 
 | Function (Phase 4 list) | Screen | Release |
 | --- | --- | --- |
@@ -182,7 +182,7 @@ Safe to spend until the next paycheck = cash in checking and savings, minus mone
 
 ### D1 · App platform: Expo (React Native)
 
-One Expo codebase for iPhone and Android, which also runs in a browser, plus a separate React web app for Keel Console. Both share a TypeScript package for categories, states and money math.
+One Expo codebase for iPhone and Android, which also runs in a browser, plus a separate React web app for Homestead Console. Both share a TypeScript package for categories, states and money math.
 
 | Need | Expo app | Progressive web app |
 | --- | --- | --- |
@@ -235,7 +235,7 @@ Plaid's Trial plan gives new US teams real production data free for up to 10 log
 - **File import:** CSV, OFX/QFX and statement PDFs enter the same staging table, states and duplicate checks as Plaid data.
 - **Pending transactions** show in the app but never go to BC.
 
-### D4 · Receipts and Ask Keel
+### D4 · Receipts and Ask Homestead
 
 Azure Document Intelligence's receipt model reads merchant, date, total, tax and line items; Claude maps each line to household categories. Document Intelligence lists $10 per 1,000 pages with 500 free pages a month.
 
@@ -244,7 +244,7 @@ Azure Document Intelligence's receipt model reads merchant, date, total, tax and
 - **Amazon:** no paper receipt and one charge per shipment. Order emails are forwarded to a private household receipts address; Amazon's "Request your data" order history is the monthly catch-up.
 - **No receipt after 10 days:** the line posts to 603201, 603401 or 603801 and the monthly 60/25/15 allocation clears it. The app labels it "estimated split."
 
-Ask Keel runs on Claude through Microsoft Foundry's Azure-hosted option. In a US Data Zone deployment, prompts and answers stay within Azure and inference stays in the United States; only usage metadata and content flagged by safety systems go to Anthropic, which acts as an independent processor.
+Ask Homestead runs on Claude through Microsoft Foundry's Azure-hosted option. In a US Data Zone deployment, prompts and answers stay within Azure and inference stays in the United States; only usage metadata and content flagged by safety systems go to Anthropic, which acts as an independent processor.
 
 - Read-only functions only: balances, budget status, transactions, safe-to-spend, goals, bills. Each returns its data-through date and status.
 - No write tools. "Move $50 to groceries" becomes a draft that goes through the normal approval (V7).
@@ -313,7 +313,7 @@ About $26–52 a month for the family, most of it the database and the Apple fee
 | Item | Basis | Est. per month |
 | --- | --- | --- |
 | PostgreSQL Flexible Server, B1ms | About $12 compute (East US list) plus storage | $15–20 |
-| Claude via Foundry | Ask Keel and receipt line categorizing, billed by use | $2–10 |
+| Claude via Foundry | Ask Homestead and receipt line categorizing, billed by use | $2–10 |
 | Apple Developer Program | $99 a year | ~$8 |
 | Container Apps (API and jobs) | Family-scale load on the consumption plan | $0–5 |
 | Application Insights | Small, scrubbed log volume | $0–5 |
