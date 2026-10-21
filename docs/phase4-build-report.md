@@ -46,12 +46,16 @@ Then: add the `BC_SANDBOX_*` repository secrets and the nightly job runs A1–A9
 
 ## Decisions, with the default used until you say otherwise
 
-Only two need information from you; the rest have a default already built.
+Two needed information from you and are now answered; the rest have a default already built.
 
-**Need your information**
+**Answered October 21, 2026**
 
-1. Which BC version is `CADE_Sandbox_vs25` on? The extension assumes 2025 wave 2 (application 27); an older sandbox needs one line changed before publishing.
-2. The standing weekly tithing amount (rule R5) and any one past Henry's Fork payday (anchors the every-other-Friday schedule).
+1. BC version: at least 2025 wave 2 (Cade). The extension's target (application 27, runtime 16.0) stands; a newer sandbox runs it unchanged.
+2. Henry's Fork payday: Friday, October 23, 2026, then every other Friday (Cade). The default anchor had been October 16, a week off; corrected, and the tests that encoded the old dates updated.
+
+**Still open, not blocking**
+
+- The standing weekly tithing amount for rule R5. R5 goes live only after the clean pilot month, so this can wait; the pilot's first weeks will also show it in the data.
 
 **Defaults in place**
 

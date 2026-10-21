@@ -105,7 +105,7 @@ describeDb("alerts", () => {
   it("builds the weekly pulse with safe-to-spend, bills, the top watch lines and what rules posted", async () => {
     const p = await inHh(hh, (db) => weeklyPulse(db, hh.householdId, ledger, at("2026-10-25T19:00:00")));
     expect(p).toMatchObject({ kind: "weekly_pulse", level: "pulse", fingerprint: "weekly_pulse:2026-W43" });
-    expect(p.body).toMatch(/Safe to spend before 2026-10-30/);
+    expect(p.body).toMatch(/Safe to spend before 2026-11-06/); // Sunday 10/25: the 10/23 payday has passed
     expect(p.body).toMatch(/No rule posted anything without you this week/);
   });
 });

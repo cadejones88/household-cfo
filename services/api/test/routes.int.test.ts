@@ -55,7 +55,7 @@ describeDb("routes", () => {
     const me = r.json();
     expect(me.member).toEqual({ id: hh.members.vanessa, displayName: "Vanessa", role: "member" });
     expect(me.members.map((m: { displayName: string }) => m.displayName).sort()).toEqual(["Cade", "Vanessa"]);
-    expect(me.household).toMatchObject({ timezone: "America/Boise", today: "2026-10-20", nextPayday: "2026-10-30", quietHours: { start: "21:00", end: "07:00" } });
+    expect(me.household).toMatchObject({ timezone: "America/Boise", today: "2026-10-20", nextPayday: "2026-10-23", quietHours: { start: "21:00", end: "07:00" } });
     expect(me.ledger).toMatchObject({ environment: "CADE_Sandbox_vs25", journalTemplate: "HHAPP", autoPostEnabled: false });
     expect(JSON.stringify(me)).not.toMatch(/cert|secret/i);
   });
@@ -164,7 +164,7 @@ describeDb("routes", () => {
       expect(r.json().dataThrough, url).toMatchObject({ at: expect.any(String), quality: expect.any(String), pendingCount: expect.any(Number) });
     }
     const bills = (await app.inject({ method: "GET", url: "/v1/bills", headers: as(hh.members.vanessa) })).json();
-    expect(bills.nextPayday).toBe("2026-10-30");
+    expect(bills.nextPayday).toBe("2026-10-23");
     expect(bills.bills.find((b: { name: string }) => b.name === "America First Visa · minimum")).toMatchObject({ dueDate: "2026-10-22", beforePayday: true, isMinimum: true });
     expect(bills.bills.find((b: { name: string }) => b.name === "PennyMac · mortgage")).toMatchObject({ dueDate: "2026-11-01", beforePayday: false, isBcNative: true });
     expect((await app.inject({ method: "GET", url: "/v1/bills/safe-to-spend", headers: as(hh.members.vanessa) })).statusCode).toBe(200);

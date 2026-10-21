@@ -63,7 +63,7 @@ export const DEFAULT_AUTHORITY_MATRIX: AuthorityRowSetting[] = [
 ];
 
 export const DEFAULT_SETTINGS: HouseholdSettings = {
-  paydayAnchor: "2026-10-16",
+  paydayAnchor: "2026-10-23", // Cade, 10/21/2026: next HFH payday is Friday Oct 23; every other Friday from there
   liquidityFloorCents: 0,
   materialityCents: 2500,
   quietHours: { start: "21:00", end: "07:00" },
