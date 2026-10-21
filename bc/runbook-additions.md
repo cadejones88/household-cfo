@@ -7,7 +7,7 @@ Names that other parts of the system depend on are fixed here and in code; chang
 | Name | Used by |
 | --- | --- |
 | Journal template `HHAPP`; batches `FEEDS`, `RECEIPTS`, `AUTOPOST` | adapter `journalTemplate`, `resolveJournal()`; `HH AutoPost Defaults` |
-| Permission set `HH-APP` | Entra application card |
+| Permission set `HH-APP` (extension), `HH-APP-SYS` (user-defined, in the tenant) | Entra application card |
 | Source code `HHAUTO`, reason code `AUTOPOST` | `HH AutoPost Defaults`; the Change Log review |
 | Accounts `401102`, `401202` | `@homestead/shared` chart, paycheck pipeline (`PENDING_SANDBOX_ACCOUNTS`) |
 | Budget names `*-ORIG` (never written), `*-REV*`, `FCST*` | `hhBudgetEntries`, `assertWritableBudgetName()` |
@@ -45,6 +45,15 @@ For **Gate 4** the test runs use a separate certificate made on Cade's Mac and k
 1. Search **Microsoft Entra Applications** (the page is named "Azure Active Directory Applications" on older builds) → **New**.
 2. **Client ID** = the Application (client) ID from 1.2.2; **Description** `Homestead BC Sandbox`; **State** `Enabled`. BC creates a user of type Application behind the card; leave its contact fields blank.
 3. **User Permission Sets** subpage: add `HH-APP` (it appears once the HH App Connector is published, change 2; if publishing comes later, come back to this step). Company: the household company only. Add nothing else — in particular not `D365 BUS FULL ACCESS`, `SUPER` or `D365 READ`. If a smoke test in 1.4 fails with a permission error on a system table, add that table to the `HH-APP` source (`bc/hh-app-connector/src/HHApp.PermissionSet.al`) and republish; the comment at the end of that file explains why.
+
+   **Two more sets, proven needed by the sandbox runs of October 21, 2026, each added with Cade's approval.** Some tables BC reads on every journal-line or budget insert are OnPrem-scoped, so a cloud extension cannot name them (compile error AL0296) and HH-APP cannot carry them:
+
+   | Set | Type | What it grants | Why |
+   | --- | --- | --- | --- |
+   | `SUSTAINABILITY READ` | Microsoft (Sustainability app) | read on the Sustainability tables | BC's journal-line validation reads Sustainability Setup (table 6217); without it every draft answered 403 |
+   | `HH-APP-SYS` | user-defined (**Permission Sets → New**, in the tenant, not in an extension) | one line: Table Data 2000000076 **Web Service**, Read **Indirect**, nothing else | BC's budget-entry insert reads Web Service; without it A8 answered 403 |
+
+   Both are assigned for the household company only. If `HH-APP-SYS` ever shows a second line (opening its **Permissions** with nothing selected can add a "Table Data 0, All objects" line), delete that line: the set must hold the single Web Service line.
 4. No **Grant Consent** on the card: the admin consent granted on the app registration (step 1.3) is the consent the S2S token needs. BC's Grant Consent button is only for registrations that were not admin-consented in Entra, and it needs a redirect URI, which this registration deliberately has none of; pressed anyway, it fails with AADSTS900561 ("The endpoint only accepts POST requests"). Found October 21, 2026.
 5. Optional, server-side scoping: on the application's user card, **Permission Sets → Security Filters** for `Gen. Journal Line`: `Journal Template Name=CONST(HHAPP)`. The adapter only ever addresses HHAPP batches; this makes BC enforce it as well. Note the user card also lists the permission set with a blank company, which means all companies; set the household company explicitly.
 
@@ -64,6 +73,8 @@ The sandbox acceptance run in GitHub Actions does these (it signs in with `BC_SA
 ## Change 2 — Publish the HH App Connector
 
 Approved at Gate 1; `hhJournalLineChecks` added by the Phase 3 spec. GitHub Actions compiles the extension against Microsoft's BC 27 symbols on every change (`.github/workflows/al-compile.yml`) and publishes it as the release `hh-app-connector-v<version>`: download `HH-App-Connector.zip`, unzip, and in the sandbox **Extension Management → Manage → Upload Extension** → choose `HH-App-Connector.app` → Deploy to **Current version** → Deploy; **Deployment Status** shows Completed in a minute or two. (Publishing from VS Code, `bc/hh-app-connector/README.md`, also works.) After publishing, go back to step 1.3.3 and assign `HH-APP`.
+
+Versions installed in the sandbox: 1.0.0.1 (first install), 1.0.0.2 (Execute on the standard API v2.0 pages, which BC requires from the application's own sets), 1.0.0.3 (object Execute by wildcard, and the `hhJournalLines` page that lays the app's dimensions over the account's default dimensions; installed October 21, 2026). A released version is never replaced: the workflow skips a release that already has its zip, so a change always ships under a new version number.
 
 ### Test
 

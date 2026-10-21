@@ -2,11 +2,11 @@
 
 Gate 4 is the nine acceptance tests passing against the real BC sandbox. Everything below happens in `CADE_Sandbox_vs25` and the firm's Microsoft tenant. Nothing touches production, a bank, or money. About 45 minutes in all.
 
-**Progress:** steps 1–5 done October 21, 2026 (connector 1.0.0.1 installed by Cade; master data entered by Claude in the built-in browser; app registration, certificate and BC application card by Cade). The first sandbox runs found that HH-APP needs Execute on the standard API pages: connector **1.0.0.2** adds it and must replace 1.0.0.1 (same upload as step 1, once Cade approves the change).
+**Progress (October 21, 2026):** steps 1–5 done. Connector 1.0.0.3 is installed, and the application card carries HH-APP plus the two sets the sandbox runs proved necessary (step 5). The sandbox run passes A3, A4, A5, A8 and A9. A1, A2 and A7 wait on the guided session (step 6). A6 waits on a public webhook receiver.
 
 ## 1. Install the HH App Connector in the sandbox (5 minutes) — done
 
-1. Download `HH-App-Connector.zip` (version 1.0.0.2 or later) from https://github.com/cadejones88/household-cfo/releases/latest/download/HH-App-Connector.zip and unzip it. Version 1.0.0.0 cannot install in this sandbox: its object numbers collided with the Risky Cards Connector.
+1. Download `HH-App-Connector.zip` (version 1.0.0.3 or later) from https://github.com/cadejones88/household-cfo/releases/latest/download/HH-App-Connector.zip and unzip it. Version 1.0.0.0 cannot install in this sandbox: its object numbers collided with the Risky Cards Connector.
 2. In the sandbox: search **Extension Management** → **Manage** → **Upload Extension**.
 3. Choose `HH-App-Connector.app`, Deploy to **Current version**, accept, **Deploy**.
 4. **Deployment Status** shows *Completed* within a couple of minutes. Extension Management then lists "HH App Connector" by Cade T. Jones CPA, P.C., at the version you uploaded.
@@ -66,12 +66,56 @@ In the sandbox:
 
 1. Search **Microsoft Entra Applications** → **New**.
 2. **Client ID** = the Application (client) ID; **Description** `Homestead BC Sandbox`; **State** Enabled.
-3. **User Permission Sets**: Permission Set **HH-APP**, Company **Cade & Vanessa Jones Family**. Nothing else.
+3. **User Permission Sets**: Permission Set **HH-APP**, Company **Cade & Vanessa Jones Family**. The first runs showed BC also needs two read-only sets that an extension cannot carry. Both were added with Cade's approval and both are for the household company only:
+   - **SUSTAINABILITY READ** (Microsoft's): BC reads Sustainability Setup on every journal line.
+   - **HH-APP-SYS** (user-defined): a single line, Table Data 2000000076 Web Service, Read Indirect. BC reads it when a budget entry is inserted.
+
+   Nothing else (`bc/runbook-additions.md`, change 1.3).
 4. Do **not** use **Grant Consent**. The admin consent from step 3 already covers it, and BC's button needs a redirect URI that this registration deliberately doesn't have (it fails with AADSTS900561, "The endpoint only accepts POST requests").
 
-## 6. Tell Claude "done"
+## 6. The guided session in BC (about 20 minutes)
 
-Claude starts the sandbox run in GitHub Actions, reads the results, and fixes anything that differs from Microsoft's documented behavior. Two parts of the run need your own BC sign-in: posting the HHAPP/FEEDS and HHAPP/RECEIPTS test batches, and one bank reconciliation. They are done together in a short guided session (about 20 minutes). Gate 4 passes when A1–A9 are green.
+These are the steps that need a person's BC sign-in, because the app cannot post. They are all sandbox test data. The test run checks each one in BC. If a step is done, its test goes on. If not, the test is skipped and the run's summary repeats the instruction. The documents are the same every run, so the steps can be done at any time between runs. Do step 5 after step 1.
+
+To open an HHAPP batch: search **General Journal Templates**, select **HHAPP**, choose **Batches**, select the batch, then **Edit Journal**. To open GENERAL/TEST: search **General Journals** and choose batch **TEST** in Batch Name.
+
+1. **Post HHAPP/RECEIPTS.** It should hold six test receipts:
+   - Broulim's $48.27 on 10/19 (2 lines).
+   - Five Walmart receipts: 10/04 $34.96, 10/08 $81.03, 10/12 $33.05, 10/15 $58.47 and 10/19 $17.67 (19 lines).
+
+   **Post** → Yes. If the batch holds anything else, stop and tell Claude.
+2. **Post HHAPP/FEEDS.** It should hold six documents (12 lines):
+   - Two transfers between your own accounts, each side its own document: Beehive checking to savings $500.00 (10/21 and 10/22), and America First to Capital One $363.00 (10/23 and 10/24).
+   - The Capital One payment of $363.00 by CTJ and the Microsoft 365 business charge of $129.99, both 10/25.
+
+   **Post** → Yes.
+3. **PennyMac payment (A2).** In GENERAL/TEST, enter one line, then **Post**:
+   - Posting Date 11/01/2026
+   - Account Type Bank Account, Account No. AFCU-CHK
+   - Description "PennyMac payment (acceptance A2)"
+   - Amount −5,670.39
+   - Bal. Account Type G/L Account, Bal. Account No. 271101
+
+   In this sandbox test the whole payment goes to principal. Real payments use the RECURRING/MORTGAGE batch with the interest and escrow split.
+4. **Emergency-fund earmark (A7).** In GENERAL/TEST, enter two lines, then **Post**. Both lines use Posting Date 10/21/2026, Account Type Bank Account, Account No. BEEHIVE-SAV and Description "Set aside EMERG-1M (acceptance A7)":
+   - Amount 750.00, FUND_GOAL Code EMERG-1M
+   - Amount −750.00, FUND_GOAL Code OPERATING
+
+   The savings balance does not change. $750 of it is now marked as emergency fund.
+5. **Reconcile Broulim's (A1).**
+   1. Search **Bank Account Reconciliations** → **New**. Bank Account No. BEEHIVE-CHK, Statement Date 10/31/2026.
+   2. Add one statement line: Transaction Date 10/19/2026, Description BROULIMS, Statement Amount −48.27.
+   3. Select that line and the −48.27 Broulim's ledger entry, then **Match Manually**.
+   4. Set Statement Ending Balance to Balance Last Statement − 48.27.
+   5. **Post**.
+
+Then tell Claude "done". The next run should pass A1, A2 and A7. Claude can do these steps in the built-in browser instead, if you approve the list.
+
+A guided run is also possible. Start CI with **Run workflow** and wait_minutes = 30. The run then waits at each step, checking BC every 20 seconds, instead of skipping. A6 needs this, because it needs a posting during the run, as well as a public webhook receiver.
+
+## 7. Gate 4
+
+Gate 4 passes when A1–A9 are green in the sandbox run.
 
 ## Not needed for Gate 4, but worth starting now (waiting periods)
 
