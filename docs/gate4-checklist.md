@@ -2,7 +2,7 @@
 
 Gate 4 is the nine acceptance tests passing against the real BC sandbox. Everything below happens in `CADE_Sandbox_vs25` and the firm's Microsoft tenant. Nothing touches production, a bank, or money. About 45 minutes in all.
 
-**Progress (October 21, 2026):** steps 1–5 done. Connector 1.0.0.3 is installed, and the application card carries HH-APP plus the two sets the sandbox runs proved necessary (step 5). The sandbox run passes A3, A4, A5, A8 and A9. A1, A2 and A7 wait on the guided session (step 6). A6 waits on a public webhook receiver.
+**Progress (October 21, 2026): all steps done; A1–A9 pass against the sandbox** (guided CI run 39667150760, with the A6 receiver). Connector 1.0.0.3 is installed, and the application card carries HH-APP plus the two sets the sandbox runs proved necessary (step 5). Claude did the guided session (step 6) in the built-in browser, and Cade approved each posting. Gate 4 now waits on Cade's approval.
 
 ## 1. Install the HH App Connector in the sandbox (5 minutes) — done
 

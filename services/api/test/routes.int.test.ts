@@ -183,8 +183,8 @@ describeDb("routes", () => {
     expect(pb.json()).toMatchObject({ batch: "FEEDS", enqueued: false });
     const m = (await app.inject({ method: "GET", url: "/v1/console/mappings", headers: h })).json();
     expect(m.employers.map((e: { code: string }) => e.code).sort()).toEqual(["CTJ", "HFH"]);
-    // Bonus posts to gross wages with a BONUS comment until 401102 exists in the company (shared PENDING_SANDBOX_ACCOUNTS).
-    expect(m.employers.find((e: { code: string }) => e.code === "HFH").components.map((c: { glAccount: string }) => c.glAccount)).toEqual(["401101", "401101", "701101", "701201", "701301", "701401"]);
+    // Bonus posts to 401102 now that it exists in the company (shared PENDING_SANDBOX_ACCOUNTS is empty since 10/21/2026).
+    expect(m.employers.find((e: { code: string }) => e.code === "HFH").components.map((c: { glAccount: string }) => c.glAccount)).toEqual(["401101", "401102", "701101", "701201", "701301", "701401"]);
     const matrix = (await app.inject({ method: "GET", url: "/v1/console/authority-matrix", headers: h })).json();
     expect(matrix.rows.find((r: { action: string }) => r.action === "Budget move")).toMatchObject({ who: "The other spouse", tbd: true });
     expect(matrix.autoPostRules).toHaveLength(7);

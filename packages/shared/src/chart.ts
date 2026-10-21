@@ -359,5 +359,9 @@ export const LOANS: readonly LoanDefinition[] = [
   { id: "frontier-f350", name: "F-350 loan", lender: "Frontier CU", mask: "7003-0002", glAccount: "251201", interestAccount: "711601", feeAccounts: [], billNamePrefix: "Frontier CU · F-350" },
 ];
 
-/** Accounts approved on October 20, 2026 (BC change 5) that may not exist in the sandbox yet. */
-export const PENDING_SANDBOX_ACCOUNTS: readonly string[] = ["401102", "401202"];
+/**
+ * Accounts approved for BC that may not exist in a company yet; a bonus to one of them posts to gross wages with a
+ * BONUS comment instead. Empty since October 21, 2026: 401102 and 401202 (BC change 5) exist in the sandbox, read back
+ * by the acceptance run. Where the chart has been read from BC, the paycheck builder checks that list instead.
+ */
+export const PENDING_SANDBOX_ACCOUNTS: readonly string[] = [];

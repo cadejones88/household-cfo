@@ -74,7 +74,7 @@ describeDb("paychecks", () => {
       const comps = await loadComponents(db, p.id);
       expect(comps.map((c) => [c.kind, c.gl_account, c.amount_cents])).toEqual([
         ["regular", "401101", 365000],
-        ["bonus", "401101", 23077],
+        ["bonus", "401102", 23077], // 401102 exists since 10/21/2026 (BC change 5)
         ["fit", "701101", 29830],
         ["state_tax", "701201", 15000],
         ["social_security", "701301", 24061],
