@@ -144,7 +144,8 @@ export async function listQuestions(db: Queryable, householdId: string, memberId
   const cats = await loadCategories(db, householdId);
   const employers = await listEmployers(db, householdId);
   const out: Question[] = [];
-  const txs = await db.query<{ id: string }>("select id from transactions where household_id = $1 and not pending and state = any($2) order by updated_at asc limit 100", [householdId, QUEUE_STATES]);
+  // Items with a recorded exception reason (for example a line the bank removed) wait for Cade, not the household.
+  const txs = await db.query<{ id: string }>("select id from transactions where household_id = $1 and not pending and state = any($2) and exception_reason is null order by updated_at asc limit 100", [householdId, QUEUE_STATES]);
   for (const { id } of txs.rows) {
     const tx = await loadTx(db, id);
     const employerDeposit = tx.kind === "paycheck";

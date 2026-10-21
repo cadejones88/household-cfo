@@ -74,6 +74,9 @@ describe("mock ConsoleApi", () => {
     expect(o.deadLettered).toBe(false);
     expect(o.attempts).toBe(0);
     await expect(api.retryOutbox(o.id)).rejects.toMatchObject({ code: "not_dead_lettered" });
+    // A dead BC write whose line became an exception is resolved in the queue, not retried (as the API).
+    const exceptionWrite = dead.items.find((x) => x.aggregateId === "tx-0014")!;
+    await expect(api.retryOutbox(exceptionWrite.id)).rejects.toMatchObject({ code: "resolve_exception_first" });
   });
 
   it("every listing carries a data-through line", async () => {

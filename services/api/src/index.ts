@@ -10,6 +10,7 @@ export * from "./lib/dates.js";
 export * from "./lib/errors.js";
 export * from "./lib/logScrub.js";
 export * from "./services/ledgerPort.js";
+export * from "./services/ledgerPortBc.js";
 export * from "./services/ports.js";
 export * from "./services/households.js";
 export * from "./services/categories.js";

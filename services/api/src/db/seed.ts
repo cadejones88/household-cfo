@@ -184,7 +184,7 @@ export async function seedHousehold(db: Queryable, opts: SeedOptions = {}): Prom
   });
   await db.query("insert into budget_revisions (household_id, bc_budget_name, revision_no, lines) values ($1, $2, 1, $3)", [hh, settings.budget.sampleName, JSON.stringify(budgetLines)]);
 
-  await db.query("insert into audit_log (household_id, actor, action, entity, entity_id, after) values ($1, 'seed', 'household.seeded', 'household', $1, $2)", [hh, JSON.stringify({ name, today })]);
+  await db.query("insert into audit_log (household_id, actor, action, entity, entity_id, after) values ($1, 'seed', 'household.seeded', 'household', $2, $3)", [hh, hh, JSON.stringify({ name, today })]);
   return { householdId: hh, members: { cade, vanessa }, accounts, employers: { HFH, CTJ }, bills, rules, ledgerConnectionId, created: true };
 }
 

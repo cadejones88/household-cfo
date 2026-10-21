@@ -2,6 +2,8 @@
  * The Fastify application. Routes are registered under /v1; every route except /health and the webhook
  * receivers requires a signed-in member and runs inside that member's household (RLS).
  *
+ * Route modules live in src/routes/<name>.ts, each exporting a default Fastify plugin registered under /v1.
+ *
  * `deps` holds the ports (ledger, secrets, blobs, queue, Plaid, Document Intelligence, Claude, notifier). Tests
  * pass fakes; production builds them from the environment (deps.ts). Routes reach them as `app.deps`.
  */
@@ -16,13 +18,54 @@ import { authPlugin } from "./lib/auth.js";
 import { registerErrorHandler } from "./lib/http.js";
 import { healthRoutes } from "./routes/health.js";
 import { buildDepsFromEnv, type Deps } from "./deps.js";
+import meRoutes from "./routes/me.js";
+import accountsRoutes from "./routes/accounts.js";
+import transactionsRoutes from "./routes/transactions.js";
+import questionsRoutes from "./routes/questions.js";
+import receiptsRoutes from "./routes/receipts.js";
+import paychecksRoutes from "./routes/paychecks.js";
+import budgetRoutes from "./routes/budget.js";
+import goalsRoutes from "./routes/goals.js";
+import billsRoutes from "./routes/bills.js";
+import askRoutes from "./routes/ask.js";
+import approvalsRoutes from "./routes/approvals.js";
+import rulesRoutes from "./routes/rules.js";
+import alertsRoutes from "./routes/alerts.js";
+import consoleRoutes from "./routes/console.js";
+import webhooksRoutes from "./routes/webhooks.js";
+import devicesRoutes from "./routes/devices.js";
+
+declare module "fastify" {
+  interface FastifyInstance {
+    routeList: { method: string; url: string }[];
+  }
+}
 
 export interface BuildOptions {
   logger?: boolean;
   deps?: Deps;
 }
 
-export const ROUTE_MODULES = ["accounts", "transactions", "questions", "receipts", "paychecks", "budget", "goals", "bills", "ask", "approvals", "rules", "console", "webhooks", "devices"] as const;
+export const ROUTE_MODULES = ["me", "accounts", "transactions", "questions", "receipts", "paychecks", "budget", "goals", "bills", "ask", "approvals", "rules", "alerts", "console", "webhooks", "devices"] as const;
+
+const ROUTES: Record<(typeof ROUTE_MODULES)[number], (app: FastifyInstance) => Promise<void>> = {
+  me: meRoutes,
+  accounts: accountsRoutes,
+  transactions: transactionsRoutes,
+  questions: questionsRoutes,
+  receipts: receiptsRoutes,
+  paychecks: paychecksRoutes,
+  budget: budgetRoutes,
+  goals: goalsRoutes,
+  bills: billsRoutes,
+  ask: askRoutes,
+  approvals: approvalsRoutes,
+  rules: rulesRoutes,
+  alerts: alertsRoutes,
+  console: consoleRoutes,
+  webhooks: webhooksRoutes,
+  devices: devicesRoutes,
+};
 
 export async function buildApp(opts: BuildOptions = {}): Promise<FastifyInstance> {
   const loggerInstance = pino({
@@ -36,6 +79,12 @@ export async function buildApp(opts: BuildOptions = {}): Promise<FastifyInstance
   }) as unknown as FastifyInstance;
 
   app.decorate("deps", opts.deps ?? (await buildDepsFromEnv()));
+  // Every registered route, for the OpenAPI sync test (test/openapi.test.ts) and the health page.
+  const routeList: { method: string; url: string }[] = [];
+  app.decorate("routeList", routeList);
+  app.addHook("onRoute", (r) => {
+    for (const m of Array.isArray(r.method) ? r.method : [r.method]) if (m !== "HEAD" && m !== "OPTIONS") routeList.push({ method: m, url: r.url });
+  });
   registerErrorHandler(app);
   await app.register(helmet);
   await app.register(cors, { origin: (process.env["CORS_ORIGINS"] ?? "").split(",").filter(Boolean), credentials: true });
@@ -52,15 +101,7 @@ export async function buildApp(opts: BuildOptions = {}): Promise<FastifyInstance
   return app;
 }
 
-async function loadRouteModules() {
-  const mods: Array<(app: FastifyInstance) => Promise<void>> = [];
-  for (const name of ROUTE_MODULES) {
-    try {
-      const m = (await import(`./routes/${name}.js`)) as { default?: (app: FastifyInstance) => Promise<void> };
-      if (m.default) mods.push(m.default);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ERR_MODULE_NOT_FOUND") throw err;
-    }
-  }
-  return mods;
+async function loadRouteModules(): Promise<Array<(app: FastifyInstance) => Promise<void>>> {
+  // Static imports (every module now exists), so the bundle, vitest and tsc all see the same graph.
+  return ROUTE_MODULES.map((name) => ROUTES[name]);
 }

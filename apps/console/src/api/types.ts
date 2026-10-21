@@ -36,7 +36,8 @@ export interface ConsoleApi {
   // Function 1: work queues
   transactions(queue: ConsoleTransactionQueue, q?: PageQuery): Promise<ConsolePage<ConsoleTransactionRow>>;
   approveTransactions(ids: readonly string[]): Promise<{ approved: number; skipped: readonly { id: string; reason: string }[] }>;
-  correctTransaction(id: string, input: { categoryId: string; note?: string; makeRule?: boolean }): Promise<ConsoleTransactionRow>;
+  /** Before BC the line changes in place; after BC the API opens a correction request for Cade and says so. */
+  correctTransaction(id: string, input: { categoryId: string; note?: string; makeRule?: boolean }): Promise<ConsoleTransactionRow & { correctionRequestId?: string }>;
   setBusinessFlag(id: string, flag: BusinessFlag): Promise<ConsoleTransactionRow>;
   resolveDuplicate(id: string, decision: "not_a_repeat" | "same_thing"): Promise<ConsoleTransactionRow>;
   resolveException(id: string, resolution: ExceptionResolution): Promise<ConsoleTransactionRow>;

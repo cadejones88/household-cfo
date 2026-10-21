@@ -1,0 +1,89 @@
+{
+  "name": "walmart-5-rounding",
+  "imageText": "synthetic receipt image walmart-5-rounding",
+  "bank": {
+    "account": "CAPONE-CC",
+    "postedDate": "2026-10-19",
+    "amountCents": -1767,
+    "merchant": "WM SUPERCENTER #3247"
+  },
+  "read": {
+    "merchant": "WM SUPERCENTER #3247 IDAHO FALLS",
+    "date": "2026-10-18",
+    "totalCents": 1767,
+    "subtotalCents": 1666,
+    "taxCents": 101,
+    "items": [
+      {
+        "description": "TOOTHPASTE 2PK",
+        "amountCents": 333,
+        "confidence": 0.9
+      },
+      {
+        "description": "SHAMPOO",
+        "amountCents": 333,
+        "confidence": 0.9
+      },
+      {
+        "description": "GLUE STICKS",
+        "amountCents": 333,
+        "confidence": 0.9
+      },
+      {
+        "description": "SPAGHETTI SAUCE",
+        "amountCents": 333,
+        "confidence": 0.9
+      },
+      {
+        "description": "PASTA 2LB",
+        "amountCents": 333,
+        "confidence": 0.9
+      },
+      {
+        "description": "HAND SOAP",
+        "amountCents": 1,
+        "confidence": 0.9
+      }
+    ],
+    "fieldConfidence": {
+      "MerchantName": 0.98,
+      "Total": 0.99
+    }
+  },
+  "lineCategories": [
+    "household-supplies",
+    "household-supplies",
+    "school",
+    "groceries",
+    "groceries",
+    "household-supplies"
+  ],
+  "expected": {
+    "taxShares": [
+      21,
+      20,
+      20,
+      20,
+      20,
+      0
+    ],
+    "splits": [
+      {
+        "lineNo": 1,
+        "categoryId": "household-supplies",
+        "amountCents": -708
+      },
+      {
+        "lineNo": 2,
+        "categoryId": "school",
+        "amountCents": -353
+      },
+      {
+        "lineNo": 3,
+        "categoryId": "groceries",
+        "amountCents": -706
+      }
+    ],
+    "question": "confirm_split"
+  }
+}

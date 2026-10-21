@@ -26,7 +26,8 @@ flock /tmp/homestead-pnpm.lock pnpm install
 # mock mode: no API, no sign-in, synthetic data (the in-browser mock enforces the shared state machine)
 pnpm --filter @homestead/console dev:mock            # http://localhost:5174
 
-# against a local API with dev auth (sends x-dev-member)
+# against a local API with dev auth (sends x-dev-member). The API needs AUTH_MODE=dev and
+# CORS_ORIGINS=http://localhost:5174; VITE_DEV_MEMBER_ID is Cade's member id as `db:seed` prints it.
 cp apps/console/.env.example apps/console/.env       # names only; nothing here is a secret
 pnpm --filter @homestead/console dev
 
@@ -45,38 +46,58 @@ Modes come from `VITE_*` variables at build time (`src/config.ts`): `VITE_API_MO
 - `test/ExceptionResolveDialog.test.tsx`: keys on both sides, note required, "posted" needs entry numbers, error shown instead of closing.
 - `test/mockApi.test.ts`: the mock follows the state machine, writes audit and outbox rows, refuses empty posts, lets only the other spouse approve a rule.
 - `test/sha256.test.ts`: the browser `node:crypto` shim hashes exactly like Node (the shared package derives idempotency keys and External Document Nos. with it).
-- `e2e/smoke.spec.ts`: every MVP page in mock mode with its data-through line, a placeholder page, bulk approve, exception resolve with the audit trail, Post batch, the 14 cards and 3 loans, the I-09 highlight, outbox retry and the nightly page. CI installs Chromium; locally set `PW_CHROMIUM_PATH` to a pre-installed Chromium executable to skip the download.
+- `test/live-api.test.ts`: the same client against a running API with a seeded household (skipped unless `CONSOLE_LIVE_API_URL`, `CONSOLE_LIVE_MEMBER_ID` and `CONSOLE_LIVE_OTHER_MEMBER_ID` are set; it writes, so use a scratch database). It creates three manual lines, corrects one with a rule proposal, approves the rest, has the other spouse approve and retire the rule, records a post request, and reads all six screens.
+- `test/http.test.ts`: the HTTP client against a fake of the API's routes: bulk approve answers `tx:<id>` with `confirm` (never `/correct`), step-up goes only on the guarded calls, the resolve body carries the BC keys, post-batch maps the API's reply, mapping proposals are refused without a request, the 14 cards and the "not reported" list, receipt candidates from the receipt detail, API error bodies become `ApiError`.
+- `e2e/smoke.spec.ts`: every MVP page in mock mode with its data-through line, a placeholder page, bulk approve, exception resolve with the audit trail, Post batch, the 14 cards and 3 loans, the I-09 highlight, outbox retry and the nightly page. Run it with a pre-installed Chromium: `PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome pnpm --filter @homestead/console test:e2e` (14 tests, about 20 s), or let Playwright download one (`npx playwright install chromium`). The repository CI (`.github/workflows/ci.yml`) does not run it yet.
 
 ## What is faked and why
 
-- **Mock API** (`src/api/mock/`): `VITE_API_MODE=mock` swaps in an in-memory `ConsoleApi` with synthetic households, transactions, receipts, rules, outbox rows, sync runs and audit entries. Mutations run `assertTransition` from `@homestead/shared`, write an audit row and, for anything bound for BC, an outbox row. Used by the smoke test and for design review without an API or a sandbox.
+- **Mock API** (`src/api/mock/`): `VITE_API_MODE=mock` swaps in an in-memory `ConsoleApi` with synthetic households, transactions, receipts, rules, outbox rows, sync runs and audit entries. Mutations run `assertTransition` from `@homestead/shared`, write an audit row and, for anything bound for BC, an outbox row. Used by the smoke test and for design review without an API or a sandbox. It shows the designed flows, including two the API does not support yet (mapping proposals, loan rollforwards); in HTTP mode those say "not available yet".
 - **`node:crypto` shim** (`src/shims/node-crypto.ts`): `@homestead/shared` hashes with `node:crypto`; Vite aliases it to a small synchronous SHA-256 so the shared helpers run unchanged in the browser.
 - **Nightly acceptance** (`public/health.json`): a static file the CI `sandbox-acceptance` job overwrites after A1–A9 run against the BC sandbox. Until the first run the page says "No nightly run yet."
 - **BC deep links**: URL templates in `src/config.ts` (General Journal page 39, G/L Entries page 20, Bank Account Ledger Entries page 372) filled from `VITE_BC_*`; shown only when tenant and company are configured. They carry no credential.
 
 ## API routes
 
-`src/api/http.ts` is written against `services/api/openapi.yaml` (Oct 20, 2026). Where the Console needs something the API does not document yet, the client composes it from what exists or throws `ApiError 501 not_in_api` so the screen says so instead of guessing. The gaps, for the API builder:
+`src/api/http.ts` is written against `services/api/openapi.yaml` and reconciled (Oct 20, 2026) with the routes as implemented in `services/api/src/routes/*.ts`; `test/live-api.test.ts` runs every screen's reads and the Console's writes against a running API. Every Console action and the route it uses:
 
-| Console need | What the client does today | Suggested API change |
+| Console action | Route | Step-up |
 | --- | --- | --- |
-| Bulk approve (`approveTransactions`) | One `POST /v1/transactions/{id}/correct` per row with the row's current category ("approves with the new values") | `POST /v1/console/transactions/approve { ids }` returning `{ approved, skipped[] }` |
-| Match a receipt to a candidate line from the Console | 501 `not_in_api` | `POST /v1/receipts/{id}/match { transactionId }` |
-| Outbox listing and retry (Health → Failed jobs; Sync → recent dead letters) | 501 `not_in_api` (counts come from `/v1/console/connections.outbox`) | `GET /v1/console/outbox?deadLettered=`, `POST /v1/console/outbox/{id}/retry` (step-up) |
-| Loan rollforwards (Frontier ×2, PennyMac) | `loans: []` | Add `loans[]` (`LoanRollforward` in shared types) to `GET /v1/console/reconciliation` |
-| Employer templates and paycheck component accounts | `employers: []` | Add `employers[]` (`EmployerMapping`) to `GET /v1/console/mappings` |
-| Draft sums, journal IDs and BC-side counts per batch | `appDraftSumCents: 0`, `bcDraftCount` undefined (the "differs" tag cannot fire) | Extend `GET /v1/console/posting.batches[]` with `journalId`, `appDraftSumCents`, `bcDraftCount`, `bcDraftSumCents`, `lastPostRequestedAt`, `lastPostedAt` |
-| Subscription IDs | `subscriptionId: "—"` | Add `subscriptionId` to `connections.webhooks[]` |
-| Per-card statement number and date, reconciled-through, open sum, per-line differences | Derived: open = posted − reconciled; differences shown as a count with a pointer to Exceptions | Extend `reconciliation.accounts[]` with `lastStatementNo`, `lastStatementDate`, `reconciledThrough`, `openSumCents`, `differences[]` |
-| Audit filter by actor | Not sent (entity and entityId are) | Add `actor` query parameter to `GET /v1/console/audit` |
-| Resolve exception with a BC Document No. | Only `entryNos`, `postingDate`, `note` are sent; the dialog's Document No. is dropped | Add optional `documentNo` to `POST /v1/console/exceptions/{id}/resolve` |
-| Mapping proposal | `POST /v1/approvals { kind: "settings", payload: { kind: "mapping", categoryId, glAccount, dims, reason } }` — a convention, not documented | Document `payload.kind = "mapping"` for `settings` approvals, or add `POST /v1/console/mappings/propose` |
-| Who am I / household name and settings version | No `/v1/me`; the client reads `/v1/console/settings` for the version and shows "Household" | `GET /v1/me { member, household, ledger }` (`ConsoleMe` in shared types) |
-| Receipt capturer's name | `memberName: "—"` | Add `memberName` to `ReceiptSummary` |
-| Decline a proposed rule | `POST /v1/rules/{id}/retire` (the API has approve and retire only) | Fine as is; note it in the OpenAPI description |
-| Possible duplicate decision | `POST /v1/questions/tx:{id}/answer { optionId: not_repeat | same_thing }` | Fine as is if the question id convention `tx:<transaction id>` holds; otherwise return the question id on the transaction |
+| Queues, counts, receipts, rule proposals, exceptions | `GET /v1/console/queues` (one read shared for 5 s) | |
+| Account names and masks, feed status per bank card | `GET /v1/accounts` | |
+| Bulk approve | `POST /v1/questions/tx:{id}/answer { optionId: "confirm" }` per row (the phone's "Looks right"; not logged as a correction, so rule statistics stay honest) | |
+| This is wrong (+ optional rule proposal) | `POST /v1/transactions/{id}/correct`, then `POST /v1/rules` (kind `merchant`, `match { merchantNorm, band, direction }`) | |
+| Business flag | `POST /v1/transactions/{id}/business` | |
+| Possible duplicate | `POST /v1/questions/tx:{id}/answer { optionId: not_repeat \| same_thing }` | |
+| Resolve exception | `POST /v1/console/exceptions/{id}/resolve { to, entryNos, documentNo, postingDate, note }` | yes |
+| Receipt candidates; match | `GET /v1/receipts/{id}` (`candidates[]`), `GET /v1/transactions/{id}`; `POST /v1/receipts/{id}/match` | |
+| Rules; approve; decline or retire | `GET /v1/rules?state=`; `POST /v1/rules/{id}/approve`; `POST /v1/rules/{id}/retire { reason }` | yes |
+| BC sync and posting | `GET /v1/console/posting`, `/console/connections`, `/console/sync` (last poll status), `/console/audit?entity=batch` (last post request) | |
+| Post batch | `POST /v1/console/posting/post-batch` (records or enqueues; the screen shows the API's message) | yes |
+| Reconciliation | `GET /v1/console/reconciliation` (open = posted and not yet reconciled) | |
+| Mappings (categories, dimensions, bank cards, employer templates) | `GET /v1/console/mappings` | |
+| Authority matrix, settings versions | `GET /v1/console/authority-matrix`, `GET /v1/console/settings` | |
+| Connections, sync runs | `GET /v1/console/connections`, `GET /v1/console/sync?limit=500` | |
+| Outbox; retry a dead letter | `GET /v1/console/outbox?state=`; `POST /v1/console/outbox/{id}/retry` | yes |
+| Audit log | `GET /v1/console/audit?limit&entity&entityId` | |
+| Header (member, household, settings version, BC environment and company) | `GET /v1/me` | |
 
-Everything else (`/v1/console/queues`, `/sync`, `/posting`, `/posting/post-batch`, `/reconciliation`, `/mappings`, `/authority-matrix`, `/connections`, `/audit`, `/settings`, `/exceptions/{id}/resolve`, `/v1/rules*`, `/v1/transactions/{id}/business`, `/v1/accounts`) matches the OpenAPI as written. Shapes live in `packages/shared/src/types.ts` under "Console DTOs (E7)"; add fields there, never change existing ones.
+Step-up: in dev the client sends `x-step-up: true`; with Entra it sends a token issued just now (`forceRefresh`), which the API accepts when `iat` is inside two minutes and `amr` carries MFA or a passkey.
+
+Gaps, for the API builder (the screen says "not available yet" or "—" instead of a zero):
+
+| Console need | Today | Suggested API change |
+| --- | --- | --- |
+| Mapping change by proposal | Refused in the client with `501 not_in_api`. A `settings` approval would merge the proposal into household settings on approval and change no mapping. | `POST /v1/console/mappings/propose { categoryId, glAccount, dims, reason }` → an approval of a new kind that, when the other spouse approves with step-up, writes the next category version effective from a date |
+| Loan rollforwards (Frontier ×2, PennyMac) | Empty, page says so | `loans[]` (`LoanRollforward`) on `GET /v1/console/reconciliation` |
+| Per-card open sum, last statement, reconciled-through, difference lines | Counts only; "—" for the rest | Extend `reconciliation.accounts[]` with `openSumCents`, `lastStatementNo`, `lastStatementDate`, `reconciledThrough`, `differences[]` |
+| BC-side draft count and sum per batch, journal id, last posted | Not shown ("not reported"); the "differs" tag cannot fire | Extend `GET /v1/console/posting.batches[]` with `bcDraftCount`, `bcDraftSumCents`, `journalId`, `lastPostedAt` from the nightly poll |
+| Who captured a receipt | "—" | `memberName` (or `capturedBy`) on `ReceiptSummary` |
+| Audit filter by actor | Filtered in the client | `actor` query parameter on `GET /v1/console/audit` |
+| Whether BC answers right now | Shows the last poll instead | `ledger.apiReachable` and `checkedAt` on `GET /v1/console/connections` |
+| Classify a `needs_classification` line by hand | "This is wrong" sets the category; the line stays in Needs classification until the rule engine runs (there is no question for that state) | Let `/correct` (or a `tx:` answer) move a person-classified line to `ready_for_review`/`approved` |
+
+Shapes live in `packages/shared/src/types.ts` under "Console DTOs (E7)"; add fields there, never change existing ones.
 
 ## Layout
 

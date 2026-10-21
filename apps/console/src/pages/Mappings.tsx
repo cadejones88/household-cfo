@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
-import { CHART, DIMENSION_CODES, type CategoryMapping, type DimensionSet } from "@homestead/shared";
+import { buildPaycheckLines, CHART, DIMENSION_CODES, type CategoryMapping, type DimensionSet, type EmployerCode, type PaycheckComponentKind } from "@homestead/shared";
 import { useMappings, useProposeMapping } from "../api/hooks";
-import { Dialog, ErrorNotice, Loading, PageHead, Tabs, Tag, useToast } from "../components/ui";
+import { Dialog, ErrorNotice, Loading, PageHead, Tabs, Tag, errorMessage, useToast } from "../components/ui";
 import { ago, dateTime } from "../lib/format";
 
 type Section = "categories" | "dimensions" | "bankcards" | "employers";
@@ -12,6 +12,27 @@ const DIM_ORDER = Object.keys(DIMENSION_CODES) as (keyof typeof DIMENSION_CODES)
 function DimsCell({ dims }: { dims: DimensionSet }) {
   const parts = DIM_ORDER.filter((k) => dims[k]).map((k) => `${k.replace("_", " ").toLowerCase()}: ${dims[k]}`);
   return parts.length ? <span className="mono" style={{ fontSize: 11.5 }}>{parts.join(" · ")}</span> : <span className="sub">account defaults</span>;
+}
+
+const CATALOG_COMPONENTS: readonly { kind: PaycheckComponentKind; label: string }[] = [
+  { kind: "regular", label: "Regular and overtime pay" },
+  { kind: "bonus", label: "Bonus" },
+  { kind: "fit", label: "Federal withholding" },
+  { kind: "state_tax", label: "Idaho withholding" },
+  { kind: "social_security", label: "Social Security" },
+  { kind: "medicare", label: "Medicare" },
+  { kind: "benefit", label: "Benefit premiums (605xxx chosen from the stub label; default shown)" },
+  { kind: "other_deduction", label: "Other deductions" },
+];
+
+/**
+ * What the shared paycheck builder posts each component to, per employer: one cent of every component run through
+ * `buildPaycheckLines`, so the table is the code's own mapping rather than a copy of it. Shown when the API does
+ * not report the household's employer templates.
+ */
+function catalogDefaults(code: EmployerCode) {
+  const lines = buildPaycheckLines({ employer: code, components: CATALOG_COMPONENTS.map((c) => ({ kind: c.kind, label: c.label, amountCents: 1 })), netCents: -4, payDateIso: "2026-01-01" });
+  return lines.filter((l) => l.kind !== "net").map((l) => ({ kind: l.kind, label: CATALOG_COMPONENTS.find((c) => c.kind === l.kind)?.label ?? l.kind, glAccount: l.glAccount, dims: l.dims, note: l.description.startsWith("BONUS") ? "posts to gross wages with a BONUS comment until the bonus account exists in BC" : undefined }));
 }
 
 export function Mappings() {
@@ -180,6 +201,59 @@ export function Mappings() {
         </div>
       ) : null}
 
+      {q.data && section === "employers" && q.data.employers.length === 0 ? (
+        <>
+          <div className="notice watch" style={{ marginBottom: 12 }} data-testid="employers-catalog">
+            The API does not report the household's employer templates yet. Below is what the shared paycheck builder posts each component to; the household template (descriptor, last stub, any benefit accounts learned from stubs) is in the database and will show here once the API exposes it.
+          </div>
+          <div className="grid cols-2">
+            {(["HFH", "CTJ"] as const).map((code) => (
+              <div key={code} className="card">
+                <div className="card-head">
+                  <h2>{code}</h2>
+                  <span className="hint">catalog defaults</span>
+                </div>
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th>Component</th>
+                      <th>G/L</th>
+                      <th>Dimensions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {catalogDefaults(code).map((c) => (
+                      <tr key={c.kind}>
+                        <td>
+                          {c.label}
+                          <span className="sub">{c.note ?? c.kind}</span>
+                        </td>
+                        <td className="mono">
+                          {c.glAccount}
+                          <span className="sub">{CHART.find((a) => a.no === c.glAccount)?.name ?? ""}</span>
+                        </td>
+                        <td>
+                          <DimsCell dims={c.dims} />
+                        </td>
+                      </tr>
+                    ))}
+                    <tr>
+                      <td>
+                        Net pay<span className="sub">to the receiving bank card</span>
+                      </td>
+                      <td className="mono">bank card</td>
+                      <td>
+                        <span className="sub">—</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : null}
+
       {q.data && section === "employers" ? (
         <div className="grid cols-2">
           {q.data.employers.map((e) => (
@@ -246,6 +320,7 @@ function ProposeDialog({ row, onClose, onDone }: { row: CategoryMapping | null; 
   const [gl, setGl] = useState("");
   const [reason, setReason] = useState("");
   const [dims, setDims] = useState<DimensionSet>({});
+  const [error, setError] = useState<string | undefined>();
   const posting = useMemo(() => CHART.filter((a) => !["cash", "liability_card"].includes(a.kind)), []);
   const key = row?.id ?? "";
   const [seeded, setSeeded] = useState("");
@@ -254,12 +329,18 @@ function ProposeDialog({ row, onClose, onDone }: { row: CategoryMapping | null; 
     setGl(row.glAccount);
     setDims(row.dims);
     setReason("");
+    setError(undefined);
   }
   async function submit() {
     if (!row) return;
-    await propose.mutateAsync({ categoryId: row.id, glAccount: gl, dims, reason });
-    onDone();
-    onClose();
+    setError(undefined);
+    try {
+      await propose.mutateAsync({ categoryId: row.id, glAccount: gl, dims, reason });
+      onDone();
+      onClose();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
   }
   return (
     <Dialog
@@ -302,6 +383,11 @@ function ProposeDialog({ row, onClose, onDone }: { row: CategoryMapping | null; 
             Why
             <textarea value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Reason" />
           </label>
+          {error ? (
+            <div className="notice action" role="alert" style={{ marginTop: 10 }}>
+              {error}
+            </div>
+          ) : null}
         </>
       ) : null}
     </Dialog>

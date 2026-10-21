@@ -23,7 +23,9 @@ export interface AmazonOrder {
 }
 
 const ORDER_RE = /order\s*(?:#|number|no\.?)?\s*[:#]?\s*(\d{3}-\d{7}-\d{7})/gi;
-const TOTAL_RE = /(?:order\s+total|grand\s+total|total)\s*[:：]?\s*\$?\s*([\d,]+\.\d{2})/i;
+// "Order Total" / "Grand Total" first; a bare "Total" only when it is not "Item Subtotal" (which comes first in the email).
+const ORDER_TOTAL_RE = /(?:order|grand)\s+total\s*[:：]?\s*\$?\s*([\d,]+\.\d{2})/i;
+const TOTAL_RE = /(?<![a-z])total\s*[:：]?\s*\$?\s*([\d,]+\.\d{2})/i;
 const DATE_RE = /(?:order\s+placed|placed\s+on|order\s+date)\s*[:：]?\s*([A-Za-z]+ \d{1,2}, \d{4}|\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2})/i;
 const ITEM_RE = /^(?!.*\b(?:total|subtotal|shipping|tax|estimated|promotion|gift card)\b)(.{3,120}?)\s+(?:x\s*(\d+)\s+)?\$\s*([\d,]+\.\d{2})\s*$/i;
 const QTY_RE = /qty[:\s]*(\d+)/i;
@@ -32,7 +34,7 @@ export function parseAmazonEmail(text: string): AmazonOrder[] {
   const chunks = splitByOrder(text);
   const out: AmazonOrder[] = [];
   for (const { orderId, body } of chunks) {
-    const total = TOTAL_RE.exec(body)?.[1];
+    const total = ORDER_TOTAL_RE.exec(body)?.[1] ?? TOTAL_RE.exec(body)?.[1];
     if (!total) continue;
     const order: AmazonOrder = { orderId, totalCents: parseCents(total), items: [] };
     const date = DATE_RE.exec(body)?.[1];

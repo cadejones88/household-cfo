@@ -53,6 +53,11 @@ param entraApiAudience string = ''
 @description('Foundry endpoint and model deployment name for Ask Homestead and receipt line mapping; created by hand')
 param foundryEndpoint string = ''
 param foundryModel string = ''
+@description('Key Vault secret name holding the Foundry key. The API as built reads a key by name (services/api/src/deps.ts); without the secret it keeps its offline fake')
+param foundryKeySecretName string = 'foundry-api-key'
+
+@description('Browser origins allowed to call the API besides the Console\'s Static Web App (for example a custom console hostname, or http://localhost:5174 in dev)')
+param consoleExtraOrigins array = []
 
 @description('Postgres backup retention: 7 (dev, pilot) or 35 (prod)')
 param postgresBackupRetentionDays int = 7
@@ -133,10 +138,6 @@ module postgres 'modules/postgres.bicep' = {
     tags: tags
     adminObjectId: adminObjectId
     adminPrincipalName: adminPrincipalName
-    identityUsers: [
-      { name: identities.outputs.apiIdentityName, principalId: identities.outputs.apiPrincipalId }
-      { name: identities.outputs.jobsIdentityName, principalId: identities.outputs.jobsPrincipalId }
-    ]
     backupRetentionDays: postgresBackupRetentionDays
     geoRedundantBackup: postgresGeoRedundantBackup
   }
@@ -195,11 +196,7 @@ var commonEnv = [
   { name: 'PGDATABASE', value: postgres.outputs.databaseName }
   { name: 'PGPORT', value: '5432' }
   { name: 'PGSSLMODE', value: 'require' }
-  { name: 'PG_AUTH', value: 'entra' }
-  { name: 'PGUSER_API', value: identities.outputs.apiIdentityName }
-  { name: 'PGUSER_JOBS', value: identities.outputs.jobsIdentityName }
-  { name: 'AZURE_CLIENT_ID_API', value: identities.outputs.apiClientId }
-  { name: 'AZURE_CLIENT_ID_JOBS', value: identities.outputs.jobsClientId }
+  { name: 'PG_AUTH', value: 'entra' } // PGUSER and AZURE_CLIENT_ID are set per role in container-apps.bicep
   // Entra External ID
   { name: 'ENTRA_TENANT_ID', value: entraTenantId }
   { name: 'ENTRA_TENANT_DOMAIN', value: entraTenantDomain }
@@ -224,6 +221,7 @@ var commonEnv = [
   { name: 'DOCUMENT_INTELLIGENCE_ENDPOINT', value: documentIntelligence.outputs.endpoint }
   { name: 'FOUNDRY_ENDPOINT', value: foundryEndpoint }
   { name: 'FOUNDRY_MODEL', value: foundryModel }
+  { name: 'FOUNDRY_KEY_REF', value: empty(foundryEndpoint) ? '' : foundryKeySecretName }
   { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: monitoring.outputs.appInsightsConnectionString }
 ]
 
@@ -235,11 +233,17 @@ module containerApps 'modules/container-apps.bicep' = if (!empty(apiImage)) {
     location: location
     tags: tags
     environmentId: containerAppsEnv.outputs.environmentId
+    environmentDefaultDomain: containerAppsEnv.outputs.defaultDomain
     registryLoginServer: registry.outputs.loginServer
     image: apiImage
     apiIdentityId: identities.outputs.apiIdentityId
+    apiIdentityName: identities.outputs.apiIdentityName
+    apiClientId: identities.outputs.apiClientId
     jobsIdentityId: identities.outputs.jobsIdentityId
+    jobsIdentityName: identities.outputs.jobsIdentityName
+    jobsClientId: identities.outputs.jobsClientId
     commonEnv: commonEnv
+    corsOrigins: concat([staticWebApp.outputs.consoleUrl], consoleExtraOrigins)
     serviceBusNamespaceName: serviceBus.outputs.namespaceName
     serviceBusTopicName: serviceBus.outputs.topicName
     autoPostJobEnabled: autoPostJobEnabled
@@ -276,3 +280,9 @@ output consoleUrl string = staticWebApp.outputs.consoleUrl
 output documentIntelligenceEndpoint string = documentIntelligence.outputs.endpoint
 output apiIdentityClientId string = identities.outputs.apiClientId
 output jobsIdentityClientId string = identities.outputs.jobsClientId
+// For the one-time Postgres role step (infra/README.md, "Postgres roles"): role name and Entra object id.
+output apiIdentityName string = identities.outputs.apiIdentityName
+output apiIdentityPrincipalId string = identities.outputs.apiPrincipalId
+output jobsIdentityName string = identities.outputs.jobsIdentityName
+output jobsIdentityPrincipalId string = identities.outputs.jobsPrincipalId
+output postgresServerName string = postgres.outputs.serverName

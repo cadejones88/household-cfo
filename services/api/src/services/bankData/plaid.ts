@@ -391,13 +391,11 @@ async function applyRemoved(db: Queryable, householdId: string, transactionId: s
   }
   if (!row) return;
   counts.removedPosted += 1;
-  if (["imported", "needs_classification", "ready_for_review", "possible_duplicate", "needs_receipt"].includes(row.state)) {
-    // Not with BC yet: it can simply be dropped, the key stays so it cannot come back.
-    await db.query("update transactions set state = 'dropped', exception_reason = 'removed by the bank' where id = $1", [row.id]);
-    await audit(db, householdId, { actor, action: "transaction.removed_by_feed", entity: "transaction", entityId: row.id, before: { state: row.state }, after: { state: "dropped" } });
-    return;
-  }
-  await raiseException(db, householdId, row.id, "The bank removed this transaction after it was recorded", "bc_worker", actor);
+  // Spec: removed posted transactions raise an Exception. Along an allowed arrow (sent_to_bc, bc_draft_created) the
+  // state moves; before BC there is no arrow out, so the reason is recorded on the row (sync_status `difference`),
+  // the item leaves the household's questions and waits in the Console's exception queue for Cade. The key stays.
+  await raiseException(db, householdId, row.id, "The bank removed this transaction after it was recorded", row.state === "bc_draft_created" ? "poll" : "bc_worker", actor);
+  await audit(db, householdId, { actor, action: "transaction.removed_by_feed", entity: "transaction", entityId: row.id, before: { state: row.state } });
 }
 
 async function markRelink(db: Queryable, householdId: string, feed: FeedRow, reason: string, actor: string): Promise<void> {

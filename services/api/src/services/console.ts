@@ -2,7 +2,9 @@
  * The CFO Console's read models (Console functions 1–3, 4, 11, 12) and its two write actions: "post batch"
  * (which only enqueues; the API never posts to BC itself) and retrying a dead-lettered outbox row.
  */
-import { BANK_CARD_LIST, CATEGORIES, DIMENSION_CODES, FAMILY_AREA, FUND_GOAL, PROJECT, SPEND_CLASS, TAX_TREATMENT, type AuditEntry, type DataThrough, type OutboxItem } from "@homestead/shared";
+import { BANK_CARD_LIST, CATEGORIES, DIMENSION_CODES, FAMILY_AREA, FUND_GOAL, PROJECT, SPEND_CLASS, TAX_TREATMENT, type AuditEntry, type DataThrough, type EmployerMapping, type OutboxItem, type PaycheckComponentKind } from "@homestead/shared";
+import { listEmployers } from "./paychecks/index.js";
+import { applyTemplate, linesForPaycheck } from "./paychecks/template.js";
 import { audit, enqueueOutbox, type Queryable } from "../db/index.js";
 import { conflict, notFound } from "../lib/errors.js";
 import { hoursBetween } from "../lib/dates.js";
@@ -10,7 +12,7 @@ import { listFeeds } from "./bankData/plaid.js";
 import { loadCategories } from "./categories.js";
 import { getHousehold, ledgerConnection } from "./households.js";
 import type { BcBatch } from "./ledgerPort.js";
-import { listAccounts, listTransactions, loadSplitsFor, toTransactionDto } from "./transactions.js";
+import { listAccounts, listTransactions, loadSplitsFor, loadTx, toTransactionDto } from "./transactions.js";
 
 const QUEUE_STATES = ["possible_duplicate", "needs_receipt", "needs_classification", "ready_for_review", "exception"] as const;
 
@@ -19,12 +21,18 @@ export async function queues(db: Queryable, householdId: string, now: Date) {
   const r = await db.query<{ state: string; n: number }>("select state, count(*)::int as n from transactions where household_id = $1 and not pending and state = any($2) group by state", [householdId, [...QUEUE_STATES]]);
   for (const s of QUEUE_STATES) counts[s] = 0;
   for (const row of r.rows) counts[row.state] = row.n;
+  const notedCount = await db.query<{ n: number }>("select count(*)::int as n from transactions where household_id = $1 and state <> 'exception' and exception_reason is not null and sync_status = 'difference'", [householdId]);
+  counts["exception"] = (counts["exception"] ?? 0) + (notedCount.rows[0]?.n ?? 0);
   const rec = await db.query<{ n: number }>("select count(*)::int as n from receipts where household_id = $1 and kind = 'receipt' and (ocr_status in ('needs_review','failed') or (ocr_status = 'read' and matched_transaction_id is null))", [householdId]);
   counts["receipts"] = rec.rows[0]?.n ?? 0;
   const rules = await db.query<{ n: number }>("select count(*)::int as n from rules where household_id = $1 and state = 'proposed'", [householdId]);
   counts["rules"] = rules.rows[0]?.n ?? 0;
   const { rows } = await listTransactions(db, householdId, { states: ["possible_duplicate", "needs_receipt", "needs_classification", "ready_for_review"], limit: 200 });
-  const { rows: exc } = await listTransactions(db, householdId, { states: ["exception"], limit: 200 });
+  const { rows: excStates } = await listTransactions(db, householdId, { states: ["exception"], limit: 200 });
+  // Plus items noted with an exception reason where no state arrow exists (a line the bank removed before BC).
+  const noted = await db.query<{ id: string }>("select id from transactions where household_id = $1 and state <> 'exception' and exception_reason is not null and sync_status = 'difference' order by posted_date desc limit 200", [householdId]);
+  const exc = [...excStates];
+  for (const { id } of noted.rows) exc.push(await loadTx(db, id));
   const splits = await loadSplitsFor(db, [...rows, ...exc].map((t) => t.id));
   const marks = await db.query<{ at: string | null; pending: number }>(
     "select max(updated_at) as at, count(*) filter (where pending or state in ('imported','possible_duplicate','needs_receipt','needs_classification','ready_for_review'))::int as pending from transactions where household_id = $1",
@@ -113,6 +121,30 @@ export async function reconciliationStatus(db: Queryable, householdId: string) {
   };
 }
 
+/** Employer templates as the Console shows them: each component kind with the G/L account and dimensions it posts to. */
+export async function employerMappings(db: Queryable, householdId: string): Promise<EmployerMapping[]> {
+  const employers = await listEmployers(db, householdId);
+  const members = await db.query<{ id: string; display_name: string }>("select id, display_name from members where household_id = $1", [householdId]);
+  const nameOf = new Map(members.rows.map((m) => [m.id, m.display_name]));
+  return employers.map((e) => {
+    // A nominal net run through the template gives each component's account without touching a real paycheck.
+    const nominal = 100_000;
+    const lines = linesForPaycheck(e.code, applyTemplate(e.template, nominal), nominal, "2026-01-01").filter((l) => l.kind !== "net");
+    const out: EmployerMapping = {
+      id: e.id,
+      code: e.code,
+      name: e.name,
+      memberName: nameOf.get(e.member_id) ?? "",
+      descriptorPattern: e.descriptor_pattern,
+      grossAccount: e.bc_gross_account,
+      bonusAccount: e.bc_bonus_account,
+      components: lines.map((l) => ({ kind: l.kind as PaycheckComponentKind, label: l.description, glAccount: l.glAccount, dims: l.dims })),
+    };
+    if (e.last_stub_at) out.lastStubAt = new Date(e.last_stub_at).toISOString();
+    return out;
+  });
+}
+
 export async function mappings(db: Queryable, householdId: string) {
   const cats = await loadCategories(db, householdId);
   const accounts = await listAccounts(db, householdId);
@@ -123,6 +155,7 @@ export async function mappings(db: Queryable, householdId: string) {
     accounts: accounts.map((a) => ({ id: a.id, displayName: a.display_name, institution: a.institution, kind: a.kind, mask: a.mask, bcBankAccountCode: a.bc_bank_account_code ?? undefined, bcGlAccount: a.bc_gl_account ?? (a.bc_bank_account_code ? cardByCode.get(a.bc_bank_account_code)?.glAccount : undefined), feedStatus: a.feed_connection_id ? "ok" : "none", isRestricted: a.is_restricted })),
     dimensions: { [DIMENSION_CODES.SPEND_CLASS]: [...SPEND_CLASS], [DIMENSION_CODES.FUND_GOAL]: [...FUND_GOAL], [DIMENSION_CODES.FAMILY_AREA]: [...FAMILY_AREA], [DIMENSION_CODES.TAX_TREATMENT]: [...TAX_TREATMENT], [DIMENSION_CODES.PROJECT]: [...PROJECT] },
     catalogCategories: CATEGORIES.length,
+    employers: await employerMappings(db, householdId),
   };
 }
 
@@ -219,6 +252,13 @@ export async function retryOutbox(db: Queryable, householdId: string, outboxId: 
   const row = r.rows[0];
   if (!row) throw notFound("outbox row");
   if (!row.dead_lettered || row.completed_at) throw conflict("not_dead_lettered", "Only a dead-lettered row can be retried");
+  if (row.aggregate === "transaction" && row.operation === "send_to_bc") {
+    const t = await db.query<{ state: string }>("select state from transactions where id = $1", [row.aggregate_id]);
+    if (t.rows[0]?.state === "exception") {
+      // Exception -> Ready for review is Cade's resolution; approving it again writes a fresh outbox row.
+      throw conflict("resolve_exception_first", "This item is an exception. Resolve it to ready for review and approve it again; that sends it once more.");
+    }
+  }
   await db.query("update outbox set dead_lettered = false, attempts = 0, next_attempt_at = now(), published_at = null, last_error = null where id = $1", [outboxId]);
   if (row.aggregate === "transaction" && row.operation === "send_to_bc") {
     // The transaction sits in exception; the worker's pre-write check decides whether BC already has it.

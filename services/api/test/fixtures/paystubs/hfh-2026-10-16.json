@@ -1,0 +1,24 @@
+{
+  "note": "Synthetic Paychex-shaped stub for Henry's Fork Homes, as prebuilt-payStub.us would return it (amounts in cents).",
+  "imageText": "synthetic pay stub hfh 2026-10-16",
+  "read": {
+    "employerName": "Henry's Fork Homes",
+    "employeeName": "Cade Jones",
+    "payDate": "2026-10-16",
+    "periodStart": "2026-10-01",
+    "periodEnd": "2026-10-14",
+    "grossCents": 388077,
+    "netCents": 313559,
+    "earnings": [
+      { "label": "Regular", "amountCents": 365000, "confidence": 0.97 },
+      { "label": "Bonus", "amountCents": 23077, "confidence": 0.95 }
+    ],
+    "taxes": [
+      { "label": "Federal Income Tax", "amountCents": 29830, "confidence": 0.96 },
+      { "label": "ID State Tax", "amountCents": 15000, "confidence": 0.96 },
+      { "label": "Social Security", "amountCents": 24061, "confidence": 0.97 },
+      { "label": "Medicare", "amountCents": 5627, "confidence": 0.97 }
+    ],
+    "deductions": []
+  }
+}

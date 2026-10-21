@@ -1,11 +1,16 @@
+import { CHART } from "@homestead/shared";
 import { useReconciliation } from "../api/hooks";
-import { ErrorNotice, Loading, PageHead, Tag } from "../components/ui";
+import { Empty, ErrorNotice, Loading, PageHead, Tag } from "../components/ui";
 import { date, dateTime, money } from "../lib/format";
 import { feedStatusView } from "../lib/status";
 import { bcBankLedgerUrl, bcLinksConfigured } from "../lib/bcLinks";
 
+/** The three loans the rollforward tiles cover (G/L liabilities in the shared chart). */
+const LOAN_ACCOUNTS = ["251101", "251201", "271101"] as const;
+
 export function Reconciliation() {
   const q = useReconciliation();
+  const missing = new Set(q.data?.missing ?? []);
   const totalOpen = q.data?.bankCards.reduce((n, c) => n + c.openCount, 0) ?? 0;
   const totalDiff = q.data?.bankCards.reduce((n, c) => n + c.differences.length, 0) ?? 0;
 
@@ -23,7 +28,7 @@ export function Reconciliation() {
             <div className="card stat">
               <span className="label">Open bank ledger lines</span>
               <span className="value">{totalOpen}</span>
-              <span className="sub">across {q.data.bankCards.length} bank cards</span>
+              <span className="sub">posted in BC, not yet on a reconciled statement · {q.data.bankCards.length} bank cards</span>
             </div>
             <div className="card stat">
               <span className="label">Differences</span>
@@ -34,12 +39,15 @@ export function Reconciliation() {
             </div>
             <div className="card stat">
               <span className="label">Loans matched this period</span>
-              <span className="value">
-                {q.data.loans.filter((l) => l.matchedEntryNo).length} / {q.data.loans.length}
-              </span>
-              <span className="sub">BC-native recurring entries (R7)</span>
+              <span className="value">{missing.has("loans") ? "—" : `${q.data.loans.filter((l) => l.matchedEntryNo).length} / ${q.data.loans.length}`}</span>
+              <span className="sub">BC-native recurring entries (R7){missing.has("loans") ? " · not in the API yet" : ""}</span>
             </div>
           </div>
+          {missing.size > 0 ? (
+            <div className="notice watch" style={{ marginBottom: 12 }} data-testid="recon-missing">
+              The API does not report {[missing.has("openSum") ? "open sums" : "", missing.has("statements") ? "statement numbers and dates" : "", missing.has("differenceLines") ? "the individual difference lines" : "", missing.has("loans") ? "loan rollforwards" : ""].filter(Boolean).join(", ")} yet. Those cells show "—" rather than a zero; the counts come from the app's mirror of BC.
+            </div>
+          ) : null}
 
           <div className="card">
             <div className="card-head">
@@ -88,12 +96,12 @@ export function Reconciliation() {
                         </td>
                         <td className="num">{c.openCount}</td>
                         <td className="num">{c.reconciledCount}</td>
-                        <td className="num">{money(c.openSumCents)}</td>
+                        <td className="num">{missing.has("openSum") ? "—" : money(c.openSumCents)}</td>
                         <td>
                           {c.lastStatementNo ?? "—"}
                           <span className="sub">{c.lastStatementDate ? date(c.lastStatementDate) : ""}</span>
                         </td>
-                        <td>{c.reconciledThrough ? date(c.reconciledThrough) : <span className="sub">never</span>}</td>
+                        <td>{c.reconciledThrough ? date(c.reconciledThrough) : <span className="sub">{missing.has("statements") ? "—" : "never"}</span>}</td>
                         <td>
                           {c.differences.length === 0 ? (
                             <Tag tone="good">none</Tag>
@@ -101,7 +109,7 @@ export function Reconciliation() {
                             <ul style={{ margin: 0, paddingLeft: 16 }}>
                               {c.differences.map((d, i) => (
                                 <li key={i}>
-                                  {date(d.postedDate)} · {money(d.amountCents)} · {d.note}
+                                  {missing.has("differenceLines") ? d.note : `${date(d.postedDate)} · ${money(d.amountCents)} · ${d.note}`}
                                   {d.transactionId ? (
                                     <>
                                       {" "}
@@ -127,6 +135,12 @@ export function Reconciliation() {
               <h2>Loan rollforwards</h2>
               <span className="hint">Posted by BC's recurring journals; the app matches the bank line to BC's entry and never creates lines for them</span>
             </div>
+            {q.data.loans.length === 0 ? (
+              <Empty title={missing.has("loans") ? "Loan rollforwards are not in the API yet." : "No loan rollforwards for this period."}>
+                {" "}
+                The tiles cover {LOAN_ACCOUNTS.map((no) => CHART.find((a) => a.no === no)?.name ?? no).join("; ")}. BC's recurring journals post them; until the API reports the rollforward, check them in BC.
+              </Empty>
+            ) : null}
             <div className="grid cols-3">
               {q.data.loans.map((l) => (
                 <div key={l.id} className="card" data-testid={`loan-${l.id}`}>

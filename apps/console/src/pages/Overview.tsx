@@ -48,7 +48,8 @@ export function Overview() {
         <Link to="/reconciliation" className="card tile">
           <div className="tile-title">3 · Reconciliation {reconDiffs > 0 ? <Tag tone="watch">{reconDiffs} differences</Tag> : <Tag tone="good">No differences</Tag>}</div>
           <div className="tile-body">
-            {openRecon ?? "—"} open bank ledger lines across {recon.data?.bankCards.length ?? 14} cards · loans {recon.data?.loans.filter((l) => l.matchedEntryNo).length ?? "—"} of {recon.data?.loans.length ?? 3} matched this period
+            {openRecon ?? "—"} open bank ledger lines across {recon.data?.bankCards.length ?? 14} cards ·{" "}
+            {recon.data?.missing?.includes("loans") ? "loan rollforwards not in the API yet" : `loans ${recon.data?.loans.filter((l) => l.matchedEntryNo).length ?? "—"} of ${recon.data?.loans.length ?? 3} matched this period`}
           </div>
           <div className="tile-foot">Per bank card, plus the Frontier and PennyMac rollforwards</div>
         </Link>

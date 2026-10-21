@@ -1,0 +1,65 @@
+{
+  "name": "walmart-3-groceries-only",
+  "imageText": "synthetic receipt image walmart-3-groceries-only",
+  "bank": {
+    "account": "CAPONE-CC",
+    "postedDate": "2026-10-12",
+    "amountCents": -3305,
+    "merchant": "Walmart"
+  },
+  "read": {
+    "merchant": "Walmart Supercenter",
+    "date": "2026-10-11",
+    "totalCents": 3305,
+    "subtotalCents": 3118,
+    "taxCents": 187,
+    "items": [
+      {
+        "description": "CHICKEN BREAST 4LB",
+        "amountCents": 1196,
+        "confidence": 0.9
+      },
+      {
+        "description": "RICE 10LB",
+        "amountCents": 798,
+        "confidence": 0.9
+      },
+      {
+        "description": "FROZEN VEG 4PK",
+        "amountCents": 576,
+        "confidence": 0.9
+      },
+      {
+        "description": "YOGURT 12PK",
+        "amountCents": 548,
+        "confidence": 0.9
+      }
+    ],
+    "fieldConfidence": {
+      "MerchantName": 0.98,
+      "Total": 0.99
+    }
+  },
+  "lineCategories": [
+    "groceries",
+    "groceries",
+    "groceries",
+    "groceries"
+  ],
+  "expected": {
+    "taxShares": [
+      74,
+      47,
+      34,
+      32
+    ],
+    "splits": [
+      {
+        "lineNo": 1,
+        "categoryId": "groceries",
+        "amountCents": -3305
+      }
+    ],
+    "question": "confirm_split"
+  }
+}

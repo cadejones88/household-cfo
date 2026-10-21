@@ -1,0 +1,20 @@
+From: "Amazon.com" <auto-confirm@amazon.example.invalid>
+Subject: Your Amazon.com order #113-5550123-4400001
+
+Hello Vanessa,
+
+Thank you for shopping with us. (Synthetic test fixture.)
+
+Order #113-5550123-4400001
+Order placed: October 9, 2026
+
+Crayola Washable Markers, 40 count $14.97
+Qty: 1
+Kids Rain Boots, Size 13 $24.99
+Qty: 1
+Paper Towels, 12 Mega Rolls $28.49
+
+Item Subtotal: $68.45
+Shipping & Handling: $0.00
+Estimated tax to be collected: $4.11
+Order Total: $72.56

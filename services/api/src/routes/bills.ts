@@ -1,8 +1,8 @@
 /**
  * /v1/bills — upcoming bills and minimums with whether each falls before the next Henry's Fork payday, and
- * /v1/bills/safe-to-spend — the safe-to-spend figure with every input it was computed from.
+ * /v1/safe-to-spend (also /v1/bills/safe-to-spend) — the safe-to-spend figure with every input it was computed from.
  */
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { dateIsoInTz } from "../lib/dates.js";
 import { inHousehold, isoDate, parse } from "../lib/http.js";
@@ -21,11 +21,13 @@ export default async function billsRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
-  app.get("/bills/safe-to-spend", async (req) =>
+  const safeToSpendHandler = async (req: FastifyRequest) =>
     inHousehold(req, async (db, p) => {
       const hh = await getHousehold(db, p.householdId);
       const today = dateIsoInTz(app.deps.now(), hh.timezone);
       return computeSafeToSpend(db, p.householdId, app.deps.ledger, today, app.deps.now());
-    }),
-  );
+    });
+  app.get("/safe-to-spend", safeToSpendHandler);
+  // The original path, kept so nothing that already calls it breaks.
+  app.get("/bills/safe-to-spend", safeToSpendHandler);
 }

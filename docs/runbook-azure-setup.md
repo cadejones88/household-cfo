@@ -29,7 +29,7 @@ The firm has no Azure subscription today. Create one under **Cade T. Jones CPA, 
 
 **Produces:** subscription id → GitHub variable `AZURE_SUBSCRIPTION_ID`. Tenant id (`az account show --query tenantId`) → `AZURE_TENANT_ID`.
 
-**Install locally:** Azure CLI 2.70+, Bicep CLI (`az bicep install`), Docker Desktop (only if you want to build the image on your machine; the workflow builds it otherwise), Node 22 and pnpm 10 for migrations.
+**Install locally:** Azure CLI 2.70+, Bicep CLI (`az bicep install`), Docker Desktop (only if you want to build the image on your machine; the workflow builds it otherwise), Node 22 and pnpm 10 for migrations, and `psql` (PostgreSQL 16 client) for the one-time role step in step 9.
 
 ## 2. GitHub OIDC federated credential (no stored cloud secret)
 
@@ -145,7 +145,8 @@ In the **firm's workforce tenant** (where BC lives), not the external tenant.
 | (runtime) | per-household blob encryption keys | Key Vault keys `hh-<household id>` | the API, on household creation |
 | (template) | storage account customer-managed key | Key Vault key `storage-cmk` | Bicep |
 | `DATABASE_URL` | local development only | your laptop's `.env` (gitignored) | you |
-| `PGHOST`, `PGDATABASE`, `PG_AUTH=entra` | cloud database access | Container Apps environment variables (not secrets; the identity is the credential) | Bicep |
+| `PGHOST`, `PGDATABASE`, `PGUSER`, `PG_AUTH=entra`, `AZURE_CLIENT_ID` | cloud database access and which identity asks for tokens | Container Apps environment variables (not secrets; the identity is the credential) | Bicep |
+| `FOUNDRY_KEY_REF` | **name** of the Key Vault secret holding the Foundry key | Key Vault `foundry-api-key` | Cade, step 11 |
 | `KEY_VAULT_URL`, `STORAGE_ACCOUNT_URL`, `SERVICE_BUS_NAMESPACE`, `DOCUMENT_INTELLIGENCE_ENDPOINT`, `FOUNDRY_ENDPOINT`, `FOUNDRY_MODEL`, `APPLICATIONINSIGHTS_CONNECTION_STRING` | endpoints reached by managed identity | Container Apps environment variables | Bicep |
 | `ENTRA_*`, `BC_TENANT_ID`, `BC_CLIENT_ID`, `BC_COMPANY_ID`, `PLAID_CLIENT_ID` | ids | GitHub variables → Bicep → environment variables | Cade, steps 3, 5, 6 |
 | Static Web App deployment token | pushes the Console | fetched by the workflow at deploy time with OIDC; never stored | the workflow |
@@ -173,7 +174,24 @@ PGSSLMODE=require pnpm --filter @homestead/api db:migrate
 unset PGPASSWORD
 ```
 
-The token lasts an hour; nothing is saved. Remove the firewall rule afterwards if you prefer (`az postgres flexible-server firewall-rule delete`). The two managed identities already exist as Postgres roles (created by the template); the schema's role grants (`services/api/db/migrations/0001_schema.sql`) apply to them.
+The token lasts an hour; nothing is saved.
+
+Then, once per environment, give the API and jobs identities their database roles. They are deliberately not administrators: they get the schema's `homestead_app` role and nothing else (row-level security, insert-only audit log). The names and object ids are in the deployment outputs (`apiIdentityName`, `apiIdentityPrincipalId`, `jobsIdentityName`, `jobsIdentityPrincipalId`):
+
+```sh
+export PGPASSWORD=$(az account get-access-token --resource-type oss-rdbms --query accessToken -o tsv)
+ME=$(az ad signed-in-user show --query userPrincipalName -o tsv)
+H=psql-homestead-dev.postgres.database.azure.com
+psql "host=$H dbname=postgres user=$ME sslmode=require" \
+  -c "select * from pgaadauth_create_principal_with_oid('id-homestead-dev-api',  '<apiIdentityPrincipalId>',  'service', false, false);" \
+  -c "select * from pgaadauth_create_principal_with_oid('id-homestead-dev-jobs', '<jobsIdentityPrincipalId>', 'service', false, false);"
+psql "host=$H dbname=homestead user=$ME sslmode=require" -c 'grant homestead_app to "id-homestead-dev-api", "id-homestead-dev-jobs";'
+unset PGPASSWORD
+```
+
+Remove the firewall rule afterwards if you prefer (`az postgres flexible-server firewall-rule delete`).
+
+Note for the first deploy: the API build reads the database only from `DATABASE_URL` today, and the jobs list households in a way row-level security hides from any non-superuser. Both are listed in `infra/README.md` ("What the API build does not do yet"); until they land, the cloud API starts but cannot reach the database.
 
 ## 10. Apple Developer Program (organization)
 
@@ -186,13 +204,21 @@ For TestFlight (phase 5) and the App Store later. Organization enrollment, not i
 ## 11. Claude on Microsoft Foundry and Document Intelligence
 
 - **Document Intelligence** is created by the templates (`di-homestead-<env>`, keys disabled, identity access). Nothing to do.
-- **Foundry:** create an AI Foundry resource and project in a US region that hosts Claude (Foundry portal → Create project → Homestead subscription, `rg-homestead-dev`), deploy a Haiku-class Claude model with a **US Data Zone Standard** deployment, grant the API identity `id-homestead-dev-api` the **Azure AI User** role on the project, and put the project endpoint and deployment name in `HOMESTEAD_FOUNDRY_ENDPOINT` and `HOMESTEAD_FOUNDRY_MODEL` (variables). No key is used.
+- **Foundry:** create an AI Foundry resource and project in a US region that hosts Claude (Foundry portal → Create project → Homestead subscription, `rg-homestead-dev`), deploy a Haiku-class Claude model with a **US Data Zone Standard** deployment, grant the API identity `id-homestead-dev-api` the **Azure AI User** role on the project, and put the project endpoint and deployment name in `HOMESTEAD_FOUNDRY_ENDPOINT` and `HOMESTEAD_FOUNDRY_MODEL` (variables).
+- The API as built still authenticates to Foundry with a key read **by name** (`FOUNDRY_KEY_REF` = `foundry-api-key`); identity access is the target and is listed as an API gap. Until then, from your shell (never chat or the repo):
+
+  ```sh
+  read -rs -p 'Foundry key: ' k; echo
+  az keyvault secret set --vault-name <kv name> --name foundry-api-key --file <(printf '%s' "$k"); unset k
+  ```
+
+  Without the secret the API keeps its offline fake for Ask Homestead and receipt line mapping.
 
 ## 12. Checks before calling dev "up"
 
 - `curl https://<api fqdn>/health` answers `{ "ok": true }`.
 - The Console signs in with your external-tenant account and shows "BC CADE_Sandbox_vs25" in the sidebar; Health → Connections shows the BC poll within the hour after the first `nightly-poll` run (trigger it by hand: `az containerapp job start -g rg-homestead-dev -n homestead-dev-nightly-poll`).
-- Key Vault → Secrets lists `bc-sandbox-client-cert` and `plaid-sandbox-secret`, nothing else typed by a person.
+- Key Vault → Secrets lists `bc-sandbox-client-cert` and `plaid-sandbox-secret` (and `foundry-api-key` once Foundry exists), nothing else typed by a person.
 - Cost Management shows the `homestead-monthly` budget.
 - `node scripts/secrets-scan.mjs` in the repo is clean (CI runs it too).
 

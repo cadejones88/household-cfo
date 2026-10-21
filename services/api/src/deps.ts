@@ -1,8 +1,9 @@
 /**
  * The ports the API and jobs use, built once from the environment. External services (BC, Plaid, Azure, Foundry)
  * are unreachable from the dev environment, so every port has an in-memory fake; a real client is wired only when
- * its environment variables name the endpoint and the secret *name* to read. The coordinator wires the real
- * Business Central adapter (packages/ledger-adapter-bc) in place of `InMemoryLedger` once both land.
+ * its environment variables name the endpoint and the secret *name* to read. Business Central goes through the real
+ * adapter (packages/ledger-adapter-bc) behind the `BcLedgerPort` shim when BC_TENANT_ID, BC_COMPANY_ID, BC_CLIENT_ID
+ * and BC_CERT_SECRET_REF are set and the certificate PEM can be read from the vault; otherwise `InMemoryLedger`.
  *
  * Secrets are read from Key Vault by name (KEY_VAULT_URL + managed identity); nothing here embeds a value.
  */
@@ -10,12 +11,13 @@ import { InMemoryNotifier, type NotifierPort } from "./services/alerts.js";
 import { FoundryAskModel, TemplateAskModel, type AskModelPort } from "./services/ask/orchestrate.js";
 import { FakePlaid, PlaidClient, type PlaidPort } from "./services/bankData/plaid.js";
 import { InMemoryLedger, type LedgerPort } from "./services/ledgerPort.js";
+import { createBcLedgerPort } from "./services/ledgerPortBc.js";
 import { AzureBlobStore, InMemoryBlobStore, InMemoryQueue, InMemorySecretStore, KeyVaultSecretStore, managedIdentityTokenProvider, type BlobStore, type QueuePort, type SecretStore } from "./services/ports.js";
 import { FakeClaudeMapper, FoundryClaudeMapper, type ClaudeMapperPort } from "./services/receipts/claudeMapper.js";
 import { AzureDocumentIntelligence, FakeDocumentIntelligence, type DocumentIntelligencePort } from "./services/receipts/documentIntelligence.js";
 import { sha256Hex } from "@homestead/shared";
 import type { WebhookVerifierPort } from "./routes/webhooks.js";
-import { FakeWebhookVerifier } from "./routes/webhooks.js";
+import { FakeWebhookVerifier, PlaidWebhookVerifier } from "./routes/webhooks.js";
 
 export interface Deps {
   ledger: LedgerPort;
@@ -67,6 +69,26 @@ export async function buildDepsFromEnv(): Promise<Deps> {
     deps.blobs = new AzureBlobStore(storage, env["BLOB_CONTAINER"] ?? "receipts", managedIdentityTokenProvider("https://storage.azure.com"));
     fakes.delete("blobs");
   }
+  const bcTenant = env["BC_TENANT_ID"];
+  const bcCompany = env["BC_COMPANY_ID"];
+  const bcClient = env["BC_CLIENT_ID"];
+  const bcCertRef = env["BC_CERT_SECRET_REF"];
+  if (bcTenant && bcCompany && bcClient && bcCertRef) {
+    const pem = await deps.secrets.get(bcCertRef);
+    if (pem) {
+      deps.ledger = createBcLedgerPort({
+        tenantId: bcTenant,
+        environment: env["BC_ENVIRONMENT"] ?? "CADE_Sandbox_vs25",
+        companyId: bcCompany,
+        clientId: bcClient,
+        pem,
+        journalTemplate: env["BC_JOURNAL_TEMPLATE"] ?? "HHAPP",
+        connectorInstalled: (env["BC_CONNECTOR_INSTALLED"] ?? "true") !== "false",
+        ...(env["BC_API_BASE_URL"] ? { apiBaseUrl: env["BC_API_BASE_URL"] } : {}),
+      });
+      fakes.delete("ledger");
+    }
+  }
   const plaidEnv = env["PLAID_ENV"];
   const plaidClientId = env["PLAID_CLIENT_ID"];
   const plaidSecretRef = env["PLAID_SECRET_REF"];
@@ -74,8 +96,16 @@ export async function buildDepsFromEnv(): Promise<Deps> {
     const secret = await deps.secrets.get(plaidSecretRef);
     if (secret) {
       deps.plaid = new PlaidClient(plaidEnv, plaidClientId, secret);
+      deps.plaidWebhookVerifier = new PlaidWebhookVerifier(plaidEnv, plaidClientId, secret);
       fakes.delete("plaid");
+      fakes.delete("plaidWebhookVerifier");
     }
+  }
+  if (fakes.has("plaidWebhookVerifier") && env["NODE_ENV"] === "production") {
+    // Never trust an unverified Plaid webhook outside development.
+    const refuseAll = new FakeWebhookVerifier();
+    refuseAll.accept = false;
+    deps.plaidWebhookVerifier = refuseAll;
   }
   const diEndpoint = env["DOCUMENT_INTELLIGENCE_ENDPOINT"];
   if (diEndpoint) {

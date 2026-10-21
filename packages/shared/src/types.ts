@@ -400,6 +400,8 @@ export interface ReconciliationStatus {
   bankCards: readonly BankCardReconStatus[];
   loans: readonly LoanRollforward[];
   dataThrough: DataThrough;
+  /** Parts the source could not supply, so the screen shows "not available" instead of a zero. */
+  missing?: readonly ("openSum" | "statements" | "differenceLines" | "loans")[];
 }
 
 export interface CategoryMapping {
@@ -516,7 +518,23 @@ export interface BcSubscriptionSummary {
 
 export interface SyncRunSummary {
   id: Id;
-  kind: "plaid" | "bc_poll" | "bc_webhook" | "webhook_renewal" | "autopost" | "ocr" | "file_import" | "alerts";
+  kind:
+    | "plaid"
+    | "bc_poll"
+    | "bc_webhook"
+    | "webhook_renewal"
+    | "autopost"
+    | "ocr"
+    | "file_import"
+    | "alerts"
+    // Added with migration 0003 (the jobs that record runs beyond the original eight).
+    | "matching"
+    | "outbox_relay"
+    | "bc_worker"
+    | "bc_readback"
+    | "paycheck_fallback"
+    | "receipt_fallback"
+    | "rule_proposals";
   startedAt: string;
   finishedAt?: string;
   status: "running" | "ok" | "failed";
@@ -527,7 +545,8 @@ export interface SyncRunSummary {
 
 export interface OutboxItem {
   id: Id;
-  aggregate: "transaction" | "budget_revision" | "receipt" | "paycheck";
+  /** `household` carries household-level operations such as `post_batch` (services/api/src/db/index.ts OutboxInput). */
+  aggregate: "transaction" | "budget_revision" | "receipt" | "paycheck" | "household";
   aggregateId: Id;
   operation: string;
   attempts: number;

@@ -1,0 +1,101 @@
+{
+  "name": "walmart-4-school-electronics",
+  "imageText": "synthetic receipt image walmart-4-school-electronics",
+  "bank": {
+    "account": "CAPONE-CC",
+    "postedDate": "2026-10-15",
+    "amountCents": -5847,
+    "merchant": "Walmart"
+  },
+  "read": {
+    "merchant": "Walmart",
+    "date": "2026-10-14",
+    "totalCents": 5847,
+    "subtotalCents": 5516,
+    "taxCents": 331,
+    "items": [
+      {
+        "description": "COMPOSITION NOTEBOOK 3PK",
+        "amountCents": 297,
+        "confidence": 0.9
+      },
+      {
+        "description": "CRAYOLA MARKERS",
+        "amountCents": 347,
+        "confidence": 0.9
+      },
+      {
+        "description": "USB-C CHARGER 20W",
+        "amountCents": 1688,
+        "confidence": 0.9
+      },
+      {
+        "description": "HDMI CABLE 6FT",
+        "amountCents": 988,
+        "confidence": 0.9
+      },
+      {
+        "description": "STRAWBERRIES 1LB",
+        "amountCents": 298,
+        "confidence": 0.9
+      },
+      {
+        "description": "TORTILLAS 20CT",
+        "amountCents": 897,
+        "confidence": 0.9
+      },
+      {
+        "description": "SUNSCREEN SPF50",
+        "amountCents": 1001,
+        "confidence": 0.9
+      }
+    ],
+    "fieldConfidence": {
+      "MerchantName": 0.98,
+      "Total": 0.99
+    }
+  },
+  "lineCategories": [
+    "school",
+    "school",
+    "electronics",
+    "electronics",
+    "groceries",
+    "groceries",
+    "vitamins-otc"
+  ],
+  "expected": {
+    "taxShares": [
+      17,
+      20,
+      105,
+      59,
+      17,
+      53,
+      60
+    ],
+    "splits": [
+      {
+        "lineNo": 1,
+        "categoryId": "school",
+        "amountCents": -681
+      },
+      {
+        "lineNo": 2,
+        "categoryId": "electronics",
+        "amountCents": -2840
+      },
+      {
+        "lineNo": 3,
+        "categoryId": "groceries",
+        "amountCents": -1265
+      },
+      {
+        "lineNo": 4,
+        "categoryId": "vitamins-otc",
+        "amountCents": -1061
+      }
+    ],
+    "question": "confirm_split"
+  }
+}

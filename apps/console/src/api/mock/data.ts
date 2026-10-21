@@ -408,11 +408,11 @@ export const syncRuns: SyncRunSummary[] = [
 ];
 
 export const outbox: OutboxItem[] = [
-  { id: "ob-1", aggregate: "transaction", aggregateId: "tx-0019", operation: "create_journal_lines", attempts: 2, nextAttemptAt: iso(-8 * 60_000), lastError: "BC 429: retry after backoff", deadLettered: false, publishedAt: iso(40 * 60_000), createdAt: iso(45 * 60_000) },
-  { id: "ob-2", aggregate: "transaction", aggregateId: "tx-0021", operation: "create_journal_lines", attempts: 0, nextAttemptAt: iso(0), deadLettered: false, createdAt: iso(2 * 60_000) },
-  { id: "ob-3", aggregate: "transaction", aggregateId: "tx-0022", operation: "create_journal_lines", attempts: 0, nextAttemptAt: iso(0), deadLettered: false, createdAt: iso(90_000) },
-  { id: "ob-4", aggregate: "transaction", aggregateId: "tx-0014", operation: "create_journal_lines", attempts: 6, nextAttemptAt: iso(2 * D), lastError: "BC 400: dimension value SINK-GIFTS blocked for account 603101", deadLettered: true, publishedAt: iso(2 * D), createdAt: iso(2.1 * D) },
-  { id: "ob-5", aggregate: "budget_revision", aggregateId: "bud-rev-3", operation: "write_budget_entries", attempts: 6, nextAttemptAt: iso(5 * D), lastError: "HH App Connector 403: budget name BUD26-ORIG refused (ORIG budgets are never written)", deadLettered: true, publishedAt: iso(5 * D), createdAt: iso(5.1 * D) },
+  { id: "ob-1", aggregate: "transaction", aggregateId: "tx-0019", operation: "send_to_bc", attempts: 2, nextAttemptAt: iso(-8 * 60_000), lastError: "BC 429: retry after backoff", deadLettered: false, publishedAt: iso(40 * 60_000), createdAt: iso(45 * 60_000) },
+  { id: "ob-2", aggregate: "transaction", aggregateId: "tx-0021", operation: "send_to_bc", attempts: 0, nextAttemptAt: iso(0), deadLettered: false, createdAt: iso(2 * 60_000) },
+  { id: "ob-3", aggregate: "transaction", aggregateId: "tx-0022", operation: "send_to_bc", attempts: 0, nextAttemptAt: iso(0), deadLettered: false, createdAt: iso(90_000) },
+  { id: "ob-5", aggregate: "budget_revision", aggregateId: "bud-rev-3", operation: "write_budget_revision", attempts: 6, nextAttemptAt: iso(5 * D), lastError: "HH App Connector 403: budget name BUD26-ORIG refused (ORIG budgets are never written)", deadLettered: true, publishedAt: iso(5 * D), createdAt: iso(5.1 * D) },
+  { id: "ob-4", aggregate: "transaction", aggregateId: "tx-0014", operation: "send_to_bc", attempts: 6, nextAttemptAt: iso(2 * D), lastError: "BC 400: dimension value SINK-GIFTS blocked for account 603101", deadLettered: true, publishedAt: iso(2 * D), createdAt: iso(2.1 * D) },
 ];
 
 export const auditLog: AuditEntry[] = [
@@ -423,10 +423,10 @@ export const auditLog: AuditEntry[] = [
   { id: "aud-5", actor: VANESSA_ID, action: "rule.approve", entity: "rule", entityId: "rule-m2", at: iso(20 * D), before: { state: "proposed" }, after: { state: "approved", stepUp: true } },
   { id: "aud-6", actor: "jobs:plaid", action: "feed.needs_relink", entity: "feed_connection", entityId: "feed-capone", at: iso(7 * H), before: { status: "ok" }, after: { status: "needs_relink" } },
   { id: "aud-7", actor: CADE_ID, action: "transaction.business_flag", entity: "transaction", entityId: "tx-0026", at: iso(1.5 * D), before: { businessFlag: "none" }, after: { businessFlag: "ctj" } },
-  { id: "aud-8", actor: "jobs:webhook_renewal", action: "subscription.renew", entity: "bc_webhook_subscription", entityId: "sub-gle-1", at: iso(0.9 * D), after: { expiresAt: iso(-2.1 * D) } },
+  { id: "aud-8", actor: "jobs:webhook_renewal", action: "webhooks.renewed", entity: "household", entityId: HOUSEHOLD_ID, at: iso(0.9 * D), after: { expiresAt: iso(-2.1 * D) } },
   { id: "aud-9", actor: VANESSA_ID, action: "receipt.upload", entity: "receipt", entityId: "rcpt-101", at: iso(1.2 * D), after: { sha256: "3f1c9a0e…" } },
   { id: "aud-10", actor: "jobs:relay", action: "outbox.dead_letter", entity: "outbox", entityId: "ob-4", at: iso(2 * D), after: { attempts: 6 } },
-  { id: "aud-11", actor: CADE_ID, action: "settings.version", entity: "household_settings", entityId: "1", at: iso(30 * D), after: { version: 1, note: "Draft authority matrix from the Phase 3 spec" } },
+  { id: "aud-11", actor: CADE_ID, action: "settings.version", entity: "household", entityId: HOUSEHOLD_ID, at: iso(30 * D), after: { version: 1, note: "Draft authority matrix from the Phase 3 spec" } },
   { id: "aud-12", actor: "jobs:bc_webhook", action: "transaction.posted", entity: "transaction", entityId: "tx-0025", at: iso(24 * D), before: { state: "bc_draft_created" }, after: { state: "posted", entryNos: [4250] } },
 ];
 

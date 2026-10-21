@@ -23,7 +23,8 @@ export async function renewWebhooks(db: Queryable, householdId: string, deps: De
         continue;
       }
       try {
-        const renewed = await deps.ledger.renewWebhookSubscription(sub.subscription_id);
+        const clientState = await deps.secrets.get(sub.client_state_ref);
+        const renewed = await deps.ledger.renewWebhookSubscription(sub.subscription_id, clientState);
         await db.query("update bc_webhook_subscriptions set expires_at = $2, last_renewed_at = $3 where id = $1", [sub.id, renewed.expiresAt, now.toISOString()]);
         counts.renewed += 1;
         continue;

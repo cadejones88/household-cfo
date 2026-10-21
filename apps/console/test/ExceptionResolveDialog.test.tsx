@@ -89,4 +89,18 @@ describe("ExceptionResolveDialog", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("A resolution needs a note");
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it("only clears a reason noted on a line that is not in Exception (the API refuses 'posted' there)", async () => {
+    const user = userEvent.setup();
+    const onResolve = vi.fn().mockResolvedValue(undefined);
+    const noted = { ...missingDraft, id: "tx-noted", state: "needs_classification" as const, exception: { ...missingDraft.exception!, reason: "The bank removed this line before it reached BC." } };
+    render(<ExceptionResolveDialog row={noted} onClose={vi.fn()} onResolve={onResolve} />);
+    expect(screen.getByTestId("note-only")).toHaveTextContent("needs classification");
+    expect(screen.queryByLabelText(/Mark Posted/)).toBeNull();
+    const submit = screen.getByTestId("resolve-submit");
+    expect(submit).toHaveTextContent("Clear the note");
+    await user.type(screen.getByLabelText("Resolution note"), "Checked: the bank reversed it.");
+    await user.click(submit);
+    expect(onResolve).toHaveBeenCalledWith("tx-noted", { to: "ready_for_review", note: "Checked: the bank reversed it." });
+  });
 });

@@ -5,7 +5,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { CATEGORIES, type ConsoleTransactionRow } from "@homestead/shared";
-import { Dialog } from "./ui";
+import { Dialog, errorMessage } from "./ui";
 import { date, money } from "../lib/format";
 
 export interface CorrectDialogProps {
@@ -40,7 +40,7 @@ export function CorrectDialog({ row, onClose, onSubmit, busy }: CorrectDialogPro
       await onSubmit(row.id, { categoryId, note: note || undefined, makeRule });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     }
   }
 

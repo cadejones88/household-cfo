@@ -152,6 +152,16 @@ export async function proposeSplit(db: Queryable, householdId: string, rec: Rece
 
 export type MatchOutcome = "matched" | "ambiguous" | "no_candidate" | "not_ready";
 
+/**
+ * The merchant as the matcher compares it: one key per receipt-required chain ("WAL-MART #1868", "Walmart",
+ * "WM SUPERCENTER" are all Walmart), otherwise the normalized name without spaces ("broulim s" = "broulims").
+ */
+export function merchantKey(norm: string): string {
+  const chain = RECEIPT_REQUIRED_MERCHANTS.find((m) => m.pattern.test(norm) || m.pattern.test(norm.replace(/\s+/g, "")));
+  if (chain) return chain.unsplitCategory;
+  return norm.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
 /** Step 6: candidates are bank lines on any household account within -3..+5 days whose amount equals the total (2% for tips). */
 export async function matchReceiptToTransaction(db: Queryable, householdId: string, receiptId: string, actor = "matching"): Promise<{ outcome: MatchOutcome; transactionId?: string; candidates?: { transactionId: string; score: number }[] }> {
   const rec = await loadReceipt(db, receiptId);
@@ -166,8 +176,8 @@ export async function matchReceiptToTransaction(db: Queryable, householdId: stri
         and abs(amount_cents) between $4 and $5`,
     [householdId, addDays(receiptDate, -3), addDays(receiptDate, 5), Math.floor(rec.total_cents * 0.97), Math.ceil(rec.total_cents * 1.03)],
   );
-  const candidates: MatchCandidate[] = rows.rows.map((r) => ({ transactionId: r.id, postedDate: r.posted_date, amountCents: r.amount_cents, merchantNorm: r.merchant_norm, accountId: r.account_id }));
-  const result = matchReceipt({ receiptDateIso: receiptDate, totalCents: rec.total_cents, merchantNorm: rec.merchant_norm ?? "", tipPossible: (rec.tip_cents ?? 0) > 0 || /restaurant|grill|cafe|pizza|diner/i.test(rec.merchant ?? ""), candidates, daysBetween });
+  const candidates: MatchCandidate[] = rows.rows.map((r) => ({ transactionId: r.id, postedDate: r.posted_date, amountCents: r.amount_cents, merchantNorm: merchantKey(r.merchant_norm), accountId: r.account_id }));
+  const result = matchReceipt({ receiptDateIso: receiptDate, totalCents: rec.total_cents, merchantNorm: merchantKey(rec.merchant_norm ?? rec.merchant ?? ""), tipPossible: (rec.tip_cents ?? 0) > 0 || /restaurant|grill|cafe|pizza|diner/i.test(rec.merchant ?? ""), candidates, daysBetween });
   const scored = result.candidates.map((c) => ({ transactionId: c.candidate.transactionId, score: c.score }));
   if (result.matched) {
     await linkReceipt(db, householdId, rec, result.matched.transactionId, result.confidence, actor);

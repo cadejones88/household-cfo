@@ -65,7 +65,7 @@ export function createMockApi(): ConsoleApi {
       id: `ob-${seq++}`,
       aggregate: "transaction",
       aggregateId: t.id,
-      operation: "create_journal_lines",
+      operation: "send_to_bc",
       attempts: 0,
       nextAttemptAt: new Date().toISOString(),
       deadLettered: false,
@@ -118,8 +118,9 @@ export function createMockApi(): ConsoleApi {
       const before = { categoryId: t.categoryId, state: t.state };
       if (["posted", "reconciled"].includes(t.state)) {
         // After posting: a correction request to the CFO queue; the posted entry is immutable.
-        record({ actor: data.CADE_ID, action: "correction.request", entity: "transaction", entityId: t.id, before, after: { categoryId: cat.id, note: input.note } });
-        return t;
+        const correctionRequestId = `appr-${seq++}`;
+        record({ actor: data.CADE_ID, action: "correction.requested", entity: "approval", entityId: correctionRequestId, before, after: { transactionId: t.id, categoryId: cat.id, reason: input.note } });
+        return { ...t, correctionRequestId };
       }
       t.categoryId = cat.id;
       t.categoryName = cat.name;
@@ -273,9 +274,14 @@ export function createMockApi(): ConsoleApi {
       const now = new Date().toISOString();
       lastPostRequested = { ...lastPostRequested, [batch]: now };
       const id = `ob-${seq++}`;
-      outbox.unshift({ id, aggregate: "transaction", aggregateId: lines[0]!.id, operation: `post_batch:${batch}`, attempts: 0, nextAttemptAt: now, deadLettered: false, createdAt: now });
-      record({ actor: data.CADE_ID, action: "batch.post_requested", entity: "journal_batch", entityId: batch, after: { lineCount: lines.length, outboxId: id, stepUp: true } });
-      return { batch, outboxId: id, queuedAt: now, lineCount: lines.length };
+      outbox.unshift({ id, aggregate: "household", aggregateId: data.HOUSEHOLD_ID, operation: "post_batch", attempts: 0, nextAttemptAt: now, deadLettered: false, createdAt: now });
+      record({ actor: data.CADE_ID, action: "post.requested", entity: "batch", entityId: batch, after: { lineCount: lines.length, outboxId: id, stepUp: true } });
+      // Same answer as the API (services/api/src/services/console.ts requestPostBatch); the mock's switch is off.
+      const message =
+        batch === "AUTOPOST"
+          ? "Auto-posting is switched off for this household; the request is recorded and nothing is posted."
+          : `Recorded. HHAPP/${batch} is posted under Cade's own BC sign-in (the app credential has no posting right there); the read-back marks the lines Posted.`;
+      return { batch, outboxId: id, queuedAt: now, lineCount: lines.length, enqueued: false, message };
     },
 
     async reconciliation() {
@@ -327,7 +333,11 @@ export function createMockApi(): ConsoleApi {
       await latency();
       const o = outbox.find((x) => x.id === id);
       if (!o) throw new ApiError(404, "not_found");
-      if (!o.deadLettered) throw new ApiError(409, "not_dead_lettered");
+      if (!o.deadLettered) throw new ApiError(409, "not_dead_lettered", "Only a dead-lettered row can be retried");
+      // As the API: a BC write whose line is now an exception is resolved, not retried (services/api console.ts).
+      if (o.aggregate === "transaction" && o.operation === "send_to_bc" && tx.find((t) => t.id === o.aggregateId)?.state === "exception") {
+        throw new ApiError(409, "resolve_exception_first", "This item is an exception. Resolve it to ready for review and approve it again; that sends it once more.");
+      }
       const before: OutboxItem = { ...o };
       o.deadLettered = false;
       o.attempts = 0;

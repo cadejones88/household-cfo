@@ -37,7 +37,9 @@ export function planCalls(question: string, todayIso: string, categoryIds: reado
   if (has("goal", "emergency", "fund", "saving", "christmas", "sinking", "milestone", "debt")) calls.push({ fn: "get_goals" });
   if (has("paycheck", "pay stub", "paystub", "withholding", "take-home", "take home", "net pay", "gross")) calls.push({ fn: "get_paycheck" });
   const cat = categoryIds.find((c) => q.includes(c.name.toLowerCase()) || q.includes(c.id.replace(/-/g, " ")));
-  if (has("transactions", "charges", "what did we", "what did i", "how much did we", "how much did i", "last week", "yesterday", "find", "search", "receipt", "at ") || (cat && !calls.some((c) => c.fn === "get_budget_status"))) {
+  // "at <merchant>" as a word ("what" must not count).
+  const atMerchant = /\bat [a-z0-9]/.test(q);
+  if (has("transactions", "charges", "what did we", "what did i", "how much did we", "how much did i", "last week", "yesterday", "find", "search", "receipt") || atMerchant || (cat && !calls.some((c) => c.fn === "get_budget_status"))) {
     const args: Record<string, unknown> = {};
     if (cat) args["categoryId"] = cat.id;
     const m = /\bat ([a-z0-9' ]{3,30})/.exec(q);

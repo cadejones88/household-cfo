@@ -1,0 +1,89 @@
+{
+  "name": "walmart-1-mixed",
+  "imageText": "synthetic receipt image walmart-1-mixed",
+  "bank": {
+    "account": "CAPONE-CC",
+    "postedDate": "2026-10-04",
+    "amountCents": -3496,
+    "merchant": "Walmart"
+  },
+  "read": {
+    "merchant": "Walmart Supercenter #1868 Rexburg",
+    "date": "2026-10-03",
+    "totalCents": 3496,
+    "subtotalCents": 3298,
+    "taxCents": 198,
+    "items": [
+      {
+        "description": "BANANAS 2.17 LB",
+        "amountCents": 148,
+        "confidence": 0.9
+      },
+      {
+        "description": "GV MILK 1GAL",
+        "amountCents": 312,
+        "confidence": 0.9
+      },
+      {
+        "description": "GV WHITE BREAD",
+        "amountCents": 250,
+        "confidence": 0.9
+      },
+      {
+        "description": "BOUNTY PAPER TOWELS 6",
+        "amountCents": 1297,
+        "confidence": 0.9
+      },
+      {
+        "description": "DAWN DISH SOAP",
+        "amountCents": 397,
+        "confidence": 0.9
+      },
+      {
+        "description": "BOYS CREW SOCKS 6PK",
+        "amountCents": 894,
+        "confidence": 0.9
+      }
+    ],
+    "fieldConfidence": {
+      "MerchantName": 0.98,
+      "Total": 0.99
+    }
+  },
+  "lineCategories": [
+    "groceries",
+    "groceries",
+    "groceries",
+    "household-supplies",
+    "household-supplies",
+    "clothing"
+  ],
+  "expected": {
+    "taxShares": [
+      8,
+      18,
+      15,
+      81,
+      23,
+      53
+    ],
+    "splits": [
+      {
+        "lineNo": 1,
+        "categoryId": "groceries",
+        "amountCents": -751
+      },
+      {
+        "lineNo": 2,
+        "categoryId": "household-supplies",
+        "amountCents": -1798
+      },
+      {
+        "lineNo": 3,
+        "categoryId": "clothing",
+        "amountCents": -947
+      }
+    ],
+    "question": "confirm_split"
+  }
+}

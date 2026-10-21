@@ -531,7 +531,14 @@ export async function raiseException(db: Queryable, householdId: string, txId: s
 /** Cade resolves an exception, recording the keys on both sides. */
 export async function resolveException(db: Queryable, householdId: string, txId: string, resolution: { to: "ready_for_review" | "posted"; note: string; entryNos?: readonly number[]; documentNo?: string; postingDate?: string }, actor: string): Promise<TxRow> {
   const row = await loadTx(db, txId, true);
-  if (row.state !== "exception") throw conflict("not_exception", "This item is not an exception");
+  if (row.state !== "exception") {
+    // A reason noted where no arrow to Exception exists (raiseException's fallback): Cade clears it and the item
+    // carries on from where it is; to "posted" it must have reached BC first.
+    if (!row.exception_reason || resolution.to !== "ready_for_review") throw conflict("not_exception", "This item is not an exception");
+    const cleared: Partial<Record<keyof TxRow, unknown>> = { exception_reason: null, sync_status: null, sync_difference: null };
+    if (row.state === "needs_classification") return transition(db, householdId, txId, "ready_for_review", "rule_engine", { actorId: actor, reason: resolution.note, patch: cleared });
+    return patchTx(db, householdId, txId, cleared, actor, "transaction.exception_cleared");
+  }
   if (resolution.to === "posted") {
     if (!resolution.entryNos?.length) throw badRequest("entry_nos", "Resolving to posted needs the BC entry numbers");
     const patch: Partial<Record<keyof TxRow, unknown>> = { bc_entry_nos: [...resolution.entryNos], bc_posting_date: resolution.postingDate ?? row.posted_date, exception_reason: null, sync_status: "in_sync", sync_difference: null, last_sync_at: new Date().toISOString() };

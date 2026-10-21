@@ -71,6 +71,23 @@ export async function readBackHousehold(db: Queryable, householdId: string, deps
 export interface PollCounts extends ReadbackCounts {
   compared: number;
   differences: number;
+  /** (batch, posting date) groups compared on count and debit sum, and how many differed. */
+  batchDates: number;
+  batchDateDifferences: number;
+}
+
+interface GroupTotals {
+  count: number;
+  debits: number;
+  docs: Set<string>;
+}
+
+function addTo(map: Map<string, GroupTotals>, key: string, doc: string, amountCents: number): void {
+  const g = map.get(key) ?? { count: 0, debits: 0, docs: new Set<string>() };
+  g.count += 1;
+  if (amountCents > 0) g.debits += amountCents;
+  g.docs.add(doc);
+  map.set(key, g);
 }
 
 /** Compare count and sum per document over 45 days; open an Exception with the keys on both sides for any difference. */
@@ -78,15 +95,18 @@ export async function nightlyPoll(db: Queryable, householdId: string, deps: Deps
   const hh = await getHousehold(db, householdId);
   const today = dateIsoInTz(now, hh.timezone);
   const rb = await readBackHousehold(db, householdId, deps, now, actor);
-  const counts: PollCounts = { ...rb, compared: 0, differences: 0 };
+  const counts: PollCounts = { ...rb, compared: 0, differences: 0, batchDates: 0, batchDateDifferences: 0 };
   const cats = await loadCategories(db, householdId);
+  const from = addDays(today, -45);
+  const appGroups = new Map<string, GroupTotals>();
   const rows = await db.query<{ id: string }>(
     "select id from transactions where household_id = $1 and bc_external_doc_no is not null and kind <> 'bc_native' and state in ('bc_draft_created','posted','reconciled') and posted_date >= $2::date order by posted_date",
-    [householdId, addDays(today, -45)],
+    [householdId, from],
   );
   for (const { id } of rows.rows) {
     const tx = await loadTx(db, id);
     counts.compared += 1;
+    for (const l of await linesFor(db, tx, await loadSplits(db, tx.id), cats)) addTo(appGroups, `${tx.bc_batch ?? "?"}|${l.postingDate}`, tx.bc_external_doc_no!, l.amountCents);
     const diff = await compareOne(db, tx, deps, cats);
     if (!diff) {
       if (tx.sync_status !== "in_sync") await db.query("update transactions set sync_status = 'in_sync', sync_difference = null, last_sync_at = now() where id = $1", [tx.id]);
@@ -94,6 +114,36 @@ export async function nightlyPoll(db: Queryable, householdId: string, deps: Deps
     }
     counts.differences += 1;
     await raiseException(db, householdId, tx.id, diff.reason, "poll", actor, { sync_difference: diff.detail });
+  }
+  // Per batch and posting date (spec: "Webhooks and polling"): count and debit sum of HHAPP lines on each side.
+  if (deps.ledger.listAppDocuments) {
+    const inFlight = new Set((await db.query<{ doc: string }>("select bc_external_doc_no as doc from transactions where household_id = $1 and state = 'sent_to_bc' and bc_external_doc_no is not null", [householdId])).rows.map((r) => r.doc));
+    const ledgerGroups = new Map<string, GroupTotals>();
+    for (const r of await deps.ledger.listAppDocuments({ externalDocumentNoStartsWith: "HHAPP-", postingDateFrom: from })) {
+      if (inFlight.has(r.externalDocumentNo)) continue;
+      addTo(ledgerGroups, `${r.batch ?? "?"}|${r.postingDate}`, r.externalDocumentNo, r.amountCents);
+    }
+    for (const key of new Set([...appGroups.keys(), ...ledgerGroups.keys()])) {
+      counts.batchDates += 1;
+      const a = appGroups.get(key) ?? { count: 0, debits: 0, docs: new Set<string>() };
+      const b = ledgerGroups.get(key) ?? { count: 0, debits: 0, docs: new Set<string>() };
+      if (a.count === b.count && a.debits === b.debits) continue;
+      counts.batchDateDifferences += 1;
+      const [batch, postingDate] = key.split("|");
+      const onlyInBc = [...b.docs].filter((d) => !a.docs.has(d));
+      const onlyInApp = [...a.docs].filter((d) => !b.docs.has(d));
+      // Documents the app does not hold at all are raised for Cade; per-document differences were raised above.
+      for (const doc of onlyInBc) {
+        const known = await db.query<{ id: string }>("select id from transactions where household_id = $1 and bc_external_doc_no = $2", [householdId, doc]);
+        if (known.rows.length) continue;
+        await db.query("insert into alerts (household_id, member_id, kind, level, fingerprint, payload) values ($1,null,'bc_unknown_document','action',$2,$3) on conflict do nothing", [
+          householdId,
+          `bc_unknown_document:${doc}`,
+          JSON.stringify({ title: "A Homestead document in BC has no app record", body: `${doc} is in HHAPP/${batch} for ${postingDate} but the app does not know it. It is in the Console's exception queue.`, externalDocumentNo: doc, bcSide: { batch, postingDate } }),
+        ]);
+      }
+      await audit(db, householdId, { actor, action: "bc.poll_batch_date_difference", entity: "batch", entityId: key, after: { batch, postingDate, app: { lines: a.count, debits: a.debits }, bc: { lines: b.count, debits: b.debits }, onlyInBc, onlyInApp } });
+    }
   }
   await db.query("update ledger_connections set last_poll_at = $2 where household_id = $1", [householdId, now.toISOString()]);
   await audit(db, householdId, { actor, action: "bc.nightly_poll", entity: "household", entityId: householdId, after: counts });

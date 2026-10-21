@@ -1,7 +1,8 @@
 import { useState } from "react";
+import { Link } from "react-router";
 import type { BatchStatus, BcBatch } from "@homestead/shared";
 import { useOutbox, usePostBatch, useSyncStatus } from "../api/hooks";
-import { Dialog, ErrorNotice, Loading, PageHead, Tag, useToast } from "../components/ui";
+import { Dialog, ErrorNotice, Loading, PageHead, Tag, errorMessage, useToast } from "../components/ui";
 import { ago, dateTime, money } from "../lib/format";
 import { bcJournalBatchUrl, bcJournalUrl, bcLinksConfigured } from "../lib/bcLinks";
 import { freshnessTone } from "../lib/status";
@@ -23,10 +24,10 @@ export function SyncPosting() {
     if (!confirm) return;
     try {
       const r = await post.mutateAsync(confirm.batch);
-      say(`Post request queued for HHAPP/${r.batch} (${r.lineCount} lines, outbox ${r.outboxId}).`);
+      say(r.message ?? `Post request queued for HHAPP/${r.batch} (${r.lineCount} lines, outbox ${r.outboxId}).`);
       setConfirm(null);
     } catch (err) {
-      say(err instanceof Error ? err.message : String(err));
+      say(errorMessage(err));
     }
   }
 
@@ -112,7 +113,7 @@ export function SyncPosting() {
                         </td>
                         <td className="num">
                           {b.bcDraftCount ?? "—"}
-                          <span className="sub">{b.bcDraftSumCents !== undefined ? money(b.bcDraftSumCents) : "not polled"}</span>
+                          <span className="sub">{b.bcDraftSumCents !== undefined ? money(b.bcDraftSumCents) : "not reported"}</span>
                           {mismatch ? (
                             <span className="sub">
                               <Tag tone="action">differs</Tag>
@@ -140,7 +141,7 @@ export function SyncPosting() {
               </table>
             </div>
             <p style={{ marginTop: 10, color: "var(--muted)", fontSize: 12.5 }}>
-              <strong>Post batch</strong> only queues the request. The API has no posting right of its own: HHAPP/FEEDS and HHAPP/RECEIPTS post with Cade's BC sign-in (in BC, or when the queued request runs under his delegated session), and HHAPP/AUTOPOST posts by the hourly job under permission set HH-APP once an auto-post rule is approved. After posting, the webhook or the nightly poll reads the G/L entries back by External Document No. and the lines move to Posted.
+              <strong>Post batch</strong> never posts from the Console. The app credential has no posting right on HHAPP/FEEDS or HHAPP/RECEIPTS: the request is recorded (outbox and audit) and Cade posts the batch in BC under his own sign-in. HHAPP/AUTOPOST is posted by the hourly job under permission set HH-APP, and only once the household switch is on and an auto-post rule is approved; otherwise the request is recorded and nothing is posted. After posting, the webhook or the nightly poll reads the G/L entries back by External Document No. and the lines move to Posted.
             </p>
           </div>
 
@@ -160,6 +161,13 @@ export function SyncPosting() {
                 </tr>
               </thead>
               <tbody>
+                {sync.data.subscriptions.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="sub">
+                      No subscriptions yet. The daily webhook-renewal job creates them once the BC connection is live; until then the nightly poll is the only read-back.
+                    </td>
+                  </tr>
+                ) : null}
                 {sync.data.subscriptions.map((s) => (
                   <tr key={s.resource}>
                     <td>{s.resource}</td>
@@ -177,9 +185,9 @@ export function SyncPosting() {
             <div className="card">
               <div className="card-head">
                 <h2>Recent dead letters</h2>
-                <a className="hint" href="/health?tab=jobs">
+                <Link className="hint" to="/health?tab=jobs">
                   All failed jobs and retry →
-                </a>
+                </Link>
               </div>
               <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
                 {dead.data.items.map((o) => (
@@ -218,7 +226,9 @@ export function SyncPosting() {
               <div className="notice action">BC reports {confirm.bcDraftCount} lines in this batch; the app expects {confirm.appDraftCount}. Resolve the difference in the Exceptions queue before posting, or post in BC where you can see every line.</div>
             ) : null}
             <div className="notice">
-              {confirm.batch === "AUTOPOST" ? "The AUTOPOST job posts this batch on its hourly schedule when the household switch is on; queuing a request here asks it to run at its next tick." : "Posting runs with your BC sign-in, not the API's identity. If the queued request cannot run under your session, post the batch in BC; the poll will read the entries back either way."}
+              {confirm.batch === "AUTOPOST"
+                ? "With the household switch on, the AUTOPOST job posts this batch at its next run. With the switch off (today), the request is recorded and nothing is posted."
+                : "This records the request; then post the batch in BC under your own sign-in (Open in BC). The webhook or the nightly poll reads the entries back and the lines move to Posted."}
             </div>
           </>
         ) : null}

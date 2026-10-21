@@ -18,8 +18,12 @@ export function ApiProvider({ children, api }: { children: ReactNode; api?: Cons
       mockSingleton ??= createMockApi();
       return mockSingleton;
     }
-    return createHttpApi(auth.getAuthHeaders, () => ({ id: auth.memberId ?? "", displayName: auth.memberName ?? "Member" }));
-  }, [api, auth.getAuthHeaders, auth.memberId, auth.memberName]);
+    return createHttpApi({
+      getAuthHeaders: auth.getAuthHeaders,
+      getStepUpHeaders: auth.getStepUpHeaders,
+      member: () => ({ id: auth.memberId ?? "", displayName: auth.memberName ?? "Member" }),
+    });
+  }, [api, auth.getAuthHeaders, auth.getStepUpHeaders, auth.memberId, auth.memberName]);
   const queryClient = useMemo(
     () =>
       new QueryClient({

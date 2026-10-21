@@ -109,9 +109,9 @@ test("BC sync: Post batch only queues a request and says who posts", async ({ pa
   await expect(page.getByTestId("batches-table")).toContainText("HHAPP/FEEDS");
   await page.getByTestId("post-FEEDS").click();
   const dialog = page.getByTestId("post-dialog");
-  await expect(dialog).toContainText("Posting runs with your BC sign-in");
+  await expect(dialog).toContainText("post the batch in BC under your own sign-in");
   await dialog.getByTestId("post-confirm").click();
-  await expect(page.getByRole("status")).toContainText("Post request queued for HHAPP/FEEDS");
+  await expect(page.getByRole("status")).toContainText("Recorded. HHAPP/FEEDS is posted under Cade's own BC sign-in");
 });
 
 test("reconciliation lists the 14 bank cards and the three loans", async ({ page }) => {

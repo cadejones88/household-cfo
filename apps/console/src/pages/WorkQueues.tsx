@@ -16,7 +16,7 @@ import {
 import { QueueTable } from "../components/QueueTable";
 import { ExceptionResolveDialog } from "../components/ExceptionResolveDialog";
 import { CorrectDialog } from "../components/CorrectDialog";
-import { ErrorNotice, JsonDetails, Loading, PageHead, Pager, Tabs, Tag, useToast } from "../components/ui";
+import { ErrorNotice, JsonDetails, Loading, PageHead, Pager, Tabs, Tag, errorMessage, useToast } from "../components/ui";
 import { ago, date, dateTime, money, pct } from "../lib/format";
 import { ruleStateView } from "../lib/status";
 
@@ -88,9 +88,13 @@ function TransactionsSection({ say }: { say: (m: string) => void }) {
   async function approveSelected() {
     const ids = [...selected];
     if (ids.length === 0) return;
-    const r = await approve.mutateAsync(ids);
-    setSelected(new Set());
-    say(`${r.approved} approved${r.skipped.length ? `, ${r.skipped.length} skipped (${r.skipped.map((s) => s.reason).join("; ")})` : ""}. Drafts go to BC through the outbox.`);
+    try {
+      const r = await approve.mutateAsync(ids);
+      setSelected(new Set());
+      say(`${r.approved} approved${r.skipped.length ? `, ${r.skipped.length} skipped (${r.skipped.map((s) => s.reason).join("; ")})` : ""}. Drafts go to BC through the outbox.`);
+    } catch (err) {
+      say(errorMessage(err));
+    }
   }
 
   return (
@@ -122,14 +126,17 @@ function TransactionsSection({ say }: { say: (m: string) => void }) {
             onSelectedChange={setSelected}
             onApproveSelected={() => void approveSelected()}
             onWrong={setWrong}
-            onBusinessFlag={(row, f) => flag.mutate({ id: row.id, flag: f }, { onSuccess: () => say(`Marked ${f === "none" ? "personal" : f.toUpperCase()}.`) })}
-            onDuplicate={(row, decision) => dup.mutate({ id: row.id, decision }, { onSuccess: () => say(decision === "same_thing" ? "Dropped as a repeat; the key is kept." : "Kept; it continues through the queue.") })}
+            onBusinessFlag={(row, f) => flag.mutate({ id: row.id, flag: f }, { onSuccess: () => say(`Marked ${f === "none" ? "personal" : f.toUpperCase()}.`), onError: (e) => say(errorMessage(e)) })}
+            onDuplicate={(row, decision) => dup.mutate({ id: row.id, decision }, { onSuccess: () => say(decision === "same_thing" ? "Dropped as a repeat; the key is kept." : "Kept; it continues through the queue."), onError: (e) => say(errorMessage(e)) })}
             busy={busy}
           />
           <Pager page={q.data.page} pageSize={q.data.pageSize} total={q.data.total} onPage={setPage} />
         </>
       ) : null}
-      <CorrectDialog row={wrong} onClose={() => setWrong(null)} busy={correct.isPending} onSubmit={async (id, input) => { await correct.mutateAsync({ id, ...input }); say(input.makeRule ? "Fixed, and a rule proposal was created for the other spouse." : "Fixed."); }} />
+      <CorrectDialog row={wrong} onClose={() => setWrong(null)} busy={correct.isPending} onSubmit={async (id, input) => {
+          const r = await correct.mutateAsync({ id, ...input });
+          say(r.correctionRequestId ? "Already with BC: a correction request is open for Cade (reverse and repost in BC with reason CORRECT)." : input.makeRule ? "Fixed, and a rule proposal was created for the other spouse." : "Fixed.");
+        }} />
     </>
   );
 }
@@ -148,7 +155,7 @@ function ExceptionsSection({ say }: { say: (m: string) => void }) {
       {q.isLoading ? <Loading what="Loading exceptions" /> : q.error ? <ErrorNotice error={q.error} /> : null}
       {q.data ? (
         <>
-          <QueueTable rows={q.data.items} onResolveException={setResolving} onBusinessFlag={(row, f) => flag.mutate({ id: row.id, flag: f })} busy={resolve.isPending} />
+          <QueueTable rows={q.data.items} onResolveException={setResolving} onBusinessFlag={(row, f) => flag.mutate({ id: row.id, flag: f }, { onError: (e) => say(errorMessage(e)) })} busy={resolve.isPending} />
           <Pager page={q.data.page} pageSize={q.data.pageSize} total={q.data.total} onPage={setPage} />
         </>
       ) : null}
@@ -219,7 +226,7 @@ function ReceiptsSection({ say }: { say: (m: string) => void }) {
                           {r.candidates.map((c) => (
                             <li key={c.transactionId}>
                               {date(c.postedDate)} · {c.merchant} · {money(c.amountCents)} · {pct(c.confidence)}{" "}
-                              <button type="button" className="btn small" disabled={match.isPending} onClick={() => match.mutate({ receiptId: r.id, transactionId: c.transactionId }, { onSuccess: () => say("Receipt matched; the line moves to Needs classification.") })}>
+                              <button type="button" className="btn small" disabled={match.isPending} onClick={() => match.mutate({ receiptId: r.id, transactionId: c.transactionId }, { onSuccess: () => say("Receipt matched; the line moves to Needs classification."), onError: (e) => say(errorMessage(e)) })}>
                                 Match
                               </button>
                             </li>
@@ -300,15 +307,15 @@ function RulesSection({ say }: { say: (m: string) => void }) {
                       <td className="actions">
                         {r.state === "proposed" ? (
                           <>
-                            <button type="button" className="btn small primary" disabled={decide.isPending} onClick={() => decide.mutate({ id: r.id, decision: "approve" }, { onSuccess: () => say("Rule approved."), onError: (e) => say(e instanceof Error ? e.message : String(e)) })}>
+                            <button type="button" className="btn small primary" disabled={decide.isPending} onClick={() => decide.mutate({ id: r.id, decision: "approve" }, { onSuccess: () => say("Rule approved."), onError: (e) => say(errorMessage(e)) })}>
                               Approve
                             </button>{" "}
-                            <button type="button" className="btn small" disabled={decide.isPending} onClick={() => decide.mutate({ id: r.id, decision: "decline" }, { onSuccess: () => say("Rule declined.") })}>
+                            <button type="button" className="btn small" disabled={decide.isPending} onClick={() => decide.mutate({ id: r.id, decision: "decline" }, { onSuccess: () => say("Rule declined."), onError: (e) => say(errorMessage(e)) })}>
                               Decline
                             </button>
                           </>
                         ) : r.state === "approved" ? (
-                          <button type="button" className="btn small" disabled={decide.isPending} onClick={() => decide.mutate({ id: r.id, decision: "retire" }, { onSuccess: () => say("Rule retired.") })}>
+                          <button type="button" className="btn small" disabled={decide.isPending} onClick={() => decide.mutate({ id: r.id, decision: "retire" }, { onSuccess: () => say("Rule retired."), onError: (e) => say(errorMessage(e)) })}>
                             Retire
                           </button>
                         ) : null}

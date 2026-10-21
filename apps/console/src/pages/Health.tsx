@@ -2,13 +2,16 @@ import { useState } from "react";
 import { useSearchParams } from "react-router";
 import type { SyncRunSummary } from "@homestead/shared";
 import { useAudit, useConnections, useHealthReport, useOutbox, useRetryOutbox, useSyncRuns } from "../api/hooks";
-import { ErrorNotice, JsonDetails, Loading, PageHead, Pager, Tabs, Tag, useToast } from "../components/ui";
+import { ErrorNotice, JsonDetails, Loading, PageHead, Pager, Tabs, Tag, errorMessage, useToast } from "../components/ui";
 import { ago, dateTime } from "../lib/format";
 import { feedStatusView, freshnessTone, syncRunStatusView } from "../lib/status";
 
 type Section = "connections" | "runs" | "jobs" | "audit" | "nightly";
 
-const RUN_KINDS: readonly SyncRunSummary["kind"][] = ["plaid", "bc_poll", "bc_webhook", "webhook_renewal", "autopost", "ocr", "file_import", "alerts"];
+const RUN_KINDS: readonly SyncRunSummary["kind"][] = ["plaid", "matching", "ocr", "file_import", "outbox_relay", "bc_worker", "autopost", "bc_readback", "bc_poll", "bc_webhook", "webhook_renewal", "alerts", "paycheck_fallback", "receipt_fallback", "rule_proposals"];
+
+/** Entities the API and jobs write to the audit log (services/api, services/jobs). */
+const AUDIT_ENTITIES = ["transaction", "receipt", "rule", "approval", "batch", "outbox", "paycheck", "account", "feed_connection", "household", "member", "budget_revision", "bc_document", "alert", "ask_conversation"] as const;
 
 export function Health() {
   const [params, setParams] = useSearchParams();
@@ -55,7 +58,13 @@ function Connections() {
         <div className="card stat">
           <span className="label">Business Central</span>
           <span className="value small">
-            {d.ledger.apiReachable === false ? <Tag tone="action">unreachable</Tag> : <Tag tone={freshnessTone(d.ledger.lastPollAt, 30)}>reachable</Tag>}
+            {d.ledger.apiReachable === false ? (
+              <Tag tone="action">unreachable</Tag>
+            ) : d.ledger.apiReachable === true ? (
+              <Tag tone={freshnessTone(d.ledger.lastPollAt, 30)}>reachable</Tag>
+            ) : (
+              <Tag tone={d.ledger.lastPollAt ? freshnessTone(d.ledger.lastPollAt, 30) : "watch"}>{d.ledger.lastPollAt ? `polled ${ago(d.ledger.lastPollAt)}` : "never polled"}</Tag>
+            )}
           </span>
           <span className="sub">
             poll {ago(d.ledger.lastPollAt)} · webhook {ago(d.ledger.lastWebhookAt)} · checked {ago(d.ledger.checkedAt)}
@@ -94,6 +103,13 @@ function Connections() {
             </tr>
           </thead>
           <tbody>
+            {d.feeds.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="sub">
+                  No bank logins linked yet. Each spouse links their own from the phone app; statement files are imported without a login.
+                </td>
+              </tr>
+            ) : null}
             {d.feeds.map((f) => {
               const sv = feedStatusView(f.status);
               return (
@@ -134,6 +150,13 @@ function Connections() {
             </tr>
           </thead>
           <tbody>
+            {d.subscriptions.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="sub">
+                  No subscriptions yet. The daily webhook-renewal job creates them once the BC connection is live.
+                </td>
+              </tr>
+            ) : null}
             {d.subscriptions.map((s) => (
               <tr key={s.resource}>
                 <td>{s.resource}</td>
@@ -281,7 +304,7 @@ function FailedJobs({ say }: { say: (m: string) => void }) {
                     <td>{o.deadLettered ? <Tag tone="action">dead letter</Tag> : o.completedAt ? <Tag tone="good">done</Tag> : o.publishedAt ? <Tag tone="neutral">published</Tag> : <Tag tone="neutral">queued</Tag>}</td>
                     <td className="actions">
                       {o.deadLettered ? (
-                        <button type="button" className="btn small primary" disabled={retry.isPending} onClick={() => retry.mutate(o.id, { onSuccess: () => say("Requeued; the worker re-runs the pre-write check before writing.") })}>
+                        <button type="button" className="btn small primary" disabled={retry.isPending} onClick={() => retry.mutate(o.id, { onSuccess: () => say("Requeued; the worker re-runs the pre-write check before writing."), onError: (e) => say(errorMessage(e)) })}>
                           Retry
                         </button>
                       ) : null}
@@ -309,7 +332,7 @@ function Audit() {
           Entity
           <select value={entity} onChange={(e) => { setEntity(e.target.value); setPage(1); }} aria-label="Entity">
             <option value="">All</option>
-            {["transaction", "receipt", "rule", "approval", "feed_connection", "bc_webhook_subscription", "outbox", "journal_batch", "household_settings", "budget_revision"].map((e) => (
+            {AUDIT_ENTITIES.map((e) => (
               <option key={e} value={e}>
                 {e}
               </option>
@@ -318,7 +341,7 @@ function Audit() {
         </label>
         <label className="field">
           Entity id
-          <input type="text" value={entityId} onChange={(e) => { setEntityId(e.target.value); setPage(1); }} aria-label="Entity id" placeholder="tx-0014" />
+          <input type="text" value={entityId} onChange={(e) => { setEntityId(e.target.value); setPage(1); }} aria-label="Entity id" placeholder="transaction id, FEEDS, …" />
         </label>
         <span className="spacer" />
         <span style={{ color: "var(--muted)", fontSize: 12.5 }}>Append-only: the database role cannot update or delete rows here.</span>

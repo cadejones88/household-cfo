@@ -300,13 +300,14 @@ function evaluateOne(rule: RuleRow, tx: TxForRules, history: MerchantHistory | u
 
 /** Keyword fallback from the category examples when no rule matches. */
 export function heuristicCategory(tx: TxForRules, cats: CategoryMap): Candidate | undefined {
-  const text = `${tx.merchantNorm} ${tx.merchantRaw.toLowerCase()}`;
+  // Apostrophes vanish rather than split a word, so "Broulim's" matches "BROULIMS" and "BROULIM'S".
+  const text = `${tx.merchantNorm} ${tx.merchantRaw.toLowerCase().replace(/['’]/g, "")}`;
   let best: Candidate | undefined;
   for (const c of CATEGORIES) {
     if (!cats.has(c.id)) continue;
     if (c.group === "Unsplit" || c.group === "Suspense") continue;
     for (const ex of c.examples) {
-      const word = ex.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").trim();
+      const word = ex.toLowerCase().replace(/['’]/g, "").replace(/[^a-z0-9 ]+/g, " ").trim();
       if (word.length < 3) continue;
       if (text.includes(word)) {
         const isIncome = c.group === "Income";

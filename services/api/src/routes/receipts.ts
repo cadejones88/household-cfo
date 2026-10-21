@@ -35,10 +35,14 @@ export default async function receiptsRoutes(app: FastifyInstance): Promise<void
       }
       if (f.kind === "receipt" && r.created) {
         // Read and match inline when the ports answer quickly (fakes, dev); the OCR job retries anything queued.
+        // A savepoint keeps the upload itself when the read fails part-way (the receipt stays `queued`).
+        await db.query("savepoint receipt_inline_read");
         try {
           const read = await readReceipt(db, p.householdId, r.receipt.id, app.deps, p.memberId);
           if (read.outcome === "read") await matchReceiptToTransaction(db, p.householdId, r.receipt.id, p.memberId);
+          await db.query("release savepoint receipt_inline_read");
         } catch (e) {
+          await db.query("rollback to savepoint receipt_inline_read");
           req.log.warn({ err: { type: (e as Error).name } }, "receipt read deferred to the OCR job");
         }
       }

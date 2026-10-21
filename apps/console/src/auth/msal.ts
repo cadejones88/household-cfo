@@ -103,8 +103,19 @@ export async function getAccessToken(): Promise<string> {
  */
 export async function getStepUpToken(): Promise<string> {
   const msal = await getMsal();
+  if (sessionExpired()) {
+    await signOut();
+    throw new Error("Session expired");
+  }
   const account = msal.getActiveAccount() ?? msal.getAllAccounts()[0];
   if (!account) throw new Error("Not signed in");
-  const r = await msal.acquireTokenSilent({ scopes: [config.entra.apiScope], account, forceRefresh: true });
-  return r.accessToken;
+  try {
+    const r = await msal.acquireTokenSilent({ scopes: [config.entra.apiScope], account, forceRefresh: true });
+    return r.accessToken;
+  } catch (err) {
+    // The tenant wants the person back (refresh token gone or MFA required again): sign in with the passkey, then
+    // the action is repeated by hand.
+    if (err instanceof InteractionRequiredAuthError) await msal.acquireTokenRedirect({ scopes: [config.entra.apiScope], account, prompt: "login" });
+    throw err;
+  }
 }

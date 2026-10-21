@@ -1,7 +1,11 @@
 # Homestead API + jobs: one image, two entry points (spec: Stack, "Same image, different entry points").
 #
-#   API   node api/dist/server.js            (Container App, port 8080)
-#   jobs  node jobs/dist/index.js <job-name> (Container Apps Jobs; see infra/modules/container-apps.bicep)
+#   API   node services/api/dist/server.js            (Container App, port 8080)
+#   jobs  node services/jobs/dist/index.js <job-name> (Container Apps Jobs; see infra/modules/container-apps.bicep)
+#
+# The services keep their repository paths under /app on purpose: the jobs entry point only runs when it is
+# invoked as `…/services/jobs/dist/index.js` (services/jobs/src/index.ts, `invokedDirectly`); at /app/jobs it
+# would exit 0 without doing anything.
 #
 # Build from the repository root (the workspace lock and the shared packages are needed):
 #   docker build -f services/api/Dockerfile -t homestead-api:local .
@@ -47,9 +51,11 @@ RUN pnpm --filter @homestead/shared build \
 
 # Production copies. `--legacy` keeps pnpm 10's deploy behaviour of copying workspace packages into node_modules
 # without requiring inject-workspace-packages in .npmrc.
-RUN pnpm --filter @homestead/api deploy --prod --legacy /out/api \
- && pnpm --filter @homestead/jobs deploy --prod --legacy /out/jobs \
- && rm -rf /out/api/src /out/jobs/src /out/api/test /out/jobs/test
+RUN pnpm --filter @homestead/api deploy --prod --legacy /out/services/api \
+ && pnpm --filter @homestead/jobs deploy --prod --legacy /out/services/jobs \
+ && rm -rf /out/services/api/src /out/services/jobs/src /out/services/api/test /out/services/jobs/test \
+ && test -f /out/services/api/dist/server.js && test -f /out/services/jobs/dist/index.js \
+ && test -d /out/services/api/db/migrations
 
 # ---- runtime -----------------------------------------------------------------------------------------------
 FROM ${NODE_IMAGE} AS runtime
@@ -57,10 +63,10 @@ ENV NODE_ENV=production \
     PORT=8080 \
     NODE_OPTIONS=--enable-source-maps
 WORKDIR /app
-COPY --from=build --chown=node:node /out/api  /app/api
-COPY --from=build --chown=node:node /out/jobs /app/jobs
+# Owned by root and read-only to the runtime user: the app never writes to its own code.
+COPY --from=build /out/services /app/services
 USER node
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-CMD ["node", "api/dist/server.js"]
+CMD ["node", "services/api/dist/server.js"]

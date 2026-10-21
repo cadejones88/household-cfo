@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { DataThrough } from "@homestead/shared";
 import { qualityView, type Tone } from "../lib/status";
 import { ago, dateTime } from "../lib/format";
+import { ApiError } from "../api/types";
 
 export function Tag({ tone, children, title, plain }: { tone: Tone; children: ReactNode; title?: string; plain?: boolean }) {
   return (
@@ -81,11 +82,21 @@ export function Loading({ what = "Loading" }: { what?: string }) {
   );
 }
 
-export function ErrorNotice({ error }: { error: unknown }) {
-  const msg = error instanceof Error ? error.message : String(error);
+/** Plain words for an API error. The API's step-up message is written for the phone; the Console's differs. */
+export function errorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.code === "step_up_required") return "This needs a fresh sign-in. Confirm with your passkey and try again.";
+    if (error.code === "other_spouse_decides") return "The other spouse decides this one.";
+    if (error.code === "not_in_api") return `Not available yet: ${error.message}`;
+    return error.message || error.code;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function ErrorNotice({ error, prefix = "Could not load" }: { error: unknown; prefix?: string }) {
   return (
     <div className="notice action" role="alert">
-      Could not load: {msg}
+      {prefix}: {errorMessage(error)}
     </div>
   );
 }

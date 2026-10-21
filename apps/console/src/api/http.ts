@@ -1,18 +1,22 @@
 /**
- * HTTP implementation of ConsoleApi, written against services/api/openapi.yaml and reconciled with the routes as
- * implemented in services/api/src/routes/console.ts (Oct 20, 2026), which return a little more than the OpenAPI
- * documents (outbox list and retry, subscription ids, draft sums, documentNo on exception resolution, the
- * household in /console/settings). The screens use the richer Console DTOs from @homestead/shared; this client
- * composes them from those routes. Where the API has no data yet (loan rollforwards, employer templates, BC-side
- * draft counts) the field is left empty and the screen says so. See README "API routes" for the list.
+ * HTTP implementation of ConsoleApi. Written against services/api/openapi.yaml and reconciled (Oct 20, 2026) with
+ * the routes as implemented in services/api/src/routes/*.ts, which return more than the OpenAPI documents (outbox
+ * list and retry, subscription ids, draft sums, documentNo on exception resolution, the household in
+ * /console/settings, receipt match candidates). The screens use the richer Console DTOs from @homestead/shared;
+ * this client composes them from those routes. Where the API has no data yet (loan rollforwards, employer
+ * templates, BC-side draft counts, statement numbers) the field is left empty and the screen says so; where the
+ * API has no route that does the right thing (mapping changes) the call fails with `501 not_in_api` instead of
+ * sending something that would be applied wrongly. README "API routes" lists every gap.
  *
- * Auth: `getAuthHeaders` supplies `Authorization: Bearer …` (Entra) or `x-dev-member` (AUTH_MODE=dev). Step-up
- * sends `x-step-up: true` in dev; with Entra a fresh token's `amr` claim carries it.
+ * Auth: `getAuthHeaders` supplies `Authorization: Bearer …` (Entra) or `x-dev-member` (AUTH_MODE=dev).
+ * Step-up calls use `getStepUpHeaders`: a freshly issued token in Entra mode (the API checks `iat` within two
+ * minutes and an MFA/passkey `amr`), or `x-step-up: true` in dev.
  */
 import {
   BANK_CARD_LIST,
   CATEGORIES,
   CATEGORY_CATALOG_VERSION,
+  DIMENSION_CODES,
   type AccountSummary,
   type AuditEntry,
   type AuthorityMatrix,
@@ -25,10 +29,12 @@ import {
   type ConsoleReceiptRow,
   type ConsoleTransactionRow,
   type DataThrough,
+  type DimensionDictionaryEntry,
+  type EmployerMapping,
+  type MemberSummary,
   type ExceptionResolution,
   type FeedConnectionSummary,
   type HealthReport,
-  type MappingProposal,
   type MappingSet,
   type OutboxItem,
   type ReceiptSummary,
@@ -46,13 +52,26 @@ export interface MemberInfo {
   displayName: string;
 }
 
-// Shapes from openapi.yaml (only the fields the Console reads).
+export interface HttpApiOptions {
+  getAuthHeaders: AuthHeaders;
+  /** Headers for a call that needs step-up. Default: the normal headers plus `x-step-up: true` (dev only). */
+  getStepUpHeaders?: AuthHeaders;
+  member: () => MemberInfo;
+  baseUrl?: string;
+  fetchImpl?: typeof fetch;
+  healthReportPath?: string;
+}
+
+// ---- Response shapes (only the fields the Console reads) --------------------------------------------------------
+
+type ApiTransaction = Transaction & { exceptionReason?: string; duplicateOfId?: string; statusWord?: string; pairId?: string };
+
 interface QueuesResponse {
   counts?: Record<string, number>;
-  transactions?: Transaction[];
+  transactions?: ApiTransaction[];
   receipts?: ReceiptSummary[];
   rules?: RuleSummary[];
-  exceptions?: Transaction[];
+  exceptions?: ApiTransaction[];
   dataThrough?: DataThrough;
 }
 interface PostingResponse {
@@ -62,11 +81,25 @@ interface PostingResponse {
   lastPollAt?: string;
   lastWebhookAt?: string;
 }
+interface PostBatchResponse {
+  batch?: BcBatch;
+  outboxId?: string;
+  queuedAt?: string;
+  lineCount?: number;
+  draftCount?: number;
+  enqueued?: boolean;
+  message?: string;
+}
 interface ConnectionsResponse {
   feeds?: { id: string; provider: "plaid" | "file" | "simplefin"; institutionName?: string; ownerMemberId?: string; ownerName?: string; status?: FeedConnectionSummary["status"]; needsRelink?: boolean; lastSyncedAt?: string; staleHours?: number; accountCount?: number; cursorPresent?: boolean }[];
   ledger?: { environment?: string; companyId?: string; autoPostEnabled?: boolean; lastPollAt?: string; lastWebhookAt?: string };
   webhooks?: { resource: string; subscriptionId?: string; expiresAt?: string; lastRenewedAt?: string; needsRenewal?: boolean }[];
   outbox?: { due?: number; deadLettered?: number; oldestPendingAt?: string };
+}
+interface MeResponse {
+  member?: MemberSummary;
+  household?: { id: string; name: string; timezone: string; settingsVersion?: number };
+  ledger?: { tenantId?: string; environment?: string; companyId?: string; journalTemplate?: string; autoPostEnabled?: boolean };
 }
 interface SettingsResponse {
   version?: number;
@@ -76,7 +109,7 @@ interface SettingsResponse {
 }
 interface MatrixResponse {
   version?: number;
-  rows?: { action: string; who: string; stepUp: string; notes: string }[];
+  rows?: { action: string; who: string; stepUp: string; notes: string; settingKeys?: string[]; tbd?: boolean }[];
   approvedAt?: string;
   approvedBy?: string[];
   settingsVersion?: number;
@@ -90,10 +123,16 @@ interface MappingsResponse {
   categories?: { id: string; name: string; group: string; glAccount: string; dims?: Record<string, string>; isAllowance?: boolean; isTransfer?: boolean; householdVisible?: boolean; version?: number }[];
   accounts?: (AccountSummary & { bcBankAccountCode?: string; bcGlAccount?: string })[];
   dimensions?: Record<string, string[]>;
+  employers?: EmployerMapping[];
 }
-interface OutboxResponse {
-  items?: (OutboxItem & { operation?: string })[];
+interface SyncResponse {
+  runs?: SyncRunSummary[];
 }
+interface ReceiptDetailResponse extends ReceiptSummary {
+  candidates?: { transactionId: string; score: number }[];
+}
+
+// ---- Helpers -----------------------------------------------------------------------------------------------------
 
 function qs(params: Record<string, string | number | boolean | undefined>): string {
   const u = new URLSearchParams();
@@ -102,20 +141,41 @@ function qs(params: Record<string, string | number | boolean | undefined>): stri
   return s ? `?${s}` : "";
 }
 
-function page<T>(items: readonly T[], q: PageQuery | undefined, dataThrough: DataThrough): ConsolePage<T> {
-  const pageSize = q?.pageSize ?? 50;
-  const pageNo = q?.page ?? 1;
-  const start = (pageNo - 1) * pageSize;
-  return { items: items.slice(start, start + pageSize), total: items.length, page: pageNo, pageSize, dataThrough };
+function slice<T>(items: readonly T[], q: PageQuery | undefined, defaultSize = 50): { items: T[]; page: number; pageSize: number } {
+  const pageSize = q?.pageSize ?? defaultSize;
+  const page = q?.page ?? 1;
+  const start = (page - 1) * pageSize;
+  return { items: items.slice(start, start + pageSize), page, pageSize };
+}
+
+function pageOf<T>(items: readonly T[], q: PageQuery | undefined, dataThrough: DataThrough): ConsolePage<T> {
+  const s = slice(items, q);
+  return { items: s.items, total: items.length, page: s.page, pageSize: s.pageSize, dataThrough };
 }
 
 const nowThrough = (quality: DataThrough["quality"], pendingCount = 0): DataThrough => ({ at: new Date().toISOString(), quality, pendingCount });
 
-export function createHttpApi(getAuthHeaders: AuthHeaders, member: () => MemberInfo, baseUrl = config.apiBaseUrl): ConsoleApi {
-  async function call<T>(method: "GET" | "POST" | "PUT", path: string, body?: unknown, extra: Record<string, string> = {}): Promise<T> {
-    const headers: Record<string, string> = { accept: "application/json", ...(await getAuthHeaders()), ...extra };
+/** The question id the API uses for a transaction's open question (services/api/src/services/questions.ts). */
+export const txQuestionId = (transactionId: string): string => `tx:${transactionId}`;
+
+/** BC dimension slots as the setup design assigns them (packages/shared dimensions; BC test finding 1). */
+const DIMENSION_SLOTS: Record<string, DimensionDictionaryEntry["slot"]> = {
+  [DIMENSION_CODES.SPEND_CLASS]: "global1",
+  [DIMENSION_CODES.FUND_GOAL]: "global2",
+  [DIMENSION_CODES.FAMILY_AREA]: "shortcut3",
+  [DIMENSION_CODES.TAX_TREATMENT]: "shortcut4",
+  [DIMENSION_CODES.PROJECT]: "shortcut5",
+};
+
+export function createHttpApi(opts: HttpApiOptions): ConsoleApi {
+  const baseUrl = (opts.baseUrl ?? config.apiBaseUrl).replace(/\/$/, "");
+  const doFetch = opts.fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
+  const stepUpHeaders: AuthHeaders = opts.getStepUpHeaders ?? (async () => ({ ...(await opts.getAuthHeaders()), "x-step-up": "true" }));
+
+  async function call<T>(method: "GET" | "POST" | "PUT", path: string, body?: unknown, stepUp = false): Promise<T> {
+    const headers: Record<string, string> = { accept: "application/json", ...(await (stepUp ? stepUpHeaders() : opts.getAuthHeaders())) };
     if (body !== undefined) headers["content-type"] = "application/json";
-    const res = await fetch(`${baseUrl}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), credentials: "omit" });
+    const res = await doFetch(`${baseUrl}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), credentials: "omit" });
     if (res.status === 204) return undefined as T;
     const text = await res.text();
     let json: unknown;
@@ -126,17 +186,23 @@ export function createHttpApi(getAuthHeaders: AuthHeaders, member: () => MemberI
     }
     if (!res.ok) {
       const e = json as { error?: string; message?: string } | undefined;
-      throw new ApiError(res.status, typeof e?.error === "string" ? e.error : `http_${res.status}`, e?.message);
+      throw new ApiError(res.status, typeof e?.error === "string" ? e.error : `http_${res.status}`, typeof e?.message === "string" ? e.message : undefined);
     }
     return json as T;
   }
   const get = <T>(path: string) => call<T>("GET", path);
-  const post = <T>(path: string, body?: unknown, stepUp = false) => call<T>("POST", path, body ?? {}, stepUp ? { "x-step-up": "true" } : {});
+  const post = <T>(path: string, body: unknown = {}, stepUp = false) => call<T>("POST", path, body, stepUp);
 
-  // Short-lived caches so the five queue tabs and the sidebar badges share one /console/queues read.
+  // Short-lived caches so the queue tabs, the sidebar badges and the overview share one /console/queues read.
   let queuesCache: { at: number; p: Promise<QueuesResponse> } | undefined;
   const queues = (): Promise<QueuesResponse> => {
-    if (!queuesCache || Date.now() - queuesCache.at > 5_000) queuesCache = { at: Date.now(), p: get<QueuesResponse>("/v1/console/queues") };
+    if (!queuesCache || Date.now() - queuesCache.at > 5_000) {
+      const p = get<QueuesResponse>("/v1/console/queues");
+      queuesCache = { at: Date.now(), p };
+      p.catch(() => {
+        if (queuesCache?.p === p) queuesCache = undefined;
+      });
+    }
     return queuesCache.p;
   };
   const bust = () => {
@@ -144,18 +210,25 @@ export function createHttpApi(getAuthHeaders: AuthHeaders, member: () => MemberI
   };
   let accountsCache: { at: number; p: Promise<AccountSummary[]> } | undefined;
   const accounts = (): Promise<AccountSummary[]> => {
-    if (!accountsCache || Date.now() - accountsCache.at > 60_000) accountsCache = { at: Date.now(), p: get<{ accounts?: AccountSummary[] }>("/v1/accounts").then((r) => r.accounts ?? []) };
+    if (!accountsCache || Date.now() - accountsCache.at > 60_000) {
+      const p = get<{ accounts?: AccountSummary[] }>("/v1/accounts").then((r) => r.accounts ?? []);
+      accountsCache = { at: Date.now(), p };
+      p.catch(() => {
+        if (accountsCache?.p === p) accountsCache = undefined;
+      });
+    }
     return accountsCache.p;
   };
   const categoryName = (id: string | undefined) => (id ? CATEGORIES.find((c) => c.id === id)?.name : undefined);
 
-  async function enrich(t: Transaction & { exceptionReason?: string; duplicateOfId?: string }): Promise<ConsoleTransactionRow> {
-    const acct = (await accounts()).find((a) => a.id === t.accountId);
+  async function enrich(t: ApiTransaction): Promise<ConsoleTransactionRow> {
+    const acct = (await accounts().catch(() => [] as AccountSummary[])).find((a) => a.id === t.accountId);
     const row: ConsoleTransactionRow = { ...t, accountName: acct?.displayName ?? t.accountId, accountMask: acct?.mask ?? "" };
     const cn = categoryName(t.categoryId);
     if (cn) row.categoryName = cn;
     if (t.duplicateOfId) row.duplicateOfId = t.duplicateOfId;
-    if (t.state === "exception") {
+    // The Exceptions list also carries lines with a noted reason but another state (services/console.ts queues).
+    if (t.state === "exception" || t.exceptionReason) {
       row.exception = {
         reason: t.exceptionReason ?? t.bc?.difference ?? "Exception (no reason recorded)",
         appSide: { idempotencyKey: t.idempotencyKey, externalDocumentNo: t.bc?.externalDocumentNo, lineIds: t.bc?.lineIds, state: t.state, amountCents: t.amountCents },
@@ -167,20 +240,26 @@ export function createHttpApi(getAuthHeaders: AuthHeaders, member: () => MemberI
     return row;
   }
 
+  async function transactionById(id: string, fromQueue: readonly ApiTransaction[]): Promise<ApiTransaction | undefined> {
+    const hit = fromQueue.find((t) => t.id === id);
+    if (hit) return hit;
+    return get<ApiTransaction>(`/v1/transactions/${encodeURIComponent(id)}`).catch(() => undefined);
+  }
+
   const api: ConsoleApi = {
-    // No /v1/me route: the household comes from /v1/console/settings and the BC connection from /v1/console/connections.
+    // GET /v1/me: the signed-in member, the household and the BC connection (ids only, never a credential).
     async me(): Promise<ConsoleMe> {
-      const [conn, settings] = await Promise.all([get<ConnectionsResponse>("/v1/console/connections"), get<SettingsResponse>("/v1/console/settings")]);
-      const m = member();
+      const r = await get<MeResponse>("/v1/me");
+      const m = opts.member();
       return {
-        member: { id: m.id, displayName: m.displayName, role: "member" },
-        household: { id: settings.household?.id ?? "", name: settings.household?.name ?? "Household", timezone: settings.household?.timezone ?? config.timeZone, settingsVersion: settings.version ?? 1 },
+        member: r.member ?? { id: m.id, displayName: m.displayName, role: "member" },
+        household: { id: r.household?.id ?? "", name: r.household?.name ?? "Household", timezone: r.household?.timezone ?? config.timeZone, settingsVersion: r.household?.settingsVersion ?? 1 },
         ledger: {
-          tenantId: config.bc.tenant,
-          environment: conn.ledger?.environment ?? config.bc.environment,
-          companyId: conn.ledger?.companyId ?? "",
-          journalTemplate: config.bc.journalTemplate,
-          autoPostEnabled: conn.ledger?.autoPostEnabled ?? false,
+          tenantId: r.ledger?.tenantId || config.bc.tenant,
+          environment: r.ledger?.environment || config.bc.environment,
+          companyId: r.ledger?.companyId ?? "",
+          journalTemplate: r.ledger?.journalTemplate || config.bc.journalTemplate,
+          autoPostEnabled: r.ledger?.autoPostEnabled ?? false,
         },
       };
     },
@@ -188,12 +267,15 @@ export function createHttpApi(getAuthHeaders: AuthHeaders, member: () => MemberI
     async transactions(queue, q) {
       const r = await queues();
       const list = queue === "exception" ? (r.exceptions ?? []) : (r.transactions ?? []).filter((t) => t.state === queue);
-      const rows = await Promise.all(list.map((t) => enrich(t)));
-      return page(rows, q, r.dataThrough ?? nowThrough("imported_pending"));
+      const sorted = [...list].sort((a, b) => (a.postedDate < b.postedDate ? 1 : a.postedDate > b.postedDate ? -1 : 0));
+      const s = slice(sorted, q);
+      const rows = await Promise.all(s.items.map((t) => enrich(t)));
+      return { items: rows, total: sorted.length, page: s.page, pageSize: s.pageSize, dataThrough: r.dataThrough ?? nowThrough("imported_pending") };
     },
 
-    // openapi.yaml has no bulk approve; /transactions/{id}/correct "approves with the new values", so approving is
-    // a correct with the category the item already has.
+    // Approving is the same act as a spouse's "Looks right" on the phone: the question `tx:<id>` answered with
+    // `confirm` (services/api/src/services/questions.ts, ready_for_review). It approves with the category or
+    // split already on the line and is not logged as a correction, so rule statistics stay honest.
     async approveTransactions(ids) {
       const r = await queues();
       const skipped: { id: string; reason: string }[] = [];
@@ -201,164 +283,222 @@ export function createHttpApi(getAuthHeaders: AuthHeaders, member: () => MemberI
       for (const id of ids) {
         const t = (r.transactions ?? []).find((x) => x.id === id);
         if (!t) {
-          skipped.push({ id, reason: "not in the queue" });
+          skipped.push({ id, reason: "not in the queue any more" });
           continue;
         }
-        if (!t.categoryId) {
+        if (t.state !== "ready_for_review") {
+          skipped.push({ id, reason: `state is ${t.state.replace(/_/g, " ")}` });
+          continue;
+        }
+        if (!t.categoryId && t.splits.length === 0) {
           skipped.push({ id, reason: "no category chosen" });
           continue;
         }
         try {
-          await post(`/v1/transactions/${id}/correct`, { categoryId: t.categoryId, reason: "Console approval" });
+          await post(`/v1/questions/${encodeURIComponent(txQuestionId(id))}/answer`, { optionId: "confirm" });
           approved += 1;
         } catch (err) {
-          skipped.push({ id, reason: err instanceof ApiError ? err.code : String(err) });
+          skipped.push({ id, reason: err instanceof ApiError ? (err.message || err.code) : String(err) });
         }
       }
       bust();
       return { approved, skipped };
     },
 
+    // "This is wrong": before BC the line changes in place (and a ready_for_review line is approved with the new
+    // values); after BC the API opens a correction request for Cade instead and returns `correctionRequestId`.
     async correctTransaction(id, input) {
-      const r = await post<{ transaction: Transaction; correctionRequestId?: string }>(`/v1/transactions/${id}/correct`, { categoryId: input.categoryId, reason: input.note });
-      if (input.makeRule) {
+      const r = await post<{ transaction: ApiTransaction; correctionRequestId?: string }>(`/v1/transactions/${encodeURIComponent(id)}/correct`, { categoryId: input.categoryId, ...(input.note ? { reason: input.note } : {}) });
+      if (input.makeRule && !r.correctionRequestId) {
         const t = r.transaction;
         const abs = Math.abs(t.amountCents);
         const pad = Math.max(500, Math.round(abs * 0.05));
+        // Same match shape as the API's own proposals (services/api/src/services/rules.ts proposeRulesFromHistory).
         await post("/v1/rules", {
           kind: "merchant",
-          name: `${t.merchantNorm} → ${categoryName(input.categoryId) ?? input.categoryId}`,
+          name: `${t.merchantNorm} → ${categoryName(input.categoryId) ?? input.categoryId}`.slice(0, 120),
           match: { merchantNorm: t.merchantNorm, band: { minCents: Math.max(0, abs - pad), maxCents: abs + pad }, direction: t.amountCents < 0 ? "out" : "in" },
           action: { categoryId: input.categoryId },
           mayAutoPost: false,
         });
       }
       bust();
-      return enrich(r.transaction);
+      const row = await enrich(r.transaction);
+      return r.correctionRequestId ? { ...row, correctionRequestId: r.correctionRequestId } : row;
     },
 
     async setBusinessFlag(id, flag: BusinessFlag) {
-      const t = await post<Transaction>(`/v1/transactions/${id}/business`, { flag });
+      const t = await post<ApiTransaction>(`/v1/transactions/${encodeURIComponent(id)}/business`, { flag });
       bust();
       return enrich(t);
     },
 
     // Possible duplicates are answered through the question API; the question id is `tx:<transaction id>`.
     async resolveDuplicate(id, decision) {
-      const r = await post<{ transaction?: Transaction }>(`/v1/questions/${encodeURIComponent(`tx:${id}`)}/answer`, { optionId: decision === "same_thing" ? "same_thing" : "not_repeat" });
+      const r = await post<{ transaction?: ApiTransaction }>(`/v1/questions/${encodeURIComponent(txQuestionId(id))}/answer`, { optionId: decision === "same_thing" ? "same_thing" : "not_repeat" });
       bust();
       if (r.transaction) return enrich(r.transaction);
-      const t = (await queues()).transactions?.find((x) => x.id === id);
-      if (!t) throw new ApiError(404, "not_found");
-      return enrich(t);
+      return enrich(await get<ApiTransaction>(`/v1/transactions/${encodeURIComponent(id)}`));
     },
 
     async resolveException(id, resolution: ExceptionResolution) {
-      const body = resolution.to === "posted" ? { to: "posted", entryNos: resolution.bcEntryNos, documentNo: resolution.bcDocumentNo, postingDate: resolution.bcPostingDate, note: resolution.note } : { to: "ready_for_review", note: resolution.note };
-      const t = await post<Transaction>(`/v1/console/exceptions/${id}/resolve`, body, true);
+      const body =
+        resolution.to === "posted"
+          ? { to: "posted", entryNos: resolution.bcEntryNos, ...(resolution.bcDocumentNo ? { documentNo: resolution.bcDocumentNo } : {}), ...(resolution.bcPostingDate ? { postingDate: resolution.bcPostingDate } : {}), note: resolution.note }
+          : { to: "ready_for_review", note: resolution.note };
+      const t = await post<ApiTransaction>(`/v1/console/exceptions/${encodeURIComponent(id)}/resolve`, body, true);
       bust();
       return enrich(t);
     },
 
+    // Receipts come with the queues read; the candidates the matcher could not choose between come from each
+    // receipt's detail (GET /v1/receipts/{id} → candidates[{ transactionId, score }]), fetched for the page shown.
     async receipts(status, q) {
       const r = await queues();
-      const all = (r.receipts ?? []).map<ConsoleReceiptRow>((x) => ({ ...x, memberName: "—" }));
-      const items = all.filter((x) => (status === "unmatched" ? !x.matchedTransactionId && x.ocrStatus === "read" : x.ocrStatus === "needs_review" || x.ocrStatus === "failed"));
-      return page(items, q, r.dataThrough ?? nowThrough("imported_pending"));
+      const all = (r.receipts ?? []).filter((x) => (status === "unmatched" ? x.ocrStatus === "read" && !x.matchedTransactionId : x.ocrStatus === "needs_review" || x.ocrStatus === "failed"));
+      const s = slice(all, q);
+      const queueTx = [...(r.transactions ?? []), ...(r.exceptions ?? [])];
+      const items = await Promise.all(
+        s.items.map(async (rec): Promise<ConsoleReceiptRow> => {
+          // Capturer names are not in ReceiptSummary yet (README "API routes").
+          const row: ConsoleReceiptRow = { ...rec, memberName: "—" };
+          if (status !== "unmatched") return row;
+          const detail = await get<ReceiptDetailResponse>(`/v1/receipts/${encodeURIComponent(rec.id)}`).catch(() => undefined);
+          const cands = detail?.candidates ?? [];
+          if (cands.length === 0) return row;
+          const resolved = await Promise.all(
+            cands.map(async (c) => {
+              const t = await transactionById(c.transactionId, queueTx);
+              return t ? { transactionId: t.id, postedDate: t.postedDate, amountCents: t.amountCents, merchant: t.merchantRaw, confidence: c.score } : undefined;
+            }),
+          );
+          return { ...row, candidates: resolved.filter((x): x is NonNullable<typeof x> => x !== undefined) };
+        }),
+      );
+      return { items, total: all.length, page: s.page, pageSize: s.pageSize, dataThrough: r.dataThrough ?? nowThrough("imported_pending") };
     },
 
     async matchReceipt(receiptId, transactionId) {
-      const r = await post<ReceiptSummary & { transaction?: Transaction }>(`/v1/receipts/${receiptId}/match`, { transactionId });
+      const r = await post<ReceiptSummary & { transaction?: Transaction }>(`/v1/receipts/${encodeURIComponent(receiptId)}/match`, { transactionId });
       bust();
-      const { transaction: _tx, ...summary } = r;
+      const { transaction: _matched, ...summary } = r;
       return { ...summary, memberName: "—" };
     },
 
     async rules(state, q) {
       const r = await get<{ rules?: RuleSummary[] }>(`/v1/rules${qs({ state })}`);
-      return page(r.rules ?? [], q, nowThrough("posted_unreconciled"));
+      return pageOf(r.rules ?? [], q, nowThrough("posted_unreconciled"));
     },
 
-    // openapi.yaml has approve and retire; "decline" of a proposal is a retire.
+    // The API has approve and retire (both step-up); declining a proposal retires it with the reason.
     async decideRule(id, decision, note) {
-      if (decision === "approve") return post<RuleSummary>(`/v1/rules/${id}/approve`, { approvalNote: note }, true);
-      return post<RuleSummary>(`/v1/rules/${id}/retire`, {}, true);
+      if (decision === "approve") return post<RuleSummary>(`/v1/rules/${encodeURIComponent(id)}/approve`, note ? { approvalNote: note } : {}, true);
+      return post<RuleSummary>(`/v1/rules/${encodeURIComponent(id)}/retire`, { reason: note ?? (decision === "decline" ? "declined in the Console" : "retired in the Console") }, true);
     },
 
     async syncStatus(): Promise<SyncStatus> {
-      const [posting, conn] = await Promise.all([get<PostingResponse>("/v1/console/posting"), get<ConnectionsResponse>("/v1/console/connections")]);
-      // BC-side draft counts (bcDraftCount/bcDraftSumCents) come from the nightly poll and are not exposed yet;
-      // the API's `exceptions` per batch is the difference count the poll raised.
+      const [posting, conn, runs, postAudit] = await Promise.all([
+        get<PostingResponse>("/v1/console/posting"),
+        get<ConnectionsResponse>("/v1/console/connections"),
+        get<SyncResponse>(`/v1/console/sync${qs({ limit: 100 })}`).catch(() => ({ runs: [] }) as SyncResponse),
+        get<{ entries?: AuditEntry[] }>(`/v1/console/audit${qs({ entity: "batch", limit: 50 })}`).catch(() => ({ entries: [] })),
+      ]);
+      // BC-side draft counts and sums (bcDraftCount/bcDraftSumCents) come from the nightly poll and are not
+      // exposed yet; the API's `exceptions` per batch is the difference count the poll raised.
+      const lastRequest = (batch: BcBatch) => (postAudit.entries ?? []).filter((e) => e.entityId === batch && (e.action === "post.requested" || e.action === "post.enqueued")).map((e) => e.at).sort().at(-1);
       const batches = (["FEEDS", "RECEIPTS", "AUTOPOST"] as BcBatch[]).map((batch) => {
         const b = posting.batches?.find((x) => x.batch === batch);
+        const lastPostRequestedAt = lastRequest(batch);
         return {
           batch,
           appDraftCount: b?.draftCreated ?? 0,
           appDraftSumCents: b?.draftSumCents ?? 0,
           inFlightCount: (b?.approved ?? 0) + (b?.sentToBc ?? 0),
           differenceCount: b?.exceptions ?? 0,
+          ...(lastPostRequestedAt ? { lastPostRequestedAt } : {}),
         };
       });
       const lastPollAt = posting.lastPollAt ?? conn.ledger?.lastPollAt;
+      const lastPollRun = (runs.runs ?? []).filter((x) => x.kind === "bc_poll").sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1))[0];
       return {
         batches,
         lastWebhookAt: posting.lastWebhookAt ?? conn.ledger?.lastWebhookAt,
         lastPollAt,
+        ...(lastPollRun ? { lastPollStatus: lastPollRun.status } : {}),
         outbox: { depth: posting.outboxDue ?? conn.outbox?.due ?? 0, deadLetters: conn.outbox?.deadLettered ?? 0, oldestPendingAt: conn.outbox?.oldestPendingAt },
         subscriptions: toSubscriptions(conn.webhooks),
         autoPostEnabled: posting.autoPostEnabled ?? conn.ledger?.autoPostEnabled ?? false,
-        dataThrough: nowThrough(lastPollAt ? "posted_unreconciled" : "missing"),
+        dataThrough: lastPollAt ? { at: lastPollAt, quality: "posted_unreconciled", pendingCount: posting.outboxDue ?? 0 } : nowThrough("missing", posting.outboxDue ?? 0),
       };
     },
 
+    // The API only enqueues (AUTOPOST, when the switch is on) or records the request (FEEDS, RECEIPTS: Cade posts
+    // in BC under his own sign-in). Either way it writes an outbox row and an audit entry.
     async postBatch(batch: BcBatch) {
-      const r = await post<{ batch: BcBatch; enqueued?: boolean; draftCount?: number; message?: string }>("/v1/console/posting/post-batch", { batch }, true);
-      return { batch: r.batch ?? batch, outboxId: r.enqueued ? "enqueued" : "recorded", queuedAt: new Date().toISOString(), lineCount: r.draftCount ?? 0, enqueued: r.enqueued, message: r.message };
+      const r = await post<PostBatchResponse>("/v1/console/posting/post-batch", { batch }, true);
+      return {
+        batch: r.batch ?? batch,
+        outboxId: r.outboxId ?? "",
+        queuedAt: r.queuedAt ?? new Date().toISOString(),
+        lineCount: r.lineCount ?? r.draftCount ?? 0,
+        ...(r.enqueued !== undefined ? { enqueued: r.enqueued } : {}),
+        ...(r.message ? { message: r.message } : {}),
+      };
     },
 
     async reconciliation() {
-      const r = await get<ReconResponse>("/v1/console/reconciliation");
+      const [r, accts] = await Promise.all([get<ReconResponse>("/v1/console/reconciliation"), accounts().catch(() => [] as AccountSummary[])]);
       const bankCards: BankCardReconStatus[] = BANK_CARD_LIST.map((card) => {
         const a = r.accounts?.find((x) => x.bcBankAccountCode === card.code);
+        const summary = accts.find((x) => x.bcBankAccountCode === card.code || (a && x.id === a.accountId));
+        const differences = a?.differences ?? 0;
         return {
           code: card.code,
           name: card.name,
           glAccount: card.glAccount,
           institution: card.institution,
           mask: card.mask,
-          openCount: Math.max(0, (a?.posted ?? 0) - (a?.reconciled ?? 0)),
+          // "Open" here is posted in BC but not yet matched to a reconciled bank ledger entry.
+          openCount: Math.max(0, a?.posted ?? 0),
           reconciledCount: a?.reconciled ?? 0,
-          openSumCents: 0,
-          differences: a?.differences ? [{ postedDate: (a.lastPollAt ?? new Date().toISOString()).slice(0, 10), amountCents: 0, note: `${a.differences} difference${a.differences === 1 ? "" : "s"} at the last poll (see Exceptions)` }] : [],
-          feedStatus: a ? "ok" : "none",
+          openSumCents: 0, // not exposed by the API yet
+          differences: differences > 0 ? [{ postedDate: (a?.lastPollAt ?? new Date().toISOString()).slice(0, 10), amountCents: 0, note: `${differences} line${differences === 1 ? "" : "s"} differ (see the Exceptions queue)` }] : [],
+          feedStatus: summary?.feedStatus ?? "none",
         };
       });
-      const latest = r.accounts?.map((a) => a.lastPollAt).filter(Boolean).sort().at(-1);
-      // Loan rollforwards (the Frontier loans and PennyMac) are not in openapi.yaml yet.
-      return { bankCards, loans: [], dataThrough: { at: latest ?? new Date().toISOString(), quality: latest ? "posted_unreconciled" : "missing", pendingCount: 0 } };
+      const latest = r.accounts?.map((a) => a.lastPollAt).filter((x): x is string => Boolean(x)).sort().at(-1);
+      // Loan rollforwards (the two Frontier loans and PennyMac) are not in the API yet: `loans` stays empty and the
+      // page says so.
+      return {
+        bankCards,
+        loans: [],
+        dataThrough: latest ? { at: latest, quality: "posted_unreconciled", pendingCount: 0 } : nowThrough("missing"),
+        missing: ["openSum", "statements", "differenceLines", "loans"],
+      };
     },
 
     async mappings(): Promise<MappingSet> {
-      const [m, approvals] = await Promise.all([get<MappingsResponse>("/v1/console/mappings"), get<{ approvals?: { id: string; kind: string; payload: Record<string, unknown>; requestedByName?: string; requestedBy: string; requestedAt: string }[] }>("/v1/approvals?state=open").catch(() => ({ approvals: [] }))]);
-      const byCode = new Map((m.accounts ?? []).map((a) => [a.bcBankAccountCode, a]));
+      const m = await get<MappingsResponse>("/v1/console/mappings");
+      const byCode = new Map((m.accounts ?? []).filter((a) => a.bcBankAccountCode).map((a) => [a.bcBankAccountCode, a]));
       return {
         catalogVersion: m.catalogVersion ?? CATEGORY_CATALOG_VERSION,
         categories: (m.categories ?? []).map((c) => ({ id: c.id, name: c.name, group: c.group, glAccount: c.glAccount, dims: c.dims ?? {}, spendClass: c.dims?.["SPEND_CLASS"], isAllowance: c.isAllowance ?? false, isTransfer: c.isTransfer ?? false, householdVisible: c.householdVisible ?? true, version: c.version ?? 1 })),
-        dimensions: Object.entries(m.dimensions ?? {}).map(([code, values], i) => ({ code, name: code.replace("_", " ").toLowerCase(), slot: (["global1", "global2", "shortcut3", "shortcut4", "shortcut5"] as const)[i] ?? "shortcut5", values: values.map((v) => ({ code: v, name: v })) })),
+        dimensions: Object.entries(m.dimensions ?? {}).map(([code, values]) => ({ code, name: code.replace(/_/g, " ").toLowerCase(), slot: DIMENSION_SLOTS[code] ?? "shortcut5", values: values.map((v) => ({ code: v, name: v })) })),
         bankCards: BANK_CARD_LIST.map((b) => {
           const a = byCode.get(b.code);
           return { code: b.code, glAccount: b.glAccount, name: b.name, kind: b.kind, institution: b.institution, mask: b.mask, accountId: a?.id, feedProvider: a?.feedStatus === "file_only" ? "file" : a && a.feedStatus !== "none" ? "plaid" : undefined };
         }),
-        employers: [], // employer templates are not exposed by /v1/console/mappings yet
-        pendingProposals: (approvals.approvals ?? []).filter((a) => a.kind === "settings" && a.payload["kind"] === "mapping").map((a) => ({ approvalId: a.id, categoryId: String(a.payload["categoryId"] ?? ""), requestedBy: a.requestedByName ?? a.requestedBy, requestedAt: a.requestedAt })),
+        // The household's employer templates; when absent (an older API) the page shows the shared catalog's mapping.
+        employers: m.employers ?? [],
+        pendingProposals: [],
         dataThrough: nowThrough("posted_unreconciled"),
       };
     },
 
-    // A mapping change is a settings approval (kind `settings`, payload.kind `mapping`) decided by the other spouse.
-    async proposeMapping(input: MappingProposal) {
-      const r = await post<{ id: string }>("/v1/approvals", { kind: "settings", payload: { kind: "mapping", ...input } });
-      return { approvalId: r.id };
+    // Not sent: the API has no route that applies a category mapping change. A `settings` approval would merge the
+    // proposal into household settings on approval and change no mapping, so the client refuses rather than guess.
+    async proposeMapping() {
+      throw new ApiError(501, "not_in_api", "Mapping changes need an API route that versions the category and applies it on approval. Nothing was sent.");
     },
 
     async authority(): Promise<AuthorityMatrix> {
@@ -371,10 +511,13 @@ export function createHttpApi(getAuthHeaders: AuthHeaders, member: () => MemberI
         version: matrix.version ?? settings.version ?? 1,
         approvedAt: matrix.approvedAt,
         approvedBy: matrix.approvedBy,
-        rows: (matrix.rows ?? []).map((r) => ({ ...r, tbd: /TBD/.test(r.notes) || /TBD/.test(r.who), settingKeys: /I-\d\d/.test(r.notes) ? r.notes.match(/I-\d\d/g) ?? undefined : undefined })),
+        rows: (matrix.rows ?? []).map((r) => {
+          const keys = r.settingKeys ?? r.notes.match(/I-\d\d/g) ?? undefined;
+          return { ...r, tbd: r.tbd ?? (/TBD/.test(r.notes) || /TBD/.test(r.who)), ...(keys && keys.length ? { settingKeys: keys } : {}) };
+        }),
         settings: { version: settings.version ?? 1, effectiveFrom: current?.effectiveFrom ?? history.at(-1)?.effectiveFrom ?? new Date().toISOString(), values, history },
         autoPostRules: matrix.autoPostRules ?? [],
-        // Settings and rule states are posted records with nothing pending; the matrix is static until re-approved.
+        // Settings and rule states are recorded facts with nothing pending; the matrix is static until re-approved.
         dataThrough: nowThrough("posted_reconciled"),
       };
     },
@@ -390,48 +533,55 @@ export function createHttpApi(getAuthHeaders: AuthHeaders, member: () => MemberI
         needsRelink: f.needsRelink ?? f.status === "needs_relink",
         lastSyncedAt: f.lastSyncedAt,
         accountCount: f.accountCount ?? 0,
-        cursorPresent: f.cursorPresent ?? f.provider === "plaid",
+        cursorPresent: f.cursorPresent ?? false,
       }));
+      const newestSync = feeds.map((f) => f.lastSyncedAt).filter((x): x is string => Boolean(x)).sort().at(-1);
       return {
         feeds,
         subscriptions: toSubscriptions(conn.webhooks),
-        ledger: { lastPollAt: conn.ledger?.lastPollAt, lastWebhookAt: conn.ledger?.lastWebhookAt, apiReachable: true, checkedAt: new Date().toISOString() },
-        dataThrough: nowThrough("imported_pending"),
+        // Whether BC itself answers is known to the jobs, not to this read; the page shows the last poll instead.
+        ledger: { lastPollAt: conn.ledger?.lastPollAt, lastWebhookAt: conn.ledger?.lastWebhookAt, checkedAt: new Date().toISOString() },
+        dataThrough: newestSync ? { at: newestSync, quality: "imported_pending", pendingCount: conn.outbox?.due ?? 0 } : nowThrough("missing", conn.outbox?.due ?? 0),
       };
     },
 
     async syncRuns(q) {
-      const r = await get<{ runs?: SyncRunSummary[] }>(`/v1/console/sync${qs({ limit: 200 })}`);
+      const r = await get<SyncResponse>(`/v1/console/sync${qs({ limit: 500 })}`);
       const items = (r.runs ?? []).filter((x) => (!q?.kind || x.kind === q.kind) && (!q?.status || x.status === q.status));
-      return page(items, q, nowThrough("imported_pending"));
+      return pageOf(items, q, nowThrough("imported_pending"));
     },
 
-    // GET /v1/console/outbox?state=due|dead|done|all (implemented in routes/console.ts; not in openapi.yaml yet).
+    // GET /v1/console/outbox?state=due|dead|done|all (routes/console.ts; not in openapi.yaml yet).
     async outbox(q) {
       const state = q?.deadLettered === true ? "dead" : q?.deadLettered === false ? "due" : "all";
-      const r = await get<OutboxResponse>(`/v1/console/outbox${qs({ state, limit: 500 })}`);
-      return page((r.items ?? []).map((o) => ({ ...o, operation: o.operation ?? "" })), q, nowThrough("imported_pending"));
+      const r = await get<{ items?: (OutboxItem & { operation?: string })[] }>(`/v1/console/outbox${qs({ state, limit: 500 })}`);
+      return pageOf(
+        (r.items ?? []).map((o) => ({ ...o, operation: o.operation ?? "" })),
+        q,
+        nowThrough("imported_pending"),
+      );
     },
 
     // POST /v1/console/outbox/{id}/retry (step-up): back to due with attempts reset; the worker's pre-write check keeps it safe.
     async retryOutbox(id) {
-      const o = await post<OutboxItem & { operation?: string }>(`/v1/console/outbox/${id}/retry`, {}, true);
+      const o = await post<OutboxItem & { operation?: string }>(`/v1/console/outbox/${encodeURIComponent(id)}/retry`, {}, true);
       return { ...o, operation: o.operation ?? "" };
     },
 
-    // The API pages by `before` cursor; the Console asks for page*pageSize and slices, which is fine at household scale.
+    // The API pages by a `before` cursor and filters by entity and entity id; the Console asks for page × pageSize
+    // rows (at most 500) and slices, which is fine at household scale. Actor is filtered here (no API parameter).
     async audit(q) {
       const pageSize = q?.pageSize ?? 25;
       const pageNo = q?.page ?? 1;
       const r = await get<{ entries?: AuditEntry[]; next?: string }>(`/v1/console/audit${qs({ limit: Math.min(500, pageSize * pageNo), entity: q?.entity, entityId: q?.entityId })}`);
-      const entries = r.entries ?? [];
+      const entries = (r.entries ?? []).filter((e) => !q?.actor || e.actor === q.actor);
       const items = entries.slice((pageNo - 1) * pageSize, pageNo * pageSize);
-      return { items, total: entries.length + (r.next ? pageSize : 0), page: pageNo, pageSize, dataThrough: nowThrough("posted_unreconciled") };
+      return { items, total: entries.length + (r.next ? 1 : 0), page: pageNo, pageSize, dataThrough: nowThrough("posted_unreconciled") };
     },
 
     async healthReport() {
       // Static file next to the app, written by the nightly acceptance job; not an API call.
-      const res = await fetch(config.healthReportPath, { cache: "no-store" });
+      const res = await doFetch(opts.healthReportPath ?? config.healthReportPath, { cache: "no-store" });
       if (!res.ok) return null;
       const json = (await res.json()) as HealthReport & { generatedAt: string | null };
       return json.generatedAt ? json : null;

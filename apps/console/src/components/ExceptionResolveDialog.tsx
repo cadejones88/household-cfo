@@ -5,7 +5,7 @@
  */
 import { useEffect, useState } from "react";
 import type { ConsoleTransactionRow, ExceptionResolution } from "@homestead/shared";
-import { Dialog } from "./ui";
+import { Dialog, errorMessage } from "./ui";
 import { date, money } from "../lib/format";
 
 export interface ExceptionResolveDialogProps {
@@ -34,7 +34,7 @@ export function ExceptionResolveDialog({ row, onClose, onResolve, busy }: Except
 
   useEffect(() => {
     if (!row) return;
-    setTo(row.exception?.bcSide?.entryNos?.length ? "posted" : "ready_for_review");
+    setTo(row.state === "exception" && row.exception?.bcSide?.entryNos?.length ? "posted" : "ready_for_review");
     setNote("");
     setEntryNos(row.exception?.bcSide?.entryNos?.join(", ") ?? "");
     setDocNo(row.exception?.bcSide?.documentNo ?? "");
@@ -44,6 +44,8 @@ export function ExceptionResolveDialog({ row, onClose, onResolve, busy }: Except
 
   const open = row !== null;
   const ex = row?.exception;
+  // A reason noted on a line that is not in the Exception state can only be cleared (the API refuses "posted").
+  const noteOnly = row !== null && row.state !== "exception";
   const parsed = parseEntryNos(entryNos);
   const canSubmit = note.trim().length > 0 && (to === "ready_for_review" || parsed.length > 0) && !busy;
 
@@ -55,14 +57,14 @@ export function ExceptionResolveDialog({ row, onClose, onResolve, busy }: Except
       await onResolve(row.id, resolution);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     }
   }
 
   return (
     <Dialog
       open={open}
-      title="Resolve exception"
+      title={noteOnly ? "Clear the exception note" : "Resolve exception"}
       onClose={onClose}
       testId="exception-dialog"
       footer={
@@ -71,7 +73,7 @@ export function ExceptionResolveDialog({ row, onClose, onResolve, busy }: Except
             Cancel
           </button>
           <button type="button" className="btn primary" onClick={() => void submit()} disabled={!canSubmit} data-testid="resolve-submit">
-            {to === "posted" ? "Record as posted" : "Send back to review"}
+            {to === "posted" ? "Record as posted" : noteOnly ? "Clear the note" : "Send back to review"}
           </button>
         </>
       }
@@ -129,18 +131,26 @@ export function ExceptionResolveDialog({ row, onClose, onResolve, busy }: Except
               )}
             </div>
           </div>
-          <div className="radio-row" role="radiogroup" aria-label="Resolution">
-            <label>
-              <input type="radio" name="resolution" value="ready_for_review" checked={to === "ready_for_review"} onChange={() => setTo("ready_for_review")} />
-              Send back to Ready for review (the app will write a fresh draft after approval)
-            </label>
-          </div>
-          <div className="radio-row">
-            <label>
-              <input type="radio" name="resolution" value="posted" checked={to === "posted"} onChange={() => setTo("posted")} />
-              Mark Posted against an existing BC entry (BC wins; the app stores the entry numbers)
-            </label>
-          </div>
+          {noteOnly ? (
+            <div className="notice" data-testid="note-only">
+              This line is {row.state.replace(/_/g, " ")}, not in Exception: the reason was noted where the state machine has no arrow to Exception (for example a line the bank removed before it reached BC). Clearing the note lets it carry on from where it is.
+            </div>
+          ) : (
+            <>
+              <div className="radio-row" role="radiogroup" aria-label="Resolution">
+                <label>
+                  <input type="radio" name="resolution" value="ready_for_review" checked={to === "ready_for_review"} onChange={() => setTo("ready_for_review")} />
+                  Send back to Ready for review (the app will write a fresh draft after approval)
+                </label>
+              </div>
+              <div className="radio-row">
+                <label>
+                  <input type="radio" name="resolution" value="posted" checked={to === "posted"} onChange={() => setTo("posted")} />
+                  Mark Posted against an existing BC entry (BC wins; the app stores the entry numbers)
+                </label>
+              </div>
+            </>
+          )}
           {to === "posted" ? (
             <div className="inline-form">
               <label className="field">

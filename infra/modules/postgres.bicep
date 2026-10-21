@@ -2,8 +2,14 @@
 // (35 in prod), geo-redundant backup in prod (spec: Stack, Data protection, DR).
 //
 // Authentication is Entra-only: no password exists to leak. The API and jobs connect as their managed identities
-// (token for scope https://ossrdbms-aad.database.windows.net/.default), and Cade is an Entra administrator for
+// (token for scope https://ossrdbms-aad.database.windows.net/.default), and Cade is the Entra administrator for
 // migrations and support. Row-level security inside the database keys everything by household.
+//
+// Least privilege: the two identities are *not* server administrators (an administrator is a member of
+// azure_pg_admin, can create roles and would own whatever it migrated, which would let it rewrite the audit log).
+// They are ordinary Entra-mapped roles that are members of `homestead_app` only, the role the schema grants
+// (0001_schema.sql: RLS-bound, insert-only on audit_log). An ARM resource cannot create a database role, so Cade
+// creates the two roles once with SQL after the first deploy (infra/README.md, "Postgres roles").
 //
 // Network: public endpoint with "allow Azure services" so Container Apps on the consumption plan (dynamic
 // outbound IPs) can reach it; TLS is required by the server. Private endpoints are a prod-hardening step
@@ -17,9 +23,6 @@ param tags object
 param adminObjectId string
 @description('UPN of that administrator, e.g. cade@cadejonescpa.com')
 param adminPrincipalName string
-
-@description('Managed identities that connect as database users: { name, principalId }')
-param identityUsers array = []
 
 @minValue(7)
 @maxValue(35)
@@ -70,7 +73,7 @@ resource allowAzureServices 'Microsoft.DBforPostgreSQL/flexibleServers/firewallR
   properties: { startIpAddress: '0.0.0.0', endIpAddress: '0.0.0.0' }
 }
 
-// Entra administrators. The service creates these one at a time, so each depends on the previous.
+// The one Entra administrator (Cade).
 resource cadeAdmin 'Microsoft.DBforPostgreSQL/flexibleServers/administrators@2024-08-01' = {
   parent: server
   name: adminObjectId
@@ -81,20 +84,6 @@ resource cadeAdmin 'Microsoft.DBforPostgreSQL/flexibleServers/administrators@202
   }
   dependsOn: [database]
 }
-
-@batchSize(1)
-resource identityAdmins 'Microsoft.DBforPostgreSQL/flexibleServers/administrators@2024-08-01' = [
-  for u in identityUsers: {
-    parent: server
-    name: u.principalId
-    properties: {
-      principalType: 'ServicePrincipal'
-      principalName: u.name
-      tenantId: subscription().tenantId
-    }
-    dependsOn: [cadeAdmin]
-  }
-]
 
 output serverId string = server.id
 output serverName string = server.name

@@ -92,9 +92,11 @@ export async function workOutbox(db: Queryable, householdId: string, deps: Deps,
       const err = e as Error & { status?: number; retryable?: boolean };
       const retryable = err instanceof LedgerError ? err.retryable : isRetryableStatus(undefined) && !(err.name === "HttpError");
       const attempts = row.attempts + 1;
-      const delay = retryable ? retryDelayMinutes(attempts) : undefined;
-      if (delay !== undefined) {
-        await db.query("update outbox set attempts = $2, next_attempt_at = $3, last_error = $4, published_at = null where id = $1", [row.id, attempts, new Date(now.getTime() + delay * 60_000).toISOString(), `${err.name}${err instanceof LedgerError && err.status ? ` ${err.status}` : ""}`]);
+      const scheduled = retryable ? retryDelayMinutes(attempts) : undefined;
+      if (scheduled !== undefined) {
+        // A longer Retry-After from BC (429) wins over the schedule.
+        const delayMs = Math.max(scheduled * 60_000, err instanceof LedgerError && err.retryAfterMs ? err.retryAfterMs : 0);
+        await db.query("update outbox set attempts = $2, next_attempt_at = $3, last_error = $4, published_at = null where id = $1", [row.id, attempts, new Date(now.getTime() + delayMs).toISOString(), `${err.name}${err instanceof LedgerError && err.status ? ` ${err.status}` : ""}`]);
         counts.retried += 1;
         continue;
       }
@@ -159,7 +161,18 @@ async function sendToBc(db: Queryable, householdId: string, row: OutboxRow, deps
     return "done";
   }
   const created = await deps.ledger.createJournalLines({ batch: payload.batch, externalDocumentNo: docNo, lines: payload.lines });
+  if (created.outcome === "already_posted") {
+    // The ledger's own pre-write check found posted entries between our check and the write (a race with Cade).
+    const entries = await deps.ledger.readGlEntriesByExternalDocNo({ externalDocumentNo: docNo });
+    await recordDraftCreated(db, householdId, tx.id, { journalId: `journal-${payload.batch}`, lineIds: [] }, actor);
+    await recordPosted(db, householdId, tx.id, { entryNos: created.glEntryNos ?? entries.map((e) => e.entryNo), postingDate: entries[0]?.postingDate ?? tx.posted_date, ...(entries[0]?.documentNo ? { documentNo: entries[0].documentNo } : {}) }, "bc_worker", actor);
+    return "done";
+  }
   await recordDraftCreated(db, householdId, tx.id, created, actor);
+  if (created.outcome === "already_in_journal") {
+    await audit(db, householdId, { actor, action: "bc.pre_write_found", entity: "transaction", entityId: tx.id, after: { lineCount: created.lineIds.length, by: "adapter" } });
+    return "done";
+  }
   // Line ids follow the payload order: the bank side first, then one id per split.
   const splitLineIds = created.lineIds.slice(1);
   for (let i = 0; i < splitLineIds.length; i += 1) {

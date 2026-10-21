@@ -1,0 +1,96 @@
+{
+  "name": "walmart-2-big-grocery",
+  "imageText": "synthetic receipt image walmart-2-big-grocery",
+  "bank": {
+    "account": "CAPONE-CC",
+    "postedDate": "2026-10-08",
+    "amountCents": -8103,
+    "merchant": "Walmart"
+  },
+  "read": {
+    "merchant": "WAL-MART #1868",
+    "date": "2026-10-07",
+    "totalCents": 8103,
+    "subtotalCents": 7409,
+    "taxCents": 694,
+    "items": [
+      {
+        "description": "GROUND BEEF 80/20 3LB",
+        "amountCents": 1597,
+        "confidence": 0.9
+      },
+      {
+        "description": "EGGS 18CT",
+        "amountCents": 448,
+        "confidence": 0.9
+      },
+      {
+        "description": "SHREDDED CHEESE 2LB",
+        "amountCents": 798,
+        "confidence": 0.9
+      },
+      {
+        "description": "CEREAL FAMILY SIZE",
+        "amountCents": 498,
+        "confidence": 0.9
+      },
+      {
+        "description": "APPLES 3LB BAG",
+        "amountCents": 447,
+        "confidence": 0.9
+      },
+      {
+        "description": "LEGO CLASSIC BOX",
+        "amountCents": 2497,
+        "confidence": 0.9
+      },
+      {
+        "description": "CHILD VITAMINS GUMMY",
+        "amountCents": 1124,
+        "confidence": 0.9
+      }
+    ],
+    "fieldConfidence": {
+      "MerchantName": 0.98,
+      "Total": 0.99
+    }
+  },
+  "lineCategories": [
+    "groceries",
+    "groceries",
+    "groceries",
+    "groceries",
+    "groceries",
+    "general-merchandise",
+    "vitamins-otc"
+  ],
+  "expected": {
+    "taxShares": [
+      149,
+      41,
+      74,
+      46,
+      41,
+      238,
+      105
+    ],
+    "splits": [
+      {
+        "lineNo": 1,
+        "categoryId": "groceries",
+        "amountCents": -4139
+      },
+      {
+        "lineNo": 2,
+        "categoryId": "general-merchandise",
+        "amountCents": -2735
+      },
+      {
+        "lineNo": 3,
+        "categoryId": "vitamins-otc",
+        "amountCents": -1229
+      }
+    ],
+    "question": "confirm_split"
+  }
+}

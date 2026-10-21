@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { config } from "../config";
-import * as msal from "./msal";
+// MSAL loads only in Entra mode, so mock and dev builds do not ship it in the first chunk.
+const loadMsal = () => import("./msal");
 
 export type AuthStatus = "loading" | "signed_out" | "signed_in" | "error";
 
@@ -14,6 +15,11 @@ export interface AuthState {
   signOut: () => Promise<void>;
   /** Headers for every API call: Bearer token (entra) or x-dev-member (dev). */
   getAuthHeaders: () => Promise<Record<string, string>>;
+  /**
+   * Headers for a call that needs step-up (approvals, posting requests, retries): a token issued just now (entra;
+   * the API checks `iat` within two minutes and an MFA/passkey `amr`) or `x-step-up: true` (dev).
+   */
+  getStepUpHeaders: () => Promise<Record<string, string>>;
 }
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
@@ -28,8 +34,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (mode !== "entra") return;
     let cancelled = false;
-    msal
-      .restoreSession()
+    loadMsal()
+      .then((msal) => msal.restoreSession())
       .then((account) => {
         if (cancelled) return;
         if (account) {
@@ -52,27 +58,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (mode !== "entra" || status !== "signed_in") return;
     const t = setInterval(() => {
-      if (msal.sessionExpired()) void msal.signOut();
+      void loadMsal().then((msal) => {
+        if (msal.sessionExpired()) void msal.signOut();
+      });
     }, 60_000);
     return () => clearInterval(t);
   }, [mode, status]);
 
   const signIn = useCallback(async () => {
-    if (mode === "entra") await msal.signIn();
+    if (mode === "entra") await (await loadMsal()).signIn();
   }, [mode]);
   const signOut = useCallback(async () => {
-    if (mode === "entra") await msal.signOut();
+    if (mode === "entra") await (await loadMsal()).signOut();
     else window.location.reload();
   }, [mode]);
   const getAuthHeaders = useCallback(async (): Promise<Record<string, string>> => {
-    if (mode === "entra") return { authorization: `Bearer ${await msal.getAccessToken()}` };
+    if (mode === "entra") return { authorization: `Bearer ${await (await loadMsal()).getAccessToken()}` };
     if (mode === "dev") return { "x-dev-member": config.devMemberId };
+    return {};
+  }, [mode]);
+  const getStepUpHeaders = useCallback(async (): Promise<Record<string, string>> => {
+    if (mode === "entra") return { authorization: `Bearer ${await (await loadMsal()).getStepUpToken()}` };
+    if (mode === "dev") return { "x-dev-member": config.devMemberId, "x-step-up": "true" };
     return {};
   }, [mode]);
 
   const value = useMemo<AuthState>(
-    () => ({ mode, status, memberName, memberId, error, signIn, signOut, getAuthHeaders }),
-    [mode, status, memberName, memberId, error, signIn, signOut, getAuthHeaders],
+    () => ({ mode, status, memberName, memberId, error, signIn, signOut, getAuthHeaders, getStepUpHeaders }),
+    [mode, status, memberName, memberId, error, signIn, signOut, getAuthHeaders, getStepUpHeaders],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

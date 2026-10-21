@@ -1,0 +1,18 @@
+{
+  "note": "Synthetic HFH stub with a line the template has never seen (ROTH 401K), for the paycheck_component question.",
+  "imageText": "synthetic pay stub hfh 2026-10-30 roth",
+  "read": {
+    "employerName": "Henry's Fork Homes",
+    "payDate": "2026-10-30",
+    "grossCents": 365000,
+    "netCents": 280482,
+    "earnings": [{ "label": "Regular", "amountCents": 365000, "confidence": 0.97 }],
+    "taxes": [
+      { "label": "Federal Income Tax", "amountCents": 26800, "confidence": 0.96 },
+      { "label": "ID State Tax", "amountCents": 13500, "confidence": 0.96 },
+      { "label": "Social Security", "amountCents": 22630, "confidence": 0.97 },
+      { "label": "Medicare", "amountCents": 5293, "confidence": 0.97 }
+    ],
+    "deductions": [{ "label": "ROTH 401K", "amountCents": 16295, "confidence": 0.93 }]
+  }
+}

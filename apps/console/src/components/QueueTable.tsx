@@ -49,8 +49,12 @@ export function QueueTable(props: QueueTableProps) {
     onSelectedChange(allSelected ? new Set() : new Set(rows.map((r) => r.id)));
   }, [allSelected, onSelectedChange, rows]);
 
+  // An exception, or (in the Exceptions tab) a line with a recorded exception reason where the state machine has no
+  // arrow to Exception, such as a line the bank removed before it reached BC.
+  const resolvable = (row: ConsoleTransactionRow) => row.state === "exception" || (row.exception !== undefined && onResolveException !== undefined);
+
   function primaryAction(row: ConsoleTransactionRow) {
-    if (row.state === "exception") onResolveException?.(row);
+    if (resolvable(row)) onResolveException?.(row);
     else if (row.state === "possible_duplicate") onDuplicate?.(row, "not_a_repeat");
     else onWrong?.(row);
   }
@@ -186,9 +190,9 @@ export function QueueTable(props: QueueTableProps) {
                   )}
                 </td>
                 <td className="actions">
-                  {row.state === "exception" ? (
+                  {resolvable(row) ? (
                     <button type="button" className="btn small primary" disabled={busy} onClick={() => onResolveException?.(row)}>
-                      Resolve
+                      {row.state === "exception" ? "Resolve" : "Clear"}
                     </button>
                   ) : row.state === "possible_duplicate" ? (
                     <>

@@ -55,6 +55,13 @@ export interface CreateJournalLinesInput {
 export interface CreateJournalLinesResult {
   journalId: string;
   lineIds: readonly string[];
+  /**
+   * What the ledger's own pre-write check found (the real adapter reruns it on every call): `written` by this call,
+   * `already_in_journal` (lines found, nothing written) or `already_posted` (G/L entries found; `glEntryNos` set,
+   * `lineIds` empty). Absent from older fakes, which means `written`.
+   */
+  outcome?: "written" | "already_in_journal" | "already_posted";
+  glEntryNos?: readonly number[];
 }
 
 export interface ExternalDocLookup {
@@ -69,6 +76,8 @@ export interface ExternalDocLookup {
 
 export interface GlEntry {
   entryNo: number;
+  /** The journal batch the entry was posted from, when the ledger reports it (HH App Connector). */
+  batch?: BcBatch;
   postingDate: string;
   accountNo: string;
   amountCents: number;
@@ -89,6 +98,30 @@ export interface GlEntryQuery {
   /** Balance reads for goals: cash accounts carrying a FUND_GOAL value. */
   accountNoPrefix?: string;
   dimension?: { code: string; valueCode: string };
+  /** A BC Document No. already known for the External Document No. (lets the read work without the connector). */
+  documentNo?: string;
+}
+
+/** A line the app owns as the ledger holds it: a draft or a posted entry (nightly count-and-sum comparison). */
+export interface AppDocumentRow {
+  externalDocumentNo: string;
+  source: "journal" | "ledger";
+  batch?: BcBatch;
+  lineId?: string;
+  entryNo?: number;
+  documentNo?: string;
+  postingDate: string;
+  accountNo: string;
+  amountCents: number;
+  sourceCode?: string;
+  reasonCode?: string;
+}
+
+export interface AppDocumentQuery {
+  externalDocumentNoStartsWith?: string;
+  postingDateFrom?: string;
+  postingDateTo?: string;
+  source?: "journal" | "ledger";
 }
 
 export interface BankLedgerEntry {
@@ -142,6 +175,8 @@ export class LedgerError extends Error {
     public readonly status: number | undefined,
     public readonly retryable: boolean,
     public readonly code?: string,
+    /** From BC's Retry-After header on a 429, when it sent one. */
+    public readonly retryAfterMs?: number,
   ) {
     super(message);
     this.name = "LedgerError";
@@ -167,8 +202,14 @@ export interface LedgerPort {
   writeBudgetEntries(entries: readonly BudgetEntryInput[]): Promise<{ written: number }>;
   readBudget(budgetName: string): Promise<BudgetEntry[]>;
   createWebhookSubscription(resource: string, notificationUrl: string, clientState: string): Promise<WebhookSubscription>;
-  renewWebhookSubscription(subscriptionId: string): Promise<WebhookSubscription>;
+  /** BC repeats the handshake on renewal; `clientState` is resent so a rotated secret takes effect. */
+  renewWebhookSubscription(subscriptionId: string, clientState?: string): Promise<WebhookSubscription>;
   deleteWebhookSubscription(subscriptionId: string): Promise<void>;
+  /**
+   * Every draft line and posted entry the app owns in a window (the nightly poll's per-batch, per-date count and
+   * sum). Optional: a ledger without it is compared document by document only.
+   */
+  listAppDocuments?(query: AppDocumentQuery): Promise<AppDocumentRow[]>;
 }
 
 // --------------------------------------------------------------------------------------------------
@@ -264,7 +305,7 @@ export class InMemoryLedger implements LedgerPort {
       this.drafts.set(id, { ...l, id, batch: input.batch });
       ids.push(id);
     }
-    return { journalId: `journal-${input.batch}`, lineIds: ids };
+    return { journalId: `journal-${input.batch}`, lineIds: ids, outcome: "written" };
   }
 
   async postBatch(batch: BcBatch): Promise<void> {
@@ -295,6 +336,7 @@ export class InMemoryLedger implements LedgerPort {
           externalDocumentNo: l.externalDocumentNo,
           sourceCode: batch === "AUTOPOST" ? "HHAUTO" : "GENJNL",
           dimensions: l.dimensions,
+          batch,
         };
         if (batch === "AUTOPOST") entry.reasonCode = "AUTOPOST";
         this.glEntries.push(entry);
@@ -377,7 +419,7 @@ export class InMemoryLedger implements LedgerPort {
     this.subscriptions.set(sub.subscriptionId, sub);
     return sub;
   }
-  async renewWebhookSubscription(subscriptionId: string): Promise<WebhookSubscription> {
+  async renewWebhookSubscription(subscriptionId: string, _clientState?: string): Promise<WebhookSubscription> {
     this.calls.push(`renew:${subscriptionId}`);
     const sub = this.subscriptions.get(subscriptionId);
     if (!sub) throw new LedgerError("Subscription not found", 404, false, "subscription_missing");
@@ -388,6 +430,30 @@ export class InMemoryLedger implements LedgerPort {
   async deleteWebhookSubscription(subscriptionId: string): Promise<void> {
     this.calls.push(`unsub:${subscriptionId}`);
     this.subscriptions.delete(subscriptionId);
+  }
+
+  async listAppDocuments(q: AppDocumentQuery): Promise<AppDocumentRow[]> {
+    this.calls.push("listAppDocuments");
+    const prefix = q.externalDocumentNoStartsWith ?? "HHAPP-";
+    const inWindow = (d: string) => (!q.postingDateFrom || d >= q.postingDateFrom) && (!q.postingDateTo || d <= q.postingDateTo);
+    const out: AppDocumentRow[] = [];
+    if (q.source !== "ledger") {
+      for (const l of this.drafts.values()) {
+        if (!l.externalDocumentNo.startsWith(prefix) || !inWindow(l.postingDate)) continue;
+        out.push({ externalDocumentNo: l.externalDocumentNo, source: "journal", batch: l.batch, lineId: l.id, postingDate: l.postingDate, accountNo: l.accountNo, amountCents: l.amountCents });
+      }
+    }
+    if (q.source !== "journal") {
+      for (const e of this.glEntries) {
+        if (!e.externalDocumentNo.startsWith(prefix) || !inWindow(e.postingDate)) continue;
+        const row: AppDocumentRow = { externalDocumentNo: e.externalDocumentNo, source: "ledger", entryNo: e.entryNo, documentNo: e.documentNo, postingDate: e.postingDate, accountNo: e.accountNo, amountCents: e.amountCents };
+        if (e.batch) row.batch = e.batch;
+        if (e.sourceCode) row.sourceCode = e.sourceCode;
+        if (e.reasonCode) row.reasonCode = e.reasonCode;
+        out.push(row);
+      }
+    }
+    return out;
   }
 
   // Test helpers ---------------------------------------------------------------------------------

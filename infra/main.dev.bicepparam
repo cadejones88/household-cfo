@@ -33,6 +33,9 @@ param entraApiAudience = readEnvironmentVariable('HOMESTEAD_ENTRA_API_AUDIENCE',
 param foundryEndpoint = readEnvironmentVariable('HOMESTEAD_FOUNDRY_ENDPOINT', '')
 param foundryModel = readEnvironmentVariable('HOMESTEAD_FOUNDRY_MODEL', '')
 
+// Cade runs the Console locally against the dev API (`pnpm --filter @homestead/console dev`); bearer tokens, no cookies.
+param consoleExtraOrigins = ['http://localhost:5174']
+
 param postgresBackupRetentionDays = 7
 param postgresGeoRedundantBackup = 'Disabled'
 param storageSku = 'Standard_LRS'
