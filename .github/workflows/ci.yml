@@ -86,6 +86,18 @@ jobs:
         run: |
           if [ -z "$BC_SANDBOX_CLIENT_ID" ]; then echo "No sandbox secrets configured yet; A1–A9 ran against MockBcServer in build-test"; exit 0; fi
           pnpm --filter @homestead/acceptance test
+      # One annotation with every test's outcome: annotations are readable wherever the run is reviewed, logs are not.
+      - name: Acceptance summary
+        if: always()
+        run: |
+          f="$PWD/test/test-results/health.json"
+          [ -f "$f" ] || exit 0
+          node -e '
+            const r = require(process.argv[1]);
+            const esc = (s) => String(s).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+            const rows = r.acceptance.map((a) => `${a.id} ${a.status}${a.note ? ": " + a.note : ""}`);
+            console.log(`::notice title=Acceptance (${r.environment}, ${r.generatedAt})::${esc(rows.join("\n"))}`);
+          ' "$f"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

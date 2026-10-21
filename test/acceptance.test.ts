@@ -31,6 +31,13 @@ const NAMES: Record<string, string> = {
   A9: "Everything shown in the app ties to BC with the data-through date displayed",
 };
 
+/**
+ * In the sandbox, BC's own error text for the test household (transaction exceptions, outbox errors, failed job runs),
+ * appended to a failing test's message. CI's logs and artifacts are not readable from every place the run is
+ * reviewed, but a failure's message is (it becomes the check annotation). Messages are already redacted by the adapter.
+ */
+let diagnose: (() => Promise<string>) | undefined;
+
 /** One acceptance test: recorded for the health report; ManualStep in the sandbox skips it with the reason. */
 function acceptance(id: string, fn: (ctx: TestContext) => Promise<void>): void {
   const name = NAMES[id]!;
@@ -50,6 +57,8 @@ function acceptance(id: string, fn: (ctx: TestContext) => Promise<void>): void {
         ctx.skip();
         return;
       }
+      const extra = side.kind === "sandbox" && diagnose ? await diagnose().catch((d: unknown) => `(diagnostics failed: ${(d as Error).message})`) : "";
+      if (extra && e instanceof Error) e.message = `${e.message}\nBC sandbox: ${extra}`;
       recorder.record(id, name, "fail", Date.now() - t0, (e as Error).message);
       throw e;
     }
@@ -89,6 +98,20 @@ d("A1–A9", () => {
   beforeAll(async () => {
     w = await makeWorld(side, side.kind);
     today = new Date().toISOString().slice(0, 10);
+    diagnose = () =>
+      w.db(async (db) => {
+        const hh = [w.hh.householdId];
+        const ex = await db.query<{ exception_reason: string }>("select exception_reason from transactions where household_id = $1 and exception_reason is not null order by updated_at desc limit 3", hh);
+        const ob = await db.query<{ aggregate: string; operation: string; attempts: number; last_error: string }>("select aggregate, operation, attempts, last_error from outbox where household_id = $1 and last_error is not null order by created_at desc limit 3", hh);
+        const sr = await db.query<{ kind: string; error: string }>("select kind, error from sync_runs where household_id = $1 and status = 'failed' order by started_at desc limit 3", hh);
+        return [
+          ...ex.rows.map((r) => `exception: ${r.exception_reason}`),
+          ...ob.rows.map((r) => `outbox ${r.aggregate}/${r.operation} after ${r.attempts} attempt(s): ${r.last_error}`),
+          ...sr.rows.map((r) => `job ${r.kind}: ${r.error}`),
+        ]
+          .join(" || ")
+          .slice(0, 2000);
+      });
     // Webhook subscriptions first, so BC's notifications reach the app during the run.
     await w.job("webhook-renewal");
   });
@@ -264,6 +287,9 @@ d("A1–A9", () => {
   });
 
   acceptance("A6", async () => {
+    // BC handshakes every new subscription with the notification URL before creating it, so the sandbox run needs a
+    // public receiver (the dev deployment's WEBHOOK_BASE_URL). Without one, BC creates none and A6 waits for it.
+    if (side.kind === "sandbox" && !process.env["WEBHOOK_BASE_URL"]) throw new ManualStep("A6 needs a public webhook receiver (WEBHOOK_BASE_URL of the dev deployment); BC creates no subscription it cannot handshake");
     // Only this run's subscriptions: in the sandbox the pilot's live ones (same app registration) must survive.
     const mine = async () => w.db(async (db) => (await db.query<{ subscription_id: string }>("select subscription_id from bc_webhook_subscriptions where household_id = $1", [w.hh.householdId])).rows.map((r) => r.subscription_id));
     const before = await mine();
@@ -322,7 +348,11 @@ d("A1–A9", () => {
 
   acceptance("A9", async () => {
     const dt = (x: DataThrough) => expect(x).toMatchObject({ at: expect.any(String), quality: expect.any(String), pendingCount: expect.any(Number) });
-    const get = async (url: string) => (await w.app.inject({ method: "GET", url, headers: as(w.hh.members.vanessa) })).json();
+    const get = async (url: string) => {
+      const r = await w.app.inject({ method: "GET", url, headers: as(w.hh.members.vanessa) });
+      expect(r.statusCode, `GET ${url}: ${r.body.slice(0, 500)}`).toBe(200);
+      return r.json();
+    };
     // Home
     dt((await get("/v1/safe-to-spend")).dataThrough);
     dt((await get("/v1/questions")).dataThrough);
