@@ -12,7 +12,7 @@
 /// from the ParentId filter. A filter on externalDocumentNo is required; postingDate and journalBatchName filters are
 /// passed through to the source tables; every other $filter term is applied by the page to the buffer afterwards.
 /// </summary>
-page 50102 "HH Journal Line Check"
+page 72102 "HH Journal Line Check"
 {
     PageType = API;
     APIPublisher = 'cadejonescpa';

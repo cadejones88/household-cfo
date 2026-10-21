@@ -2,7 +2,7 @@
   "id": "6f1f7b2e-8d3a-4c6e-9b1a-0a5c2e7d4f10",
   "name": "HH App Connector",
   "publisher": "Cade T. Jones CPA, P.C.",
-  "version": "1.0.0.0",
+  "version": "1.0.0.1",
   "brief": "Three API pages and a permission set for the Homestead household app",
   "description": "Per-tenant connector for the Homestead household finance app: hhBankLedgerEntries (read), hhBudgetEntries (insert and read, non-ORIG budgets only), hhJournalLineChecks (read), the HH-APP permission set, and the source/reason code defaults for the HHAPP/AUTOPOST batch. Approved at Gate 1 (Phase 3 spec, Proposed Business Central changes 1-3 and 6).",
   "privacyStatement": "",
@@ -16,8 +16,8 @@
   "application": "27.0.0.0",
   "idRanges": [
     {
-      "from": 50100,
-      "to": 50149
+      "from": 72100,
+      "to": 72149
     }
   ],
   "resourceExposurePolicy": {

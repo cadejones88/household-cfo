@@ -3,7 +3,7 @@
 /// forecasts only; the original budget of a year is never touched by the app, so a name ending in -ORIG is refused even
 /// when a caller bypasses the adapter's own client-side check. Kept in a codeunit so a test codeunit can call it directly.
 /// </summary>
-codeunit 50100 "HH Budget Name Check"
+codeunit 72100 "HH Budget Name Check"
 {
     var
         OrigRefusedErr: Label 'Budget %1 is an original budget and is never changed by the Homestead app.', Comment = '%1 = budget name';

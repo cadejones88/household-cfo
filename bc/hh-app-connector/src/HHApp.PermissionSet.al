@@ -14,7 +14,7 @@
 /// on Gen. Journal Line (BC change 4); a per-template security filter is set on the application's user card in BC if
 /// Cade wants it enforced server-side too (runbook change 1, step 1.8).
 /// </summary>
-permissionset 50100 "HH-APP"
+permissionset 72100 "HH-APP"
 {
     Assignable = true;
     Caption = 'HH App Connector (Homestead)', MaxLength = 30;

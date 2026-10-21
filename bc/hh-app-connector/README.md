@@ -1,17 +1,17 @@
 # HH App Connector (Business Central AL extension)
 
-The per-tenant extension the Homestead app needs beyond API v2.0 (Phase 3 spec, "HH App Connector", approved at Gate 1; BC change 2). Publisher "Cade T. Jones CPA, P.C.", object ID range 50100–50149, routes under `api/cadejonescpa/homestead/v1.0`.
+The per-tenant extension the Homestead app needs beyond API v2.0 (Phase 3 spec, "HH App Connector", approved at Gate 1; BC change 2). Publisher "Cade T. Jones CPA, P.C.", object ID range 72100–72149 (moved from 50100–50149 on 10/21/2026: the sandbox's Risky Cards Connector already uses 50100), routes under `api/cadejonescpa/homestead/v1.0`.
 
 | Object | ID | What it is for |
 | --- | --- | --- |
-| page `HH Bank Ledger Entries` (`hhBankLedgerEntries`, read) | 50100 | Reconciliation state of Bank Account Ledger Entry: Entry No., Bank Account No., Posting Date, Amount, Document No., External Document No., Open, Statement No., Statement Line No., Closed at Date, Reversed. API v2.0 has no bank ledger entity. Moves a transaction to Reconciled and matches BC-native payments |
-| page `HH Budget Entries` (`hhBudgetEntries`, insert + read) | 50101 | Versioned budget revisions from approved budget moves (A8). OnInsert refuses any `*-ORIG` budget and accepts `*-REV*` or `FCST*` only; builds the Dimension Set ID from the six code fields |
-| page `HH Journal Line Check` (`hhJournalLineChecks`, read) | 50102 | "Does this External Document No. exist anywhere?" across Gen. Journal Line and G/L Entry in one call, with where (template/batch or entry no.) and which (document no., posting date, account, amount). The adapter's pre-write check and read-back |
-| table `HH Doc Check Row` (temporary) | 50100 | Buffer behind page 50102 |
-| enum `HH Doc Source` | 50100 | `Journal` or `Ledger` |
-| codeunit `HH Budget Name Check` | 50100 | The whitelist, callable from a test |
-| codeunit `HH AutoPost Defaults` | 50101 | BC change 6: stamps Source Code HHAUTO and Reason Code AUTOPOST on every line inserted into HHAPP/AUTOPOST |
-| permissionset `HH-APP` | 50100 | The one set assigned to the Entra application. No posting codeunit until auto-post is approved |
+| page `HH Bank Ledger Entries` (`hhBankLedgerEntries`, read) | 72100 | Reconciliation state of Bank Account Ledger Entry: Entry No., Bank Account No., Posting Date, Amount, Document No., External Document No., Open, Statement No., Statement Line No., Closed at Date, Reversed. API v2.0 has no bank ledger entity. Moves a transaction to Reconciled and matches BC-native payments |
+| page `HH Budget Entries` (`hhBudgetEntries`, insert + read) | 72101 | Versioned budget revisions from approved budget moves (A8). OnInsert refuses any `*-ORIG` budget and accepts `*-REV*` or `FCST*` only; builds the Dimension Set ID from the six code fields |
+| page `HH Journal Line Check` (`hhJournalLineChecks`, read) | 72102 | "Does this External Document No. exist anywhere?" across Gen. Journal Line and G/L Entry in one call, with where (template/batch or entry no.) and which (document no., posting date, account, amount). The adapter's pre-write check and read-back |
+| table `HH Doc Check Row` (temporary) | 72100 | Buffer behind page 72102 |
+| enum `HH Doc Source` | 72100 | `Journal` or `Ledger` |
+| codeunit `HH Budget Name Check` | 72100 | The whitelist, callable from a test |
+| codeunit `HH AutoPost Defaults` | 72101 | BC change 6: stamps Source Code HHAUTO and Reason Code AUTOPOST on every line inserted into HHAPP/AUTOPOST |
+| permissionset `HH-APP` | 72100 | The one set assigned to the Entra application. No posting codeunit until auto-post is approved |
 
 The TypeScript side of each page is in `packages/ledger-adapter-bc/src/bcAdapter.ts`; the in-process fake of these routes is `packages/ledger-adapter-bc/src/mock/MockBcServer.ts` (section "HH App Connector"). Keep field names in the three places in step.
 

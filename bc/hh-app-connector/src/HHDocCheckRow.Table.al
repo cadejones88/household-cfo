@@ -2,7 +2,7 @@
 /// Temporary buffer behind the hhJournalLineChecks API page. One row per general journal line or G/L entry that carries the
 /// External Document No. the caller filtered on. Never persisted: the page fills it per request (SourceTableTemporary).
 /// </summary>
-table 50100 "HH Doc Check Row"
+table 72100 "HH Doc Check Row"
 {
     Caption = 'HH Doc Check Row';
     DataClassification = SystemMetadata;

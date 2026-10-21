@@ -14,7 +14,7 @@
 /// Budget Dimension 1-4 (FAMILY_AREA, TAX_TREATMENT, PROJECT, blank). The adapter's DEFAULT_BUDGET_DIMENSION_LAYOUT
 /// mirrors that order; keep them in step.
 /// </summary>
-page 50101 "HH Budget Entries"
+page 72101 "HH Budget Entries"
 {
     PageType = API;
     APIPublisher = 'cadejonescpa';

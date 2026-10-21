@@ -4,10 +4,10 @@ Gate 4 is the nine acceptance tests passing against the real BC sandbox. Everyth
 
 ## 1. Install the HH App Connector in the sandbox (5 minutes)
 
-1. Download `HH-App-Connector.zip` from https://github.com/cadejones88/household-cfo/releases/tag/hh-app-connector-v1.0.0.0 and unzip it.
+1. Download `HH-App-Connector.zip` (version 1.0.0.1 or later) from https://github.com/cadejones88/household-cfo/releases/latest/download/HH-App-Connector.zip and unzip it. Version 1.0.0.0 cannot install in this sandbox: its object numbers collided with the Risky Cards Connector.
 2. In the sandbox: search **Extension Management** → **Manage** → **Upload Extension**.
 3. Choose `HH-App-Connector.app`, Deploy to **Current version**, accept, **Deploy**.
-4. **Deployment Status** shows *Completed* within a couple of minutes. Extension Management then lists "HH App Connector" by Cade T. Jones CPA, P.C., version 1.0.0.0.
+4. **Deployment Status** shows *Completed* within a couple of minutes. Extension Management then lists "HH App Connector" by Cade T. Jones CPA, P.C., version 1.0.0.1.
 
 ## 2. The BC master data (changes 3–6, about 20 minutes, or Claude does it)
 

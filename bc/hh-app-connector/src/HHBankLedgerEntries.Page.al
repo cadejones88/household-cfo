@@ -7,7 +7,7 @@
 ///   GET .../api/cadejonescpa/homestead/v1.0/companies({id})/hhBankLedgerEntries?$filter=bankAccountNo eq 'CAPONE-CC' and open eq true
 ///   GET ...?$filter=externalDocumentNo eq 'HHAPP-PLD-20261020-ABCDEF12'
 /// </summary>
-page 50100 "HH Bank Ledger Entries"
+page 72100 "HH Bank Ledger Entries"
 {
     PageType = API;
     APIPublisher = 'cadejonescpa';

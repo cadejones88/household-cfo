@@ -7,7 +7,7 @@
 /// The codes themselves are master data made by hand in the runbook (bc/runbook-additions.md, change 6); this
 /// subscriber only fills them in when they exist, so publishing the extension before the codes are created is harmless.
 /// </summary>
-codeunit 50101 "HH AutoPost Defaults"
+codeunit 72101 "HH AutoPost Defaults"
 {
     var
         HHAppTemplateTok: Label 'HHAPP', Locked = true;
