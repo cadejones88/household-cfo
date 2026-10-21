@@ -7,13 +7,16 @@ The per-tenant extension the Homestead app needs beyond API v2.0 (Phase 3 spec, 
 | page `HH Bank Ledger Entries` (`hhBankLedgerEntries`, read) | 72100 | Reconciliation state of Bank Account Ledger Entry: Entry No., Bank Account No., Posting Date, Amount, Document No., External Document No., Open, Statement No., Statement Line No., Closed at Date, Reversed. API v2.0 has no bank ledger entity. Moves a transaction to Reconciled and matches BC-native payments |
 | page `HH Budget Entries` (`hhBudgetEntries`, insert + read) | 72101 | Versioned budget revisions from approved budget moves (A8). OnInsert refuses any `*-ORIG` budget and accepts `*-REV*` or `FCST*` only; builds the Dimension Set ID from the six code fields |
 | page `HH Journal Line Check` (`hhJournalLineChecks`, read) | 72102 | "Does this External Document No. exist anywhere?" across Gen. Journal Line and G/L Entry in one call, with where (template/batch or entry no.) and which (document no., posting date, account, amount). The adapter's pre-write check and read-back |
+| page `HH Journal Lines` (`hhJournalLines`, insert + read, HHAPP template only) | 72103 | Since 1.0.0.3. The app's draft lines, with their dimensions in the same request as `CODE=VALUE` pairs laid over the account's default dimensions. The standard journalLines page cannot do this: BC applies the account defaults on insert and its deep insert of `dimensionSetLines` then refuses every code already there ("The dimension set line already exists"). Builds the line exactly as page 30049 does (Line No. and Document No. from the batch No. Series) |
 | table `HH Doc Check Row` (temporary) | 72100 | Buffer behind page 72102 |
 | enum `HH Doc Source` | 72100 | `Journal` or `Ledger` |
 | codeunit `HH Budget Name Check` | 72100 | The whitelist, callable from a test |
 | codeunit `HH AutoPost Defaults` | 72101 | BC change 6: stamps Source Code HHAUTO and Reason Code AUTOPOST on every line inserted into HHAPP/AUTOPOST |
-| permissionset `HH-APP` | 72100 | The one set assigned to the Entra application: Execute on the eight standard API v2.0 pages the app calls (from 1.0.0.2) and the table rights behind them. No posting codeunit until auto-post is approved |
+| permissionset `HH-APP` | 72100 | The one set assigned to the Entra application: Execute on the eight standard API v2.0 pages the app calls (1.0.0.2), Execute on table, codeunit and query objects by wildcard (1.0.0.3, as BC checks object Execute too), and exactly the table-data rights the traced code paths need. No insert on any entry table, so no posting until auto-post is approved |
 
 The TypeScript side of each page is in `packages/ledger-adapter-bc/src/bcAdapter.ts`; the in-process fake of these routes is `packages/ledger-adapter-bc/src/mock/MockBcServer.ts` (section "HH App Connector"). Keep field names in the three places in step.
+
+Why each table right is there: 1.0.0.3 added the reads that BC's own code makes when the API pages insert a journal line or a budget entry (Gen. Journal Line validation, approval and workflow checks, the Change Log, Dataverse and KPI global-trigger subscribers), traced line by line in the BC source (microsoft/BCApps, W1 base app). Reads behind a conditional that the household never meets (currency, VAT posting setup, deferral templates, jobs, IC partners) are deliberately not granted; if one is ever reached, BC names the table in a 403 and the sandbox run shows it.
 
 ## Installing in the sandbox (no tools needed)
 

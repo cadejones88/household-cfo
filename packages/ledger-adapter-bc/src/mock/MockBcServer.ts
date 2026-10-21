@@ -561,7 +561,13 @@ export class MockBcServer {
     return odataError(405, "MethodNotAllowed", "");
   }
 
-  private insertLine(journal: MockJournal, body: unknown): Reply {
+  /**
+   * Insert one journal line as BC does: the G/L account's default dimensions land on the line first (Account No.
+   * validation), then the requested dimensions. "standard" is page 30049 with a deep insert of dimensionSetLines,
+   * which refuses a code the line already has ("The dimension set line already exists", page 30022); "connector" is
+   * the HH App Connector's hhJournalLines, which lays the "dimensions" pairs over the defaults.
+   */
+  private insertLine(journal: MockJournal, body: unknown, mode: "standard" | "connector" = "standard"): Reply {
     const b = (body ?? {}) as Record<string, unknown>;
     const accountType = typeof b.accountType === "string" && b.accountType ? b.accountType : "G/L Account";
     if (accountType !== "G/L Account" && accountType !== "Bank Account") return odataError(400, "BadRequest", `Account Type ${accountType} is not allowed on this page.`);
@@ -619,14 +625,40 @@ export class MockBcServer {
       reasonCode: journal.templateDisplayName === this.journalTemplate && journal.code === "AUTOPOST" ? "AUTOPOST" : "",
       dimensionSetLines: [],
     };
-    // Deep insert of the dimensionSetLines part.
-    const dims = Array.isArray(b.dimensionSetLines) ? (b.dimensionSetLines as Record<string, unknown>[]) : [];
-    for (const d of dims) {
-      const err = this.applyDimension(line, d, line.id, "Journal Line");
-      if (err) return err;
+    // The account's default dimensions (Default Dimension on the G/L account, the Account Dictionary's defaults).
+    if (accountType === "G/L Account") {
+      const defaults = CHART.find((a) => a.no === accountNumber)?.dims ?? {};
+      for (const [code, valueCode] of Object.entries(defaults)) {
+        if (!valueCode) continue;
+        const err = this.applyDimension(line, { code, valueCode }, line.id, "Journal Line");
+        if (err) return err;
+      }
+    }
+    if (mode === "connector") {
+      const spec = typeof b.dimensions === "string" ? b.dimensions : "";
+      for (const pair of spec.split("|").map((x) => x.trim()).filter(Boolean)) {
+        const parts = pair.split("=");
+        if (parts.length !== 2 || !parts[0]!.trim()) return odataError(400, "Application_DialogException", `The "dimensions" value must be CODE=VALUE pairs separated by |, not "${pair}".`);
+        const code = parts[0]!.trim().toUpperCase();
+        const valueCode = parts[1]!.trim().toUpperCase();
+        if (!valueCode) {
+          line.dimensionSetLines = line.dimensionSetLines.filter((x) => x.code !== code);
+          continue;
+        }
+        const err = this.applyDimension(line, { code, valueCode }, line.id, "Journal Line");
+        if (err) return err;
+      }
+    } else {
+      // Deep insert of the dimensionSetLines part.
+      const dims = Array.isArray(b.dimensionSetLines) ? (b.dimensionSetLines as Record<string, unknown>[]) : [];
+      for (const d of dims) {
+        if (line.dimensionSetLines.some((x) => x.code === String(d.code ?? ""))) return odataError(400, "Application_DialogException", "The dimension set line already exists. Check existing dimension set lines and the default dimension set lines on the parent.");
+        const err = this.applyDimension(line, d, line.id, "Journal Line");
+        if (err) return err;
+      }
     }
     this.state.lines.push(line);
-    return ok(publicLine(line), 201);
+    return ok(mode === "connector" ? connectorLine(line) : publicLine(line), 201);
   }
 
   private applyDimension(target: { dimensionSetLines: MockDimLine[] }, d: Record<string, unknown>, parentId: string, parentType: string): Reply | undefined {
@@ -848,6 +880,21 @@ export class MockBcServer {
         if (top > 0) rows = rows.slice(0, top);
         return ok({ value: rows });
       }
+      case "hhJournalLines": {
+        // bc/hh-app-connector/src/HHJournalLines.Page.al: insert and read, HHAPP template only.
+        const mine = this.state.lines.filter((l) => l.templateName === this.journalTemplate);
+        if (method === "GET") {
+          const terms = parseFilter(ctx.query.get("$filter"));
+          return ok({ value: mine.map(connectorLine).filter((r) => matchesFilter(r as unknown as Record<string, unknown>, terms, ["id", "journalId", "journalBatchName", "lineNumber", "accountType", "accountNumber", "postingDate", "documentNumber", "externalDocumentNumber", "amount", "description"])) });
+        }
+        if (method !== "POST") return odataError(405, "MethodNotAllowed", "hhJournalLines allows insert and read only");
+        const b = (ctx.body ?? {}) as Record<string, unknown>;
+        const journal = this.journals.find((j) => j.id === String(b.journalId ?? ""));
+        if (!b.journalId) return odataError(400, "Application_DialogException", 'The "journalId" of an HHAPP journal batch must be given.');
+        if (!journal) return odataError(400, "Internal_RecordNotFound", "The Gen. Journal Batch does not exist.");
+        if (journal.templateDisplayName !== this.journalTemplate) return odataError(400, "Application_DialogException", `Only the ${this.journalTemplate} journal template is open to the Homestead app; batch ${journal.code} belongs to template ${journal.templateDisplayName}.`);
+        return this.insertLine(journal, b, "connector");
+      }
       case "hhBudgetEntries": {
         if (method === "GET") {
           const terms = parseFilter(ctx.query.get("$filter"));
@@ -1059,6 +1106,12 @@ function lineExposedFields(): string[] {
 function publicLine(l: MockLine): Record<string, unknown> {
   const { dimensionSetLines: _d, templateName: _t, sourceCode: _s, reasonCode: _r, ...pub } = l;
   return pub;
+}
+
+/** A line as hhJournalLines returns it: the dimension set as CODE=VALUE pairs, in Dimension Code order as BC lists them. */
+function connectorLine(l: MockLine): Record<string, unknown> {
+  const dimensions = [...l.dimensionSetLines].sort((a, b) => a.code.localeCompare(b.code)).map((d) => `${d.code}=${d.valueCode}`).join("|");
+  return { id: l.id, journalId: l.journalId, journalBatchName: l.journalDisplayName, lineNumber: l.lineNumber, accountType: l.accountType, accountNumber: l.accountNumber, postingDate: l.postingDate, documentNumber: l.documentNumber, externalDocumentNumber: l.externalDocumentNumber, amount: l.amount, description: l.description, comment: l.comment, dimensions, lastModifiedDateTime: l.lastModifiedDateTime };
 }
 
 function budgetFields(): string[] {

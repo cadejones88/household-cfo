@@ -56,3 +56,11 @@ export function walmartSplit(key = idempotencyKey.plaid("acct1", "txn-1"), posti
     { ...base, accountType: "Bank Account", accountNumber: "CAPONE-CC", amountCents: -4250, description: "WALMART #1234", dimensionSetLines: toBcDimensionSetLines({ FUND_GOAL: "OPERATING", FAMILY_AREA: "JOINT", TAX_TREATMENT: "TAXABLE" }) },
   ];
 }
+
+/**
+ * The same split without dimensions on the G/L lines: what the standard journalLines page (no HH App Connector) can
+ * write, since a deep insert of a code the account already defaults is refused.
+ */
+export function bareSplit(key = idempotencyKey.plaid("acct1", "txn-1"), postingDate = "2026-10-20"): JournalLineInput[] {
+  return walmartSplit(key, postingDate).map((l) => (l.accountType === "G/L Account" ? { ...l, dimensionSetLines: [] } : l));
+}

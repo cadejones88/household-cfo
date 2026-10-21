@@ -124,7 +124,8 @@ export function bcSide(env: NodeJS.ProcessEnv = process.env): BcSide {
       const jid = server.journalId("DEFAULT", "GENERAL");
       const lines = [
         { accountType: "Bank Account", accountNumber: bankCode, amount: amountCents / 100, dimensionSetLines: [{ code: "FUND_GOAL", valueCode: fundGoal }] },
-        { accountType: "G/L Account", accountNumber: "115101", amount: -amountCents / 100, dimensionSetLines: [{ code: "SPEND_CLASS", valueCode: "TRANSFER" }] },
+        // 115101 carries SPEND_CLASS TRANSFER as a default dimension, which BC applies on insert.
+        { accountType: "G/L Account", accountNumber: "115101", amount: -amountCents / 100, dimensionSetLines: [] },
       ];
       for (const l of lines) {
         const r = await call("POST", `journals(${jid})/journalLines`, { ...l, postingDate: date, description: `Set aside ${fundGoal}`, externalDocumentNumber: `GOAL-${fundGoal}` });

@@ -342,9 +342,13 @@ export class BusinessCentralAdapter implements LedgerAdapter {
     if (found.ledgerEntries.length > 0) return { outcome: "already_posted", entries: found.ledgerEntries };
     if (found.journalLines.length > 0) return { outcome: "already_in_journal", journalId: journal.id, lines: found.journalLines };
 
-    const url = this.v2(`journals(${journal.id})/journalLines`);
-    const requests: BatchRequest[] = lines.map((l) => ({ method: "POST", url, body: toBcLineBody(l) }));
-    const parts = await this.http.batchChangeset(requests);
+    // With the HH App Connector: hhJournalLines takes the dimensions with the line and lays them over the account's
+    // defaults. The standard page cannot (a deep insert of a code the account defaults is refused, page 30022), so
+    // without the connector only lines whose accounts carry no default for the codes sent can be written.
+    const requests: BatchRequest[] = this.connectorInstalled
+      ? lines.map((l) => ({ method: "POST", url: this.connector("hhJournalLines"), body: toConnectorLineBody(l, journal.id) }))
+      : lines.map((l) => ({ method: "POST", url: this.v2(`journals(${journal.id})/journalLines`), body: toBcLineBody(l) }));
+    const parts = await this.http.batchChangeset(requests, this.connectorInstalled ? API_CONNECTOR : API_V2);
     const written = parts.map((p) => mapWrittenLine(p.body as BcJournalLine, req.journalCode));
     return { outcome: "written", journalId: journal.id, lines: written };
   }
@@ -602,6 +606,25 @@ export function toBcLineBody(l: JournalLineInput): Record<string, unknown> {
     // Deep insert of the part (page 30049 has part dimensionSetLines; DelayedInsert pages accept nested collections).
     // VERIFY on the sandbox that the five dimensions come back on GET …/journalLines({id})/dimensionSetLines.
     dimensionSetLines: l.dimensionSetLines.map((d: BcDimensionSetLine) => ({ code: d.code, valueCode: d.valueCode })),
+  };
+  if (l.comment !== undefined) body.comment = l.comment.slice(0, COMMENT_MAX);
+  return body;
+}
+
+/** The body hhJournalLines takes: the standard fields plus the dimensions as CODE=VALUE pairs joined with |. */
+export function toConnectorLineBody(l: JournalLineInput, journalId: string): Record<string, unknown> {
+  for (const d of l.dimensionSetLines) {
+    if (/[|=]/.test(d.code) || /[|=]/.test(d.valueCode)) throw new LedgerAdapterError(`Dimension ${d.code}=${d.valueCode} contains | or =, which hhJournalLines uses as separators`);
+  }
+  const body: Record<string, unknown> = {
+    journalId,
+    accountType: l.accountType,
+    accountNumber: l.accountNumber,
+    postingDate: l.postingDate,
+    externalDocumentNumber: l.externalDocumentNumber,
+    amount: centsToNumber(l.amountCents),
+    description: truncateDescription(l.description),
+    dimensions: l.dimensionSetLines.map((d) => `${d.code}=${d.valueCode}`).join("|"),
   };
   if (l.comment !== undefined) body.comment = l.comment.slice(0, COMMENT_MAX);
   return body;

@@ -2,7 +2,7 @@ import { BANK_CARD_LIST, CHART, DIMENSION_CODES, externalDocumentNo, idempotency
 import { describe, expect, it } from "vitest";
 import { assertWritableBudgetName, isOrigBudgetName } from "../src/bcAdapter.js";
 import { BcNonRetryableError, BcRetryableError, LedgerAdapterError } from "../src/errors.js";
-import { GROCERY_DIMS, makeAdapter, makeReceiver, walmartSplit } from "./helpers.js";
+import { GROCERY_DIMS, bareSplit, makeAdapter, makeReceiver, walmartSplit } from "./helpers.js";
 
 describe("master data", () => {
   it("lists the household chart, the five dimensions with their values, and the bank cards", async () => {
@@ -68,15 +68,28 @@ describe("createJournalLines: one change set, all or nothing", () => {
   it("batch requests carry URLs relative to the API root; an absolute one is refused, as Business Central refuses it", async () => {
     const { adapter, server, http } = makeAdapter();
     await adapter.createJournalLines({ journalCode: "RECEIPTS", lines: walmartSplit() });
-    const call = server.log.find((l) => l.url.endsWith("/api/v2.0/$batch"))!;
-    const sent = JSON.parse(call.body ?? "{}") as { requests: { url: string }[] };
-    expect(sent.requests.every((r) => /^companies\([^)]+\)\/journals\([^)]+\)\/journalLines$/.test(r.url))).toBe(true);
+    const call = server.log.find((l) => l.url.endsWith("/api/cadejonescpa/homestead/v1.0/$batch"))!;
+    const sent = JSON.parse(call.body ?? "{}") as { requests: { url: string; body: { dimensions: string } }[] };
+    expect(sent.requests.every((r) => /^companies\([^)]+\)\/hhJournalLines$/.test(r.url))).toBe(true);
+    expect(sent.requests[0]!.body.dimensions.split("|")).toEqual(expect.arrayContaining(["SPEND_CLASS=ESSENTIAL", "FAMILY_AREA=JOINT", "TAX_TREATMENT=NONDEDUCT"]));
     // Straight to the fake with an absolute inner URL: 404 for the tenant segment, nothing written.
     const abs = `${server.baseUrl}/api/v2.0/companies(${server.companyId})/journals`;
     const res = await server.fetch(`${server.baseUrl}/api/v2.0/$batch`, { method: "POST", headers: { authorization: "Bearer x", "content-type": "application/json", isolation: "snapshot" }, body: JSON.stringify({ requests: [{ id: "1", method: "GET", url: abs }] }) });
     expect(res.status).toBe(404);
     // And the client refuses to send a request outside the batch's own API root.
     await expect(http.batchChangeset([{ method: "GET", url: `${server.baseUrl}/api/cadejonescpa/homestead/v1.0/companies(${server.companyId})/hhBudgetEntries` }])).rejects.toThrow(/must stay inside api\/v2.0/);
+  });
+
+  it("dimensions the account already defaults: hhJournalLines lays them over the defaults; the standard page refuses them", async () => {
+    const { adapter, server } = makeAdapter();
+    const lines = walmartSplit();
+    lines[0] = { ...lines[0]!, dimensionSetLines: [...lines[0]!.dimensionSetLines.filter((d) => d.code !== "SPEND_CLASS"), { code: "SPEND_CLASS", valueCode: "FLEXIBLE" }] };
+    expect((await adapter.createJournalLines({ journalCode: "RECEIPTS", lines })).outcome).toBe("written");
+    const grocery = server.draftLines("RECEIPTS")[0]!;
+    expect(grocery.dimensionSetLines.find((d) => d.code === "SPEND_CLASS")?.valueCode).toBe("FLEXIBLE");
+    const plain = makeAdapter({ connectorInstalled: false });
+    await expect(plain.adapter.createJournalLines({ journalCode: "RECEIPTS", lines: walmartSplit() })).rejects.toThrow(/dimension set line already exists/);
+    expect(plain.server.draftLines("RECEIPTS")).toHaveLength(0);
   });
 
   it("a multipart change set of more than one request is refused, as Business Central refuses it", async () => {
@@ -165,7 +178,7 @@ describe("pre-write check (idempotency)", () => {
 
   it("without the connector the journal side still checks; the ledger side needs a known document number", async () => {
     const { adapter, server } = makeAdapter({ connectorInstalled: false });
-    const lines = walmartSplit();
+    const lines = bareSplit();
     const first = await adapter.createJournalLines({ journalCode: "FEEDS", lines });
     expect(first.outcome).toBe("written");
     const again = await adapter.createJournalLines({ journalCode: "FEEDS", lines });
@@ -186,7 +199,7 @@ describe("pre-write check without a batch, and the nightly poll's range read", (
   it("finds a draft in any HHAPP batch when no batch is named (connector and plain OData)", async () => {
     for (const connectorInstalled of [true, false]) {
       const { adapter, server } = makeAdapter({ connectorInstalled });
-      const lines = walmartSplit();
+      const lines = connectorInstalled ? walmartSplit() : bareSplit();
       await adapter.createJournalLines({ journalCode: "RECEIPTS", lines });
       const found = await adapter.findByExternalDocumentNo(lines[0]!.externalDocumentNumber);
       expect(found.journalLines).toHaveLength(3);

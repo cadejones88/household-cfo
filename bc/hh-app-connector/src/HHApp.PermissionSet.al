@@ -4,9 +4,11 @@
 /// Name, G/L Budget Entry, Bank Account Ledger Entry; insert, modify and delete on Gen. Journal Line; insert on
 /// G/L Budget Entry; the three connector pages; no posting codeunit.
 ///
-/// Posting: `codeunit "Gen. Jnl.-Post Batch" = X` is deliberately absent. It is added only when the first auto-post rules
-/// (R2, R3, R7) pass their sandbox test and Cade approves them in writing (spec: Decisions, question 4), and then the
-/// Microsoft.NAV.post action is called by the posting job for HHAPP/AUTOPOST only. Until then Cade posts FEEDS and
+/// Posting: the set grants no insert (direct or indirect) on G/L Entry, G/L Register, Bank Account Ledger Entry or any
+/// other entry table, so the app cannot post even though object Execute is granted by wildcard (since 1.0.0.3; BC
+/// checks Execute on tables and codeunits the API pages use). The posting rights are added only when the first auto-post
+/// rules (R2, R3, R7) pass their sandbox test and Cade approves them in writing (spec: Decisions, question 4), and then
+/// the Microsoft.NAV.post action is called by the posting job for HHAPP/AUTOPOST only. Until then Cade posts FEEDS and
 /// RECEIPTS himself in BC or from the Console.
 ///
 /// AL permission sets cannot filter table rights by field value, so "Gen. Journal Line restricted to the HHAPP template"
@@ -26,6 +28,7 @@ permissionset 72100 "HH-APP"
         page "HH Bank Ledger Entries" = X,
         page "HH Budget Entries" = X,
         page "HH Journal Line Check" = X,
+        page "HH Journal Lines" = X,
         codeunit "HH Budget Name Check" = X,
         codeunit "HH AutoPost Defaults" = X,
 
@@ -43,13 +46,23 @@ permissionset 72100 "HH-APP"
         page "APIV2 - JournalLines" = X,
         page "APIV2 - G/L Entries" = X,
 
+        // Execute on table, codeunit and query objects. BC checks Execute on the table object as well as rights on its
+        // data (sandbox run 10/21/2026: "Table 232 Gen. Journal Batch Execute", "Table 96 G/L Budget Entry Execute");
+        // Microsoft's own API permission sets grant object Execute by wildcard. Execute grants no data: what the app
+        // can read or change is exactly the tabledata lines below, and posting stays impossible because nothing here
+        // allows inserting G/L, bank or register entries (a posting codeunit's own permissions need at least indirect
+        // rights from the caller's set).
+        table * = X,
+        codeunit * = X,
+        query * = X,
+
         // Chart, dimensions, bank cards (API v2.0 accounts, dimensions, dimensionValues, bankAccounts)
         tabledata "G/L Account" = R,
         tabledata "G/L Account Category" = R,
         tabledata Dimension = R,
         tabledata "Dimension Value" = R,
         tabledata "Dimension Set Entry" = RI,
-        tabledata "Dimension Set Tree Node" = RI,
+        tabledata "Dimension Set Tree Node" = RIM, // M: a new combination is marked In Use (Dimension Set Entry.al)
         tabledata "Default Dimension" = R,
         tabledata "Dimension Combination" = R,
         tabledata "Dimension Value Combination" = R,
@@ -76,6 +89,25 @@ permissionset 72100 "HH-APP"
         // Budgets (hhBudgetEntries insert, Analytics API read)
         tabledata "G/L Budget Name" = R,
         tabledata "G/L Budget Entry" = RI,
+
+        // Read on insert of a journal line or budget entry by base-app code the API pages run (traced in the BC source for
+        // 1.0.0.3: Gen. Journal Line validation, approvals and workflow checks, the Change Log, Dataverse and KPI
+        // global-trigger subscribers). Lowercase = indirect: the reading object's own Permissions property covers it.
+        tabledata "Gen. Jnl. Allocation" = R,
+        tabledata "Deferral Header" = R,
+        tabledata "User Setup" = R,
+        tabledata "Acc. Sched. KPI Web Srv. Setup" = R,
+        tabledata "VAT Setup" = r,
+        tabledata "Approval Entry" = r,
+        tabledata "Workflow Webhook Entry" = r,
+        tabledata Workflow = r,
+        tabledata "Workflow Step Instance" = r,
+        tabledata "Change Log Setup" = r,
+        tabledata "Change Log Setup (Table)" = r,
+        tabledata "Change Log Setup (Field)" = r,
+        tabledata "Field Monitoring Setup" = r,
+        tabledata "CDS Connection Setup" = r,
+        tabledata "API Webhook Subscription" = r,
 
         // Webhook subscriptions: not listed. "Webhook Subscription" and "Webhook Notification" are OnPrem-scoped and a
         // cloud extension cannot name them (AL0296, found by the first compile on 10/21/2026); in the online service
