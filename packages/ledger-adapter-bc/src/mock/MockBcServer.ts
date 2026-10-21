@@ -973,7 +973,12 @@ export class MockBcServer {
       const groupResponses: InnerResponse[] = [];
       let failed: InnerResponse | undefined;
       for (const r of reqs) {
-        const u = new URL(r.url, this.baseUrl + "/");
+        // Business Central resolves inner URLs relative to the batch's API root (its documented example uses
+        // "items(…)"); an absolute URL with the tenant in it is not understood and the whole batch answers 404 for the
+        // tenant segment (seen on the sandbox 10/21/2026, where GitHub masked the tenant id as '***').
+        if (/^https?:\/\//i.test(r.url)) return odataError(404, "BadRequest_NotFound", `Resource not found for the segment '${this.tenantId}'.`);
+        const apiRoot = ctx.path.replace(/\$batch$/, "");
+        const u = new URL(r.url, `${this.baseUrl}/${apiRoot}`);
         const prefix = `/v2.0/${this.tenantId}/${this.environment}/`;
         if (!u.pathname.startsWith(prefix)) {
           failed = { contentId: r.contentId, status: 404, headers: {}, body: odataError(404, "BadRequest_NotFound", "Inner request URL is outside the environment").body };

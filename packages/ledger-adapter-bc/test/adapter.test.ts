@@ -65,6 +65,20 @@ describe("createJournalLines: one change set, all or nothing", () => {
     expect(server.draftLines("RECEIPTS")).toHaveLength(0);
   });
 
+  it("batch requests carry URLs relative to the API root; an absolute one is refused, as Business Central refuses it", async () => {
+    const { adapter, server, http } = makeAdapter();
+    await adapter.createJournalLines({ journalCode: "RECEIPTS", lines: walmartSplit() });
+    const call = server.log.find((l) => l.url.endsWith("/api/v2.0/$batch"))!;
+    const sent = JSON.parse(call.body ?? "{}") as { requests: { url: string }[] };
+    expect(sent.requests.every((r) => /^companies\([^)]+\)\/journals\([^)]+\)\/journalLines$/.test(r.url))).toBe(true);
+    // Straight to the fake with an absolute inner URL: 404 for the tenant segment, nothing written.
+    const abs = `${server.baseUrl}/api/v2.0/companies(${server.companyId})/journals`;
+    const res = await server.fetch(`${server.baseUrl}/api/v2.0/$batch`, { method: "POST", headers: { authorization: "Bearer x", "content-type": "application/json", isolation: "snapshot" }, body: JSON.stringify({ requests: [{ id: "1", method: "GET", url: abs }] }) });
+    expect(res.status).toBe(404);
+    // And the client refuses to send a request outside the batch's own API root.
+    await expect(http.batchChangeset([{ method: "GET", url: `${server.baseUrl}/api/cadejonescpa/homestead/v1.0/companies(${server.companyId})/hhBudgetEntries` }])).rejects.toThrow(/must stay inside api\/v2.0/);
+  });
+
   it("a multipart change set of more than one request is refused, as Business Central refuses it", async () => {
     const { adapter, server } = makeAdapter({ batchFormat: "multipart" });
     await expect(adapter.createJournalLines({ journalCode: "FEEDS", lines: walmartSplit() })).rejects.toThrow(/Multiple requests within the same change set/);

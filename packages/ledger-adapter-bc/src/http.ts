@@ -3,7 +3,7 @@
  * error classification the retry policy depends on. No request or response body is ever logged here.
  */
 import type { TokenProvider } from "./auth.js";
-import { BcNonRetryableError, BcRetryableError, errorFromFetchFailure, isRetryableStatus, parseBcError } from "./errors.js";
+import { BcNonRetryableError, BcRetryableError, LedgerAdapterError, errorFromFetchFailure, isRetryableStatus, parseBcError } from "./errors.js";
 import { buildJsonBatch, buildMultipartChangeset, parseJsonBatchResponse, parseMultipartBatchResponse, type BatchRequest, type BatchResponsePart } from "./odata.js";
 
 export type BatchFormat = "multipart" | "json";
@@ -84,9 +84,15 @@ export class BcHttp {
    * classified error of the first failing part; a retryable transport failure throws BcRetryableError.
    */
   async batchChangeset(requests: readonly BatchRequest[], apiRoot = "api/v2.0"): Promise<BatchResponsePart[]> {
-    const built = this.batchFormat === "json" ? buildJsonBatch(requests) : buildMultipartChangeset(requests);
-    // Each API route has its own $batch endpoint: api/v2.0/$batch, api/<publisher>/<group>/<version>/$batch.
+    // Each API route has its own $batch endpoint: api/v2.0/$batch, api/<publisher>/<group>/<version>/$batch. Inner
+    // URLs are relative to that root, as in BC's own example ("companies(…)/journals(…)/journalLines"): BC does not
+    // understand an absolute URL with the tenant in it (404 for the tenant segment, sandbox run 10/21/2026).
     const url = this.url(apiRoot, "$batch");
+    const root = url.slice(0, url.length - "$batch".length);
+    const relative = requests.map((r) => ({ ...r, url: r.url.startsWith(root) ? r.url.slice(root.length) : r.url }));
+    const foreign = relative.find((r) => /^https?:\/\//i.test(r.url));
+    if (foreign) throw new LedgerAdapterError(`A batch request must stay inside ${apiRoot}: ${foreign.url.split("?")[0]}`);
+    const built = this.batchFormat === "json" ? buildJsonBatch(relative) : buildMultipartChangeset(relative);
     const res = await this.rawFetch("POST", url, built.body, {
       "Content-Type": built.contentType,
       Accept: "application/json",
