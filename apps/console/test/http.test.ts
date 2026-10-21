@@ -137,7 +137,7 @@ describe("HTTP ConsoleApi", () => {
     const r = await api.reconciliation();
     const card = r.bankCards.find((b) => b.code === "BEEHIVE-CHK")!;
     expect(card).toMatchObject({ openCount: 4, openSumCents: -41833, reconciledCount: 215, lastStatementNo: "2026-09", reconciledThrough: "2026-10-01" });
-    expect(r.missing).toEqual(["differenceLines", "loans"]);
+    expect(r.missing).toEqual(["differenceLines", "loans"]); // no loans in this response
   });
 
   it("builds the 14 bank cards from the reconciliation route and says what the API does not report", async () => {

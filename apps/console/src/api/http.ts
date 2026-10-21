@@ -35,6 +35,7 @@ import {
   type ExceptionResolution,
   type FeedConnectionSummary,
   type HealthReport,
+  type LoanRollforward,
   type MappingSet,
   type OutboxItem,
   type ReceiptSummary,
@@ -139,6 +140,9 @@ interface ReconResponse {
     reconciledThrough?: string;
     bankLedger?: "unavailable";
   }[];
+  /** Loan rollforwards for the current month from BC's G/L; absent without a ledger, `loansUnavailable` when BC did not answer. */
+  loans?: LoanRollforward[];
+  loansUnavailable?: boolean;
 }
 interface MappingsResponse {
   catalogVersion?: number;
@@ -493,14 +497,17 @@ export function createHttpApi(opts: HttpApiOptions): ConsoleApi {
         };
       });
       const latest = r.accounts?.map((a) => a.lastPollAt).filter((x): x is string => Boolean(x)).sort().at(-1);
-      // Loan rollforwards (the two Frontier loans and PennyMac) wait on the recurring-journal account confirmation:
-      // `loans` stays empty and the page says so. Open sums and statements are missing only where BC was not read.
+      // Loan rollforwards (the two Frontier loans and PennyMac) come from BC's G/L; when BC was not read the page says
+      // so. Open sums and statements are missing only where BC's bank ledger was not read.
       const bcRead = (r.accounts ?? []).some((a) => a.openCount !== undefined && a.bankLedger !== "unavailable");
+      const loans = r.loans ?? [];
+      type Missing = "openSum" | "statements" | "differenceLines" | "loans";
+      const missing: Missing[] = [...(bcRead ? [] : (["openSum", "statements"] as Missing[])), "differenceLines", ...(r.loans && !r.loansUnavailable ? [] : (["loans"] as Missing[]))];
       return {
         bankCards,
-        loans: [],
+        loans,
         dataThrough: latest ? { at: latest, quality: "posted_unreconciled", pendingCount: 0 } : nowThrough("missing"),
-        missing: bcRead ? ["differenceLines", "loans"] : ["openSum", "statements", "differenceLines", "loans"],
+        missing,
       };
     },
 

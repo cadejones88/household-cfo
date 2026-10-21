@@ -333,5 +333,31 @@ export function isSpendingAccount(no: string): boolean {
 /** The "unallocated" accounts whose balance BC's monthly allocation clears. */
 export const UNALLOCATED_ACCOUNTS = { walmart: "603201", club: "603401", amazon: "603801" } as const;
 
+/**
+ * The household's installment debts and the accounts BC's recurring journals (MORTGAGE, LOANS) split each payment
+ * into (records/bc-setup/Account Dictionary.csv; sandbox test T08 for the mortgage split). Used for the Console's
+ * loan rollforward: principal is the liability account, the rest are the period's postings to the other accounts.
+ */
+export interface LoanDefinition {
+  id: "pennymac" | "frontier-suburban" | "frontier-f350";
+  name: string;
+  lender: string;
+  mask: string;
+  /** The liability (principal) account. */
+  glAccount: string;
+  interestAccount: string;
+  /** Mortgage insurance and late charges, reported together as fees. */
+  feeAccounts: readonly string[];
+  escrowAccount?: string;
+  /** The seeded bill this payment matches (bills.name starts with this). */
+  billNamePrefix: string;
+}
+
+export const LOANS: readonly LoanDefinition[] = [
+  { id: "pennymac", name: "Mortgage", lender: "PennyMac", mask: "9114", glAccount: "271101", interestAccount: "601101", feeAccounts: ["601102", "601901"], escrowAccount: "121101", billNamePrefix: "PennyMac" },
+  { id: "frontier-suburban", name: "Suburban loan", lender: "Frontier CU", mask: "7003-0001", glAccount: "251101", interestAccount: "711501", feeAccounts: [], billNamePrefix: "Frontier CU · Suburban" },
+  { id: "frontier-f350", name: "F-350 loan", lender: "Frontier CU", mask: "7003-0002", glAccount: "251201", interestAccount: "711601", feeAccounts: [], billNamePrefix: "Frontier CU · F-350" },
+];
+
 /** Accounts approved on October 20, 2026 (BC change 5) that may not exist in the sandbox yet. */
 export const PENDING_SANDBOX_ACCOUNTS: readonly string[] = ["401102", "401202"];

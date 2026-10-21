@@ -2,8 +2,8 @@
  * The CFO Console's read models (Console functions 1–3, 4, 11, 12) and its two write actions: "post batch"
  * (which only enqueues; the API never posts to BC itself) and retrying a dead-lettered outbox row.
  */
-import { BANK_CARD_LIST, CATEGORIES, DIMENSION_CODES, FAMILY_AREA, FUND_GOAL, PROJECT, SPEND_CLASS, TAX_TREATMENT, assertDimensionSet, isPostingAccount, mustPostThroughBankCard, type AuditEntry, type DataThrough, type DimensionSet, type EmployerMapping, type OutboxItem, type PaycheckComponentKind } from "@homestead/shared";
-import { addDays } from "../lib/dates.js";
+import { BANK_CARD_LIST, CATEGORIES, LOANS, type LoanRollforward, DIMENSION_CODES, FAMILY_AREA, FUND_GOAL, PROJECT, SPEND_CLASS, TAX_TREATMENT, assertDimensionSet, isPostingAccount, mustPostThroughBankCard, type AuditEntry, type DataThrough, type DimensionSet, type EmployerMapping, type OutboxItem, type PaycheckComponentKind } from "@homestead/shared";
+import { addDays, monthEnd as monthEndOf } from "../lib/dates.js";
 import { requestApproval } from "./approvals.js";
 import { listEmployers } from "./paychecks/index.js";
 import { applyTemplate, linesForPaycheck } from "./paychecks/template.js";
@@ -167,7 +167,9 @@ export async function reconciliationStatus(db: Queryable, householdId: string, l
     [householdId],
   );
   const byAcct = new Map(r.rows.map((x) => [x.account_id, x]));
+  const loans = ledger ? await loanRollforwards(db, householdId, ledger, todayIso ?? new Date().toISOString().slice(0, 10)) : undefined;
   return {
+    ...(loans === "unavailable" ? { loansUnavailable: true } : loans ? { loans } : {}),
     accounts: accounts.map((a) => {
       const s = byAcct.get(a.id);
       const row: Record<string, unknown> = { accountId: a.id, displayName: a.display_name, posted: s?.posted ?? 0, reconciled: s?.reconciled ?? 0, bcNative: s?.bc_native ?? 0, differences: s?.differences ?? 0, mask: a.mask, institution: a.institution };
@@ -180,6 +182,67 @@ export async function reconciliationStatus(db: Queryable, householdId: string, l
       return row;
     }),
   };
+}
+
+/**
+ * Loan rollforwards for the month that contains `todayIso`, read from BC's G/L: the opening balance is everything
+ * posted to the liability before the month; principal is the month's debits to it; interest, fees (mortgage
+ * insurance and late charges) and escrow are the month's postings to the accounts the recurring journals split each
+ * payment into (shared LOANS, from the account dictionary). Balances are shown as amounts owed (positive). The
+ * matched entry is the BC-native bank payment the app matched this month (rule R7). Returns "unavailable" when BC
+ * does not answer; nothing is estimated.
+ */
+export async function loanRollforwards(db: Queryable, householdId: string, ledger: LedgerPort, todayIso: string): Promise<LoanRollforward[] | "unavailable"> {
+  const period = todayIso.slice(0, 7);
+  const monthStart = `${period}-01`;
+  const monthEnd = monthEndOf(period);
+  const bills = await db.query<{ name: string; amount_cents: number; next_due_date: string }>(
+    "select name, amount_cents::bigint::int as amount_cents, to_char(next_due_date, 'YYYY-MM-DD') as next_due_date from bills where household_id = $1 and is_bc_native",
+    [householdId],
+  );
+  const matched = await db.query<{ amount_cents: number; posted_date: string; bc_bank_ledger_entry_no: number | null }>(
+    `select amount_cents::bigint::int as amount_cents, to_char(posted_date, 'YYYY-MM-DD') as posted_date, bc_bank_ledger_entry_no
+       from transactions where household_id = $1 and kind = 'bc_native' and posted_date between $2 and $3 and bc_bank_ledger_entry_no is not null`,
+    [householdId, monthStart, monthEnd],
+  );
+  const sum = (rows: readonly { amountCents: number }[]) => rows.reduce((s2, e) => s2 + e.amountCents, 0);
+  const read = (accountNo: string, from?: string, to?: string) =>
+    withTimeout(ledger.readGlEntriesByExternalDocNo({ accountNoPrefix: accountNo, ...(from ? { postingDateFrom: from } : {}), ...(to ? { postingDateTo: to } : {}) }), 5000).then((rows) => rows.filter((e) => e.accountNo === accountNo));
+  try {
+    const out: LoanRollforward[] = [];
+    for (const loan of LOANS) {
+      const before = await read(loan.glAccount, undefined, addDays(monthStart, -1));
+      const during = await read(loan.glAccount, monthStart, monthEnd);
+      const interest = await read(loan.interestAccount, monthStart, monthEnd);
+      const fees = (await Promise.all(loan.feeAccounts.map((a) => read(a, monthStart, monthEnd)))).flat();
+      const escrow = loan.escrowAccount ? await read(loan.escrowAccount, monthStart, monthEnd) : undefined;
+      // The liability carries a credit balance (negative in BC); owed = -balance. Payments are debits (positive).
+      const openingCents = -sum(before);
+      const principalCents = sum(during.filter((e) => e.amountCents > 0));
+      const closingCents = openingCents - sum(during);
+      const bill = bills.rows.find((b) => b.name.startsWith(loan.billNamePrefix));
+      const hit = bill ? matched.rows.find((m) => Math.abs(m.amount_cents) === Math.abs(bill.amount_cents)) : undefined;
+      out.push({
+        id: loan.id,
+        name: loan.name,
+        lender: loan.lender,
+        mask: loan.mask,
+        glAccount: loan.glAccount,
+        openingCents,
+        principalCents,
+        interestCents: sum(interest),
+        feesCents: sum(fees),
+        ...(escrow ? { escrowCents: sum(escrow) } : {}),
+        closingCents,
+        ...(hit?.bc_bank_ledger_entry_no ? { matchedEntryNo: hit.bc_bank_ledger_entry_no, matchedAt: hit.posted_date } : {}),
+        period,
+        ...(bill ? { nextDueDate: bill.next_due_date } : {}),
+      });
+    }
+    return out;
+  } catch {
+    return "unavailable";
+  }
 }
 
 /** Employer templates as the Console shows them: each component kind with the G/L account and dimensions it posts to. */

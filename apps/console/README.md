@@ -95,7 +95,7 @@ Console needs and where they stand (a screen says "not available yet" or "—" r
 | Audit filter by actor | Wired (`actor` query parameter) |
 | Whether BC answers right now | Wired (`ledger.apiReachable`, `checkedAt`) |
 | Classify a `needs_classification` line by hand | Done in the API |
-| Loan rollforwards (Frontier ×2, PennyMac) | Open: `loans[]` waits on confirming which BC accounts the recurring journals post interest, escrow and fees to |
+| Loan rollforwards (Frontier ×2, PennyMac) | Wired: `loans[]` on `/console/reconciliation`, read from BC's G/L by the accounts the recurring journals post to (shared `LOANS`); `loansUnavailable` when BC does not answer |
 | Individual difference lines per card | Open: the page shows the count and points to the Exceptions queue |
 
 Shapes live in `packages/shared/src/types.ts` under "Console DTOs (E7)"; add fields there, never change existing ones.

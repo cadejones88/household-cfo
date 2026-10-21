@@ -1084,6 +1084,32 @@ paths:
                         lastStatementNo: { type: string }
                         reconciledThrough: { type: string, format: date, description: The latest Closed at Date }
                         bankLedger: { type: string, enum: [unavailable], description: Present when BC's bank ledger could not be read just now }
+                  loans:
+                    type: array
+                    description: >-
+                      Loan rollforwards for the current month from BC's G/L (PennyMac, Frontier Suburban, Frontier F-350):
+                      opening owed, the month's principal, interest, fees (mortgage insurance and late charges) and escrow
+                      by the accounts BC's recurring journals post to. Absent when no ledger is connected.
+                    items:
+                      type: object
+                      required: [id, name, lender, mask, glAccount, openingCents, principalCents, interestCents, feesCents, closingCents, period]
+                      properties:
+                        id: { type: string, enum: [pennymac, frontier-suburban, frontier-f350] }
+                        name: { type: string }
+                        lender: { type: string }
+                        mask: { type: string }
+                        glAccount: { type: string }
+                        openingCents: { type: integer, description: Owed at the start of the month (positive) }
+                        principalCents: { type: integer }
+                        interestCents: { type: integer }
+                        feesCents: { type: integer }
+                        escrowCents: { type: integer }
+                        closingCents: { type: integer, description: Owed after the month's postings (positive) }
+                        matchedEntryNo: { type: integer, description: The BC-native bank payment the app matched this month (R7) }
+                        matchedAt: { type: string, format: date }
+                        period: { type: string, pattern: "^\\d{4}-\\d{2}$" }
+                        nextDueDate: { type: string, format: date }
+                  loansUnavailable: { type: boolean, description: True when BC's G/L could not be read just now; nothing is estimated }
 
   /v1/console/mappings:
     get:
