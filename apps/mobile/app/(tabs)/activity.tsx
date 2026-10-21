@@ -1,6 +1,7 @@
 /**
- * Activity: search, three simple filters (All / Needs answer / With receipt), the plain status words, and
- * receipts still on the phone at the top. Transfers, card payments and loan principal never read as spending.
+ * Activity: search, the prototype's four filters (All / Needs answer / With receipt / Mine), the plain status
+ * words, and receipts still on the phone at the top. Transfers, card payments and loan principal never read as
+ * spending. "Mine" is the FAMILY_AREA dimension (CADE, VANESSA) matching the signed-in member's first name.
  */
 import { useMemo, useState } from "react";
 import { View } from "react-native";
@@ -8,13 +9,14 @@ import { useRouter } from "expo-router";
 import { useAuth } from "@/auth/AuthProvider";
 import { useAlerts, useTransactions } from "@/api/hooks";
 import { todayIso } from "@/model/format";
+import { familyAreaOf } from "@/model/people";
 import { useReceiptQueue } from "@/receipts/ReceiptQueueProvider";
 import { Screen } from "@/ui/Screen";
 import { QueuedReceiptRow, TxRow } from "@/ui/TxRow";
 import { Chip, Chips, Field, H1, List, Stamp, Sub } from "@/ui/primitives";
 import { fmtStampDate } from "@/model/format";
 
-type Filter = "all" | "q" | "rc";
+type Filter = "all" | "q" | "rc" | "me";
 
 export default function Activity(): React.JSX.Element {
   const router = useRouter();
@@ -26,7 +28,9 @@ export default function Activity(): React.JSX.Element {
   const alerts = useAlerts();
   const queue = useReceiptQueue();
   const today = todayIso();
-  const list = (txs.data?.transactions ?? []).filter((t) => filter !== "rc" || t.receiptStatus === "matched");
+  const myArea = familyAreaOf(auth.member?.displayName);
+  const list = (txs.data?.transactions ?? []).filter((t) => (filter !== "rc" || t.receiptStatus === "matched") && (filter !== "me" || t.dims.FAMILY_AREA === myArea));
+  // Receipts on this phone are always this member's.
   const queued = filter === "q" ? [] : queue.items.filter((i) => i.status !== "synced" && i.status !== "duplicate");
   const unread = (alerts.data ?? []).filter((a) => !a.resolvedAt).length;
   const stamp = txs.data ? `Bank data through ${fmtStampDate(txs.data.dataThrough.at)}${txs.data.dataThrough.pendingCount ? ` · ${txs.data.dataThrough.pendingCount} items still being recorded` : ""}.` : "";
@@ -41,6 +45,7 @@ export default function Activity(): React.JSX.Element {
             ["all", "All"],
             ["q", "Needs answer"],
             ["rc", "With receipt"],
+            ["me", "Mine"],
           ] as const
         ).map(([k, label]) => (
           <Chip key={k} label={label} on={filter === k} onPress={() => setFilter(k)} testID={`filter-${k}`} />

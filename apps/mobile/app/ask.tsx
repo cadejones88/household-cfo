@@ -3,13 +3,14 @@
  * answer drafts a budget move, a button that opens Move money prefilled. Ask never moves money or writes.
  */
 import { useEffect, useRef, useState } from "react";
-import { ScrollView, Text, TextInput, View, type ScrollViewInstance } from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, View, type ScrollViewInstance } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { AskAnswer } from "@homestead/shared";
 import { useAsk, useAskHistory } from "@/api/hooks";
 import { categoryName } from "@/model/categories";
 import { fmtStampDate, money0 } from "@/model/format";
+import { dataThroughLine } from "@/model/safeToSpendVm";
 import { useTheme } from "@/ui/ThemeProvider";
 import { Button, Chip, Chips, CloseButton, Grab, H1, Note, Stamp, Sub } from "@/ui/primitives";
 import { GUTTER, RADIUS } from "@/ui/theme";
@@ -54,7 +55,7 @@ export default function Ask(): React.JSX.Element {
   const past = (history.data ?? []).slice(0, 5).reverse();
 
   return (
-    <View style={{ flex: 1, backgroundColor: p.bg }} testID="ask">
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1, backgroundColor: p.bg }} testID="ask">
       <View style={{ paddingTop: 10, paddingHorizontal: GUTTER, gap: 10 }}>
         <Grab />
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
@@ -96,12 +97,7 @@ export default function Ask(): React.JSX.Element {
                 }}
               />
             )}
-            {t.answer && (
-              <Stamp>
-                Data through {fmtStampDate(t.answer.dataThrough.at)}
-                {t.answer.dataThrough.pendingCount ? ` · ${t.answer.dataThrough.pendingCount} items still being recorded` : ""}
-              </Stamp>
-            )}
+            {t.answer && <Stamp testID="ask-data-through">{dataThroughLine(t.answer.dataThrough)}</Stamp>}
           </View>
         ))}
       </ScrollView>
@@ -110,7 +106,7 @@ export default function Ask(): React.JSX.Element {
           value={text}
           onChangeText={setText}
           placeholder="Ask anything…"
-          placeholderTextColor={p.faint}
+          placeholderTextColor={p.faintText}
           accessibilityLabel="Ask Homestead"
           testID="ask-input"
           returnKeyType="send"
@@ -120,6 +116,6 @@ export default function Ask(): React.JSX.Element {
         />
         <Button title="Ask" kind="primary" disabled={ask.isPending || !text.trim()} onPress={() => void submit(text)} testID="ask-send" />
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }

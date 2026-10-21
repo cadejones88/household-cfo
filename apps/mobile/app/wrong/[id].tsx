@@ -6,9 +6,10 @@
 import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCorrectTransaction, useMe, useProposeRule, useTransaction } from "@/api/hooks";
+import { useCorrectTransaction, usePeople, useProposeRule, useTransaction } from "@/api/hooks";
 import { useAuth } from "@/auth/AuthProvider";
 import { categoryName, pickableCategories, suggestedCategories, type CategoryOption } from "@/model/categories";
+import { bookkeeperName, booksFixWords } from "@/model/people";
 import { useTheme } from "@/ui/ThemeProvider";
 import { useToast } from "@/ui/Toast";
 import { SheetScreen } from "@/ui/Screen";
@@ -19,7 +20,7 @@ export default function Wrong(): React.JSX.Element {
   const router = useRouter();
   const { p } = useTheme();
   const auth = useAuth();
-  const me = useMe();
+  const { otherName: other } = usePeople();
   const { show: toast } = useToast();
   const tx = useTransaction(id);
   const correct = useCorrectTransaction();
@@ -28,7 +29,6 @@ export default function Wrong(): React.JSX.Element {
   const [rule, setRule] = useState(false);
   const [q, setQ] = useState("");
   const t = tx.data;
-  const other = me.data?.members.find((m) => m.id !== auth.member?.id)?.displayName ?? "Cade";
   const merchant = t?.merchantNorm.split(" ·")[0] ?? "this";
   const suggestions = useMemo(() => suggestedCategories(t?.categoryId, t?.merchantNorm), [t?.categoryId, t?.merchantNorm]);
   const all = useMemo(() => pickableCategories(), []);
@@ -52,7 +52,7 @@ export default function Wrong(): React.JSX.Element {
           ruleNote = " · the rule didn't send; try again from the item";
         }
       }
-      toast(r.correctionRequestId ? `Fix sent to ${other} — ${categoryName(chosen)}${ruleNote}` : `Updated to ${categoryName(chosen)}${ruleNote}`);
+      toast(r.correctionRequestId ? `Fix sent to ${bookkeeperName()} — ${categoryName(chosen)}${ruleNote}` : `Updated to ${categoryName(chosen)}${ruleNote}`);
       router.back();
     } catch (err) {
       toast(err instanceof Error && err.message ? err.message : "That didn't go through. Try again.");
@@ -89,7 +89,7 @@ export default function Wrong(): React.JSX.Element {
       {q.trim().length > 0 && filtered.length === 0 && <Note>Nothing matches. Try another word.</Note>}
       {chosen && !suggestions.some((c) => c.id === chosen) && filtered.every((c) => c.id !== chosen) && <Note>Chosen: {categoryName(chosen)}</Note>}
       <Toggle label={`Do this every time for ${merchant}?`} note={`We'll ask ${other} to approve the rule. Rules only apply inside the usual amounts.`} value={rule} onChange={setRule} testID="rule-toggle" />
-      {t && (t.state === "posted" || t.state === "reconciled") && <Note>This one is already in the books, so {other} will fix it there. It shows as “Fix pending” until then.</Note>}
+      {t && (t.state === "posted" || t.state === "reconciled") && <Note>This one is already in the books, so {booksFixWords(auth.member?.displayName)}. It shows as “Fix pending” until then.</Note>}
     </SheetScreen>
   );
 }

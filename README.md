@@ -12,6 +12,7 @@ Household finance app for the Jones family: a phone-first app for both spouses, 
 | `docs/phase2-prototype-guide.md` | How to try the prototype and what to watch for at Gate 2 |
 | `docs/phase3-architecture-spec.md` | The architecture and integration spec: stack, data model, state machine, BC mapping, HH App Connector, auto-post rules, security, cost, DR, tests, backlog (approved at Gate 3) |
 | `prototype/homestead.html` | The Phase 2 clickable prototype (single file, sample data, works offline once loaded). Published as a private artifact for phone testing |
+| `apps/mobile/` | Homestead, the phone app for both spouses (Expo SDK 58, Expo Router, development builds): safe to spend, Needs your answer, receipt snap with an offline queue, Activity, Budget and Move money with Face ID approvals, Goals, Bills, Ask Homestead, Settings, push. Mock mode runs with no API; `apps/mobile/docs/vanessa-guide.md` is the how-to |
 | `apps/console/` | Homestead Console, the desktop CFO view (React + Vite): work queues, BC sync and posting, reconciliation, mappings, authority matrix, health/logs/audit, plus six "after the pilot" tiles. Mock mode runs with no API; see its README for the API-route gaps |
 | `infra/` | Bicep for `rg-homestead-dev/pilot/prod` (Postgres, Key Vault, storage, Service Bus, Container Apps + jobs, Static Web App, registry, monitoring, RBAC, budget) and the per-environment parameter files; `infra/README.md` for deploy commands |
 | `services/api/Dockerfile` | The one image for the API and the jobs (multi-stage, pnpm deploy, non-root) |

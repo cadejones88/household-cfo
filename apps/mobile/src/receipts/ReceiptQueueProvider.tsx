@@ -8,7 +8,7 @@ import { AppState } from "react-native";
 import * as Network from "expo-network";
 import { useApi } from "../api/ApiProvider";
 import { useInvalidateAfterReceipt } from "../api/hooks";
-import { prepareCapture, type CaptureSource } from "./capture";
+import { deleteReceiptFile, prepareCapture, type CaptureSource } from "./capture";
 import { FileQueueStore } from "./fileStore";
 import { ReceiptQueue, type QueueItem, type QueueStore } from "./queue";
 import { makeUploader, ReceiptSync, type NetworkSource } from "./uploader";
@@ -31,6 +31,9 @@ export interface ReceiptQueueApi {
 }
 
 const Ctx = createContext<ReceiptQueueApi | undefined>(undefined);
+
+/** Synced receipt photos stay on the phone this long for the thumbnail, then only the server copy remains. */
+const KEEP_SYNCED_MS = 30 * 24 * 60 * 60 * 1000;
 
 const expoNetwork: NetworkSource = {
   async isOnline() {
@@ -67,10 +70,15 @@ export function ReceiptQueueProvider({ children, store, network }: PropsWithChil
       void refresh();
       if (e.type === "synced" || e.type === "duplicate") void invalidate();
     });
-    void engine.start().then(() => {
-      setOnline(engine.isOnline());
-      void refresh();
-    });
+    void queue
+      .pruneSynced(KEEP_SYNCED_MS)
+      .then((old) => old.forEach((i) => deleteReceiptFile(i.relativePath)))
+      .catch(() => undefined)
+      .then(() => engine.start())
+      .then(() => {
+        setOnline(engine.isOnline());
+        void refresh();
+      });
     const app = AppState.addEventListener("change", (s) => {
       if (s === "active") void engine.resume();
     });
@@ -88,6 +96,8 @@ export function ReceiptQueueProvider({ children, store, network }: PropsWithChil
     async (src: CaptureSource): Promise<SnapResult> => {
       const prepared = await prepareCapture(src);
       const r = await queue.enqueue({ clientId: prepared.clientId, sha256: prepared.sha256, capturedAt: prepared.capturedAt, relativePath: prepared.relativePath, bytes: prepared.bytes });
+      // The same photo again: keep the first copy, drop the one just written, and never upload it twice.
+      if (!r.added) deleteReceiptFile(prepared.relativePath);
       await refresh();
       if (r.added) void sync.current?.kick();
       return r;
@@ -107,7 +117,9 @@ export function ReceiptQueueProvider({ children, store, network }: PropsWithChil
         await refresh();
       },
       remove: async (clientId) => {
+        const gone = await queue.find(clientId);
         await queue.remove(clientId);
+        if (gone) deleteReceiptFile(gone.relativePath);
         await refresh();
       },
     }),

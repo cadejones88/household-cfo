@@ -6,8 +6,7 @@
 import { useMemo } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuth } from "@/auth/AuthProvider";
-import { useAlerts, useBills, useGoals, useMe, useQuestions, useSafeToSpend, useTransactions } from "@/api/hooks";
+import { useAlerts, useBills, useGoals, usePeople, useQuestions, useSafeToSpend, useTransactions } from "@/api/hooks";
 import { buildSafeToSpendVm } from "@/model/safeToSpendVm";
 import { fmtDate, hourNow, money, money0, relDate, todayIso, dayOf, weekdayOf } from "@/model/format";
 import { categoryName } from "@/model/categories";
@@ -24,8 +23,6 @@ import { RADIUS } from "@/ui/theme";
 export default function Home(): React.JSX.Element {
   const { p } = useTheme();
   const router = useRouter();
-  const auth = useAuth();
-  const me = useMe();
   const safe = useSafeToSpend();
   const questions = useQuestions();
   const bills = useBills();
@@ -34,8 +31,9 @@ export default function Home(): React.JSX.Element {
   const alerts = useAlerts();
   const queue = useReceiptQueue();
   const today = todayIso();
-  const name = auth.member?.displayName ?? me.data?.member.displayName ?? "there";
-  const other = me.data?.members.find((m) => m.id !== auth.member?.id)?.displayName ?? "the other spouse";
+  const people = usePeople();
+  const name = people.myName ?? "there";
+  const other = people.otherName;
   const { answer, edit, busy } = useAnswer(other);
 
   const vm = useMemo(() => (safe.data ? buildSafeToSpendVm(safe.data, today) : undefined), [safe.data, today]);
@@ -67,9 +65,8 @@ export default function Home(): React.JSX.Element {
             <Eyebrow>{vm.untilText}</Eyebrow>
             <Pill status={vm.status} />
           </Row>
-          <Big testID="safe-headline" style={vm.isShort ? { color: p.action } : undefined}>
-            {vm.headline}
-          </Big>
+          {/* Ink even when short, as in the prototype: the pill says "Action needed"; never a bare red number. */}
+          <Big testID="safe-headline">{vm.headline}</Big>
           <Sub>{vm.subline}</Sub>
           <Row>
             <Stamp style={{ flexShrink: 1 }}>{vm.asOf}</Stamp>
@@ -79,7 +76,7 @@ export default function Home(): React.JSX.Element {
       ) : (
         <Card hero>
           <Eyebrow>Until payday</Eyebrow>
-          <Big style={{ color: p.faint }}>{safe.isError ? "Can't reach the numbers" : "…"}</Big>
+          <Big style={{ color: p.faintText }}>{safe.isError ? "Can't reach the numbers" : "…"}</Big>
           <Sub>{safe.isError ? "Check the connection and pull down to try again." : "Adding things up"}</Sub>
         </Card>
       )}

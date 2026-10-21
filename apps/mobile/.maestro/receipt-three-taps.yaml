@@ -1,0 +1,74 @@
+# V1 "Snap a receipt" in three taps or fewer, measured from Home (Phase 1 design rule).
+#   Tap 1: the green Snap button   Tap 2: the shutter (or auto-capture fires first)   Tap 3: Done
+#
+# Runs against a development build in mock mode, so no backend is needed:
+#   EXPO_PUBLIC_API_MODE=mock EXPO_PUBLIC_AUTH_MODE=dev npx expo run:ios
+#   maestro test .maestro/receipt-three-taps.yaml
+# On a simulator there is no camera: in mock mode the bundled sample receipt stands in for the photo, and it is
+# still compressed, hashed, queued and "uploaded" through the same code as a real one. Leave
+# Features › Face ID › Enrolled off on the simulator: with clearState the app starts signed out, and the Face ID
+# lock only appears on a later open, but an enrolled simulator shows the first-run Face ID step (skipped below).
+appId: com.cadejonescpa.homestead
+name: Receipt in three taps
+tags:
+  - smoke
+  - v1
+env:
+  MEMBER: vanessa
+---
+# Sign-in lives in the keychain, which survives clearState on iOS: start from a clean, signed-out phone.
+- clearKeychain
+- launchApp:
+    clearState: true
+    permissions:
+      camera: allow
+      notifications: deny
+
+# Setup, not counted: the development sign-in picks Vanessa from the seed.
+- tapOn:
+    id: "sign-in-${MEMBER}"
+# On a simulator with Face ID enrolled the first-run "One more thing: Face ID" step appears; skip it.
+- tapOn:
+    id: "face-id-not-now"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "safe-card"
+    timeout: 15000
+- assertVisible:
+    id: "home"
+
+# Tap 1 — Snap.
+- tapOn:
+    id: "snap-button"
+- assertVisible:
+    id: "snap"
+
+# Tap 2 — the shutter. Auto-capture may already have taken the photo (it snaps by itself when the phone is
+# steady, or after a moment with the sample receipt); either way the receipt card opens.
+- tapOn:
+    id: "shutter"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "receipt-card"
+    timeout: 20000
+
+# The card says where the receipt is: sending, then reading, then what it read.
+- extendedWaitUntil:
+    visible: "Broulim.s"
+    timeout: 20000
+- assertVisible: "Groceries"
+
+# Tap 3 — Done. Back on Home, the new receipt is in Recent activity and nothing is left waiting to sync.
+- tapOn:
+    id: "receipt-done"
+- assertVisible:
+    id: "home"
+- assertNotVisible:
+    id: "sync-bar"
+- scrollUntilVisible:
+    element:
+      id: "tx-rx-rcpt-1"
+    direction: DOWN
+    timeout: 15000

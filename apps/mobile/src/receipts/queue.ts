@@ -164,6 +164,21 @@ export class ReceiptQueue {
     if (changed) await this.write(idx);
   }
 
+  /**
+   * Forget receipts the server acknowledged more than `maxAgeMs` ago (by capture time). The encrypted original
+   * lives in the household's receipt store; the phone keeps a recent copy only for the item-detail thumbnail.
+   * Returns the forgotten items so the caller can delete their files. Never touches anything not yet synced.
+   */
+  async pruneSynced(maxAgeMs: number): Promise<QueueItem[]> {
+    const idx = await this.read();
+    const cutoff = this.now() - maxAgeMs;
+    const old = idx.items.filter((i) => (i.status === "synced" || i.status === "duplicate") && Date.parse(i.capturedAt) < cutoff);
+    if (old.length === 0) return [];
+    idx.items = idx.items.filter((i) => !old.includes(i));
+    await this.write(idx);
+    return old;
+  }
+
   async remove(clientId: string): Promise<void> {
     const idx = await this.read();
     idx.items = idx.items.filter((i) => i.clientId !== clientId);

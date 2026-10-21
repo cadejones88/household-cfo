@@ -1,6 +1,7 @@
 /**
- * Answering a question from Home or Budget: step-up first when the answer is an approval, then the API call,
- * then one calm toast. Shared so the two screens say the same things.
+ * Answering a question from Home or Budget: step-up first when the answer is an approval (and on demand when the
+ * API asks for it, as it does for "Not now" on a budget move), then the API call, then one calm toast. Shared so
+ * the two screens say the same things.
  */
 import { useCallback } from "react";
 import { useRouter } from "expo-router";
@@ -8,6 +9,7 @@ import type { Question } from "@homestead/shared";
 import { useAnswerQuestion } from "../api/hooks";
 import { ApiError, StepUpRequiredError } from "../api/types";
 import { useAuth } from "../auth/AuthProvider";
+import { withStepUp } from "../auth/stepUp";
 import { categoryName } from "../model/categories";
 import { useToast } from "./Toast";
 
@@ -24,6 +26,14 @@ export function toastForAnswer(q: Question, optionId: string, categoryId: string
   return "Recorded. Thanks!";
 }
 
+/** The plain sentence for a failed answer or decision. */
+export function toastForError(err: unknown): string {
+  if (err instanceof StepUpRequiredError) return "Confirm it's you with Face ID, then try again.";
+  if (err instanceof ApiError && err.code === "other_spouse_decides") return "The other spouse decides this one.";
+  if (err instanceof ApiError && (err.code === "already_decided" || err.status === 409)) return "That was already taken care of.";
+  return err instanceof Error && err.message ? err.message : "That didn't go through. Try again.";
+}
+
 export function useAnswer(otherName: string) {
   const auth = useAuth();
   const { show: toast } = useToast();
@@ -32,23 +42,22 @@ export function useAnswer(otherName: string) {
 
   const answer = useCallback(
     async (q: Question, optionId: string, categoryId?: string): Promise<boolean> => {
-      const needsStepUp = optionId === "approve";
-      if (needsStepUp) {
-        const ok = await auth.stepUp("Approve this change");
-        if (!ok) {
-          toast("Not approved — couldn't confirm it was you.");
+      try {
+        const r = await withStepUp({
+          confirm: () => auth.stepUp(optionId === "approve" ? "Approve this change" : "Confirm it's you"),
+          upfront: optionId === "approve",
+          isStepUpError: (e) => e instanceof StepUpRequiredError,
+          run: (stepUp) => mutation.mutateAsync({ id: q.id, input: { optionId, ...(categoryId ? { categoryId } : {}) }, ...(stepUp ? { stepUp: true } : {}) }),
+        });
+        if (!r.ok) {
+          toast(optionId === "approve" ? "Not approved — couldn't confirm it was you." : "Nothing changed — couldn't confirm it was you.");
           return false;
         }
-      }
-      try {
-        const r = await mutation.mutateAsync({ id: q.id, input: { optionId, ...(categoryId ? { categoryId } : {}) }, ...(needsStepUp ? { stepUp: true } : {}) });
-        const rev = typeof r.approval?.payload["revisionNo"] === "number" ? (r.approval.payload["revisionNo"] as number) : undefined;
+        const rev = typeof r.value.approval?.payload["revisionNo"] === "number" ? (r.value.approval.payload["revisionNo"] as number) : undefined;
         toast(toastForAnswer(q, optionId, categoryId, otherName, rev));
         return true;
       } catch (err) {
-        if (err instanceof StepUpRequiredError) toast("Confirm it's you with Face ID, then try again.");
-        else if (err instanceof ApiError && err.code === "other_spouse_decides") toast("The other spouse decides this one.");
-        else toast(err instanceof Error && err.message ? err.message : "That didn't go through. Try again.");
+        toast(toastForError(err));
         return false;
       }
     },

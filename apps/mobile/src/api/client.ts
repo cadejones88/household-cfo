@@ -1,9 +1,11 @@
 /**
- * The typed HTTP client, hand-written against services/api/openapi.yaml (Oct 20, 2026). Every call goes through
- * `request`, which adds the sign-in headers, the step-up proof when the call needs it, and turns the API's error
- * envelope `{ error, message }` into typed errors.
+ * The typed HTTP client, hand-written against services/api/openapi.yaml (v0.2.0, Oct 20, 2026). Every call goes
+ * through `request`, which adds the sign-in headers, the step-up proof when the call needs it, and turns the API's
+ * error envelope `{ error, message }` into typed errors.
  *
  * Routes used (all under /v1; envelopes as the OpenAPI document gives them):
+ *   GET  /me                             -> Me { member, members, household { quietHours, nextPayday, today, … } }
+ *   GET  /safe-to-spend                  -> SafeToSpend (every input, dataThrough)
  *   GET  /accounts                       -> { accounts, dataThrough }
  *   GET  /transactions?q&status&kind&limit&cursor -> { transactions, next, dataThrough }
  *   GET  /transactions/:id               -> Transaction
@@ -22,13 +24,17 @@
  *   GET  /goals                          -> { goals, dataThrough }
  *   GET  /bills?until                    -> { bills, nextPayday, dataThrough }
  *   POST /ask, GET /ask/history
+ *   GET  /alerts                         -> { alerts, dataThrough }
+ *   POST /devices/push-token             { token, platform, deviceName? } -> 204
+ *   POST /export                         (step-up) -> 202 { requestId, status, message }
  *
- * Not in the OpenAPI document (handled with fallbacks, listed in README "OpenAPI reconciliation"):
- *   GET /me (derived from the sign-in), GET /budget/safe-to-spend (composed client-side), GET /alerts (tries
- *   /console/alerts, else empty), POST /devices/push-token (TODO; 404 ignored), POST /export (404 -> "not yet").
+ * Fallbacks for an API older than openapi v0.2.0 (each only on 404, so a real error still shows):
+ *   /me -> derived from the sign-in, approvals and /console/settings; /safe-to-spend -> /bills/safe-to-spend ->
+ *   composed on the phone with the shared calculation; /alerts -> /console/alerts; push-token 404 ignored;
+ *   export 404 -> "not available yet".
  */
 import type { Alert, Approval, ApprovalDecision, AskAnswer, BudgetStatus, BusinessFlag, MemberSummary, PaycheckSummary, Transaction } from "@homestead/shared";
-import { composeSafeToSpend } from "../model/safeToSpendVm";
+import { composeSafeToSpend, forecastFromBudget, withBillNames } from "../model/safeToSpendVm";
 import { todayIso } from "../model/format";
 import {
   ApiError,
@@ -83,17 +89,39 @@ export class HttpApi implements HomesteadApi {
   }
 
   async me(): Promise<Me> {
-    // No /me route in the OpenAPI document. The member comes from the sign-in; the other spouse's name comes
-    // from approvals (requestedByName) when one exists; the payday from /bills.
-    const member = this.opts.auth.currentMember();
-    const [approvals, bills] = await Promise.all([this.approvals("all").catch(() => [] as readonly Approval[]), this.bills().catch(() => undefined)]);
-    const others = new Map<string, MemberSummary>();
-    for (const a of approvals) {
-      if (a.requestedBy !== member.id && a.requestedByName) others.set(a.requestedBy, { id: a.requestedBy, displayName: a.requestedByName, role: "member" });
+    const r = await this.request<ApiMe>("GET", "/v1/me").catch(notFoundAsUndefined);
+    if (r) {
+      return {
+        member: r.member,
+        members: r.members,
+        household: { id: r.household.id, name: r.household.name, timezone: r.household.timezone, quietHours: r.household.quietHours, nextPaydayIso: r.household.nextPayday },
+      };
     }
+    return this.meWithoutRoute();
+  }
+
+  /**
+   * An API without /me: the member comes from the sign-in; the other spouse's name from the approvals they
+   * requested (compared by id in dev mode and by name in Entra mode, where the token's oid is not the household
+   * member id); quiet hours from the household settings; the payday from /bills.
+   */
+  private async meWithoutRoute(): Promise<Me> {
+    const member = this.opts.auth.currentMember();
+    const [approvals, bills, settings] = await Promise.all([
+      this.approvals("all").catch(() => [] as readonly Approval[]),
+      this.bills().catch(() => undefined),
+      this.request<{ settings?: { quietHours?: { start?: string; end?: string } } }>("GET", "/v1/console/settings").catch(() => undefined),
+    ]);
+    const others = new Map<string, MemberSummary>();
+    const mine = (a: Approval) => a.requestedBy === member.id || (a.requestedByName !== undefined && a.requestedByName.trim().toLowerCase() === member.displayName.trim().toLowerCase());
+    for (const a of approvals) {
+      if (!mine(a) && a.requestedByName) others.set(a.requestedBy, { id: a.requestedBy, displayName: a.requestedByName, role: "member" });
+    }
+    const qh = settings?.settings?.quietHours;
+    const quietHours = qh?.start && qh.end ? { start: qh.start, end: qh.end } : { start: "21:00", end: "07:00" };
     return {
       member,
-      household: { id: "household", name: "Our household", timezone: "America/Boise", quietHours: { start: "21:00", end: "07:00" }, ...(bills ? { nextPaydayIso: bills.nextPayday } : {}) },
+      household: { id: "household", name: "Our household", timezone: "America/Boise", quietHours, ...(bills ? { nextPaydayIso: bills.nextPayday } : {}) },
       members: [member, ...others.values()],
     };
   }
@@ -103,8 +131,23 @@ export class HttpApi implements HomesteadApi {
   }
 
   async safeToSpend(): Promise<SafeToSpendView> {
-    const [accounts, goals, bills, budget] = await Promise.all([this.accounts(), this.goals(), this.bills(), this.budget().catch(() => undefined)]);
-    return composeSafeToSpend({ accounts: accounts.accounts, goals: goals.goals, bills: bills.bills, nextPaydayIso: bills.nextPayday, todayIso: todayIso(), ...(budget ? { budget } : {}) });
+    // The API computes it (GET /v1/bills/safe-to-spend, with giving due and the floor from the household settings).
+    // Bill names come from /bills (the API's breakdown carries dates and amounts only) and the forecast sentence
+    // from the budget. On 404 (an API without the route) the same shared calculation runs here.
+    const [server, bills, budget] = await Promise.all([
+      this.request<SafeToSpendView>("GET", "/v1/safe-to-spend")
+        .catch(notFoundAsUndefined)
+        .then((v) => v ?? this.request<SafeToSpendView>("GET", "/v1/bills/safe-to-spend").catch(notFoundAsUndefined)),
+      this.bills(),
+      this.budget().catch(() => undefined),
+    ]);
+    if (!server) {
+      const [accounts, goals] = await Promise.all([this.accounts(), this.goals()]);
+      return composeSafeToSpend({ accounts: accounts.accounts, goals: goals.goals, bills: bills.bills, nextPaydayIso: bills.nextPayday, todayIso: todayIso(), ...(budget ? { budget } : {}) });
+    }
+    const named = withBillNames(server, bills.bills);
+    const forecast = budget ? forecastFromBudget(budget) : undefined;
+    return forecast === undefined ? named : { ...named, forecast };
   }
 
   questions(): Promise<QuestionsResponse> {
@@ -206,7 +249,9 @@ export class HttpApi implements HomesteadApi {
   }
 
   async alerts(): Promise<readonly Alert[]> {
-    // No member-facing alerts route yet; the console one is scoped to the household by RLS. Empty when refused.
+    const mine = await this.request<{ alerts?: readonly Alert[] }>("GET", "/v1/alerts").catch(notFoundAsUndefined);
+    if (mine) return mine.alerts ?? [];
+    // An older API: the Console's list, scoped to the household by RLS. Empty when refused.
     try {
       const r = await this.request<{ alerts?: readonly Alert[] }>("GET", "/v1/console/alerts");
       return r.alerts ?? [];
@@ -217,7 +262,8 @@ export class HttpApi implements HomesteadApi {
   }
 
   async registerPushToken(input: PushTokenRegistration): Promise<void> {
-    // TODO(openapi): no push-token route yet. A 404 is ignored so the app keeps working against today's API.
+    // 204 when registered. A 404 from an API older than openapi v0.2.0 is ignored so the app keeps working; the
+    // token is re-sent on the next sign-in.
     try {
       await this.request("POST", "/v1/devices/push-token", input);
     } catch (err) {
@@ -227,7 +273,8 @@ export class HttpApi implements HomesteadApi {
   }
 
   async requestExport(): Promise<{ requested: boolean; available: boolean }> {
-    // TODO(openapi): no export route yet (spec: "Audit and export"). Reported as unavailable on 404.
+    // 202: the export job builds the archive and a time-limited link follows. An older API answers 404, reported
+    // as "not available yet".
     try {
       await this.request("POST", "/v1/export", {}, { stepUp: true });
       return { requested: true, available: true };
@@ -269,6 +316,19 @@ export class HttpApi implements HomesteadApi {
     if (res.status === 403 && code === "step_up_required") throw new StepUpRequiredError();
     throw new ApiError(res.status, code, body?.message);
   }
+}
+
+/** openapi: Me. Mapped onto the app's Me (HouseholdSummary keeps only what the screens use). */
+interface ApiMe {
+  member: MemberSummary;
+  members: readonly MemberSummary[];
+  household: { id: string; name: string; timezone: string; currency?: string; settingsVersion?: number; quietHours: { start: string; end: string }; nextPayday: string; today?: string };
+}
+
+/** A 404 means "this API predates the route": the caller falls back. Anything else is a real error. */
+function notFoundAsUndefined(err: unknown): undefined {
+  if (err instanceof ApiError && err.status === 404) return undefined;
+  throw err;
 }
 
 async function safeJson(res: Response): Promise<unknown> {

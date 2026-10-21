@@ -16,6 +16,7 @@ import { onNotificationTap, registerForPush } from "@/push/notifications";
 import { ThemeProvider, useTheme } from "@/ui/ThemeProvider";
 import { ToastProvider } from "@/ui/Toast";
 import { FaceIdGate } from "@/ui/FaceIdGate";
+import { FaceIdIntro } from "@/ui/FaceIdIntro";
 
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
@@ -53,7 +54,7 @@ function Shell(): React.JSX.Element {
     return onNotificationTap((route) => router.push(route as never));
   }, [auth.status, router]);
 
-  // Re-send the push token on each sign-in when notifications are on (the API route is a stub for now).
+  // Re-send the push token on each sign-in when notifications are on (POST /v1/devices/push-token).
   useEffect(() => {
     if (auth.status !== "ready") return;
     const store = new SecureKeyValueStore();
@@ -87,6 +88,11 @@ function Shell(): React.JSX.Element {
       {auth.status === "locked" && (
         <View style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}>
           <FaceIdGate />
+        </View>
+      )}
+      {auth.needsFaceIdIntro && (
+        <View style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}>
+          <FaceIdIntro />
         </View>
       )}
     </View>

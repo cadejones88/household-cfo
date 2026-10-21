@@ -1,6 +1,15 @@
 import { createContext, useContext, type PropsWithChildren } from "react";
-import { useFonts, Fraunces_500Medium, Fraunces_600SemiBold } from "@expo-google-fonts/fraunces";
-import { FONT, usePalette, type Palette } from "./theme";
+import { useColorScheme } from "react-native";
+import { useFonts } from "expo-font";
+// The two weights the prototype uses, imported one by one so the other sixteen Fraunces files stay out of the bundle.
+import { Fraunces_500Medium } from "@expo-google-fonts/fraunces/500Medium";
+import { Fraunces_600SemiBold } from "@expo-google-fonts/fraunces/600SemiBold";
+import { DARK, FONT, LIGHT, type Palette } from "./theme";
+
+/** Light or dark follows the phone, as the prototype follows prefers-color-scheme. */
+export function usePalette(): Palette {
+  return useColorScheme() === "dark" ? DARK : LIGHT;
+}
 
 export interface Theme {
   p: Palette;

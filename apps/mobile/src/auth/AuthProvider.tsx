@@ -27,6 +27,10 @@ export interface AuthApi extends AuthHeaderSource {
   biometrics: BiometricInfo;
   faceIdEnabled: boolean;
   setFaceIdEnabled(on: boolean): Promise<void>;
+  /** First run on this phone (V10): the "One more thing: Face ID" step has not been answered yet. */
+  needsFaceIdIntro: boolean;
+  /** Answer the first-run step: true confirms Face ID once and turns it on; false leaves it off. */
+  finishFaceIdIntro(enable: boolean): Promise<boolean>;
   signInDev(member: { id: string; name: string }): Promise<void>;
   /** Opens the system browser on the tenant sign-in page. Resolves false when the person cancelled. */
   signInEntra(): Promise<boolean>;
@@ -49,6 +53,7 @@ export function AuthProvider({ children, store: storeProp }: PropsWithChildren<{
   const [member, setMember] = useState<MemberSummary | undefined>(undefined);
   const [biometrics, setBiometrics] = useState<BiometricInfo>({ available: false, faceId: false, passcodeOnly: false });
   const [faceIdEnabled, setFaceIdState] = useState(true);
+  const [faceIdAnswered, setFaceIdAnswered] = useState(true);
   const [error, setError] = useState<string | undefined>(undefined);
   const session = useRef<EntraSession | undefined>(undefined);
   const stepUpWindow = useRef(new StepUpWindow());
@@ -84,6 +89,7 @@ export function AuthProvider({ children, store: storeProp }: PropsWithChildren<{
       if (cancelled) return;
       setBiometrics(bio);
       setFaceIdState(enabled);
+      setFaceIdAnswered(enabledPref !== undefined);
       setMember(m);
       if (!m) setStatus("signed_out");
       else setStatus(canLock(bio, enabled) && shouldLock({ faceIdEnabled: true, lastUnlockAt: lastUnlockAt.current, now: Date.now() }) ? "locked" : "ready");
@@ -249,14 +255,32 @@ export function AuthProvider({ children, store: storeProp }: PropsWithChildren<{
   const setFaceIdEnabled = useCallback(
     async (on: boolean) => {
       setFaceIdState(on);
+      setFaceIdAnswered(true);
       await store.set(KEYS.faceId, on);
     },
     [store],
   );
 
+  const needsFaceIdIntro = status === "ready" && !faceIdAnswered && (biometrics.available || biometrics.passcodeOnly);
+
+  const finishFaceIdIntro = useCallback(
+    async (enable: boolean) => {
+      if (!enable) {
+        await setFaceIdEnabled(false);
+        return true;
+      }
+      const ok = await authenticateLocally("Turn on Face ID for Homestead");
+      if (!ok) return false;
+      await setFaceIdEnabled(true);
+      await recordUnlock();
+      return true;
+    },
+    [setFaceIdEnabled, recordUnlock],
+  );
+
   const value = useMemo<AuthApi>(
-    () => ({ status, mode, member, biometrics, faceIdEnabled, setFaceIdEnabled, signInDev, signInEntra, signOut, unlock, stepUp, stepUpIsFresh, headers, currentMember, onUnauthorized, error }),
-    [status, mode, member, biometrics, faceIdEnabled, setFaceIdEnabled, signInDev, signInEntra, signOut, unlock, stepUp, stepUpIsFresh, headers, currentMember, onUnauthorized, error],
+    () => ({ status, mode, member, biometrics, faceIdEnabled, setFaceIdEnabled, needsFaceIdIntro, finishFaceIdIntro, signInDev, signInEntra, signOut, unlock, stepUp, stepUpIsFresh, headers, currentMember, onUnauthorized, error }),
+    [status, mode, member, biometrics, faceIdEnabled, setFaceIdEnabled, needsFaceIdIntro, finishFaceIdIntro, signInDev, signInEntra, signOut, unlock, stepUp, stepUpIsFresh, headers, currentMember, onUnauthorized, error],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

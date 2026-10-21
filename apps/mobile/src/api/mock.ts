@@ -6,7 +6,6 @@
  */
 import {
   addDays,
-  type AccountSummary,
   type Alert,
   type Approval,
   type ApprovalDecision,
@@ -16,7 +15,6 @@ import {
   type BudgetStatus,
   type BusinessFlag,
   type DataThrough,
-  type Goal,
   type MemberSummary,
   type PaycheckSummary,
   type PlainStatus,
@@ -50,7 +48,7 @@ import type {
   UploadReceiptInput,
   UploadReceiptResult,
 } from "./types";
-import { ApiError } from "./types";
+import { ApiError, StepUpRequiredError } from "./types";
 
 export const MOCK_MEMBERS: Record<string, MemberSummary> = {
   "dev-vanessa": { id: "dev-vanessa", displayName: "Vanessa", role: "member" },
@@ -68,6 +66,8 @@ interface SeedTx {
   cat?: string;
   st: "recorded" | "question" | "books" | "matched";
   acct: string;
+  /** The prototype's "who": the FAMILY_AREA the line is tagged with. */
+  who: "CADE" | "VANESSA" | "JOINT";
   kind?: Transaction["kind"];
   receipt?: boolean;
   est?: boolean;
@@ -75,22 +75,22 @@ interface SeedTx {
 }
 
 const SEED_TX: SeedTx[] = [
-  { id: "t1", off: 0, name: "Maverik", amt: -58.4, cat: "fuel", st: "recorded", acct: "a-capone" },
-  { id: "t2", off: 0, name: "Broulim's", amt: -64.12, cat: "groceries", st: "recorded", acct: "a-beehive" },
-  { id: "t3", off: -1, name: "Walmart", amt: -142.37, cat: "groceries", st: "question", acct: "a-beehive", receipt: true, split: [["groceries", -88.2], ["household-supplies", -31.17], ["general-merchandise", -23.0]] },
-  { id: "t4", off: -1, name: "Venmo · Kayla M.", amt: 85, cat: "income-lash", st: "question", acct: "a-venmo" },
-  { id: "t5", off: -2, name: "Amazon", amt: -46.18, st: "question", acct: "a-capone" },
-  { id: "t6", off: -2, name: "DoorDash", amt: -31.55, cat: "food-delivery", st: "books", acct: "a-capone" },
-  { id: "t7", off: -3, name: "Madison School District", amt: -45, cat: "school", st: "books", acct: "a-beehive" },
-  { id: "t8", off: -4, name: "Capital One payment", amt: -400, cat: "card-payment", st: "matched", kind: "transfer", acct: "a-afcu" },
-  { id: "t9", off: -5, name: "Cade's paycheck · Henry's Fork Homes", amt: 3135.59, cat: "income-hfh-wages", st: "books", kind: "paycheck", acct: "a-afcu" },
-  { id: "t10", off: -5, name: "To savings", amt: -200, cat: "transfer-own", st: "matched", kind: "transfer", acct: "a-beehive" },
-  { id: "t11", off: -6, name: "Crumbl", amt: -23, cat: "treats", st: "books", acct: "a-beehive" },
-  { id: "t12", off: -7, name: "Frontier CU · F-350 payment", amt: -1496.09, cat: "car-loan", st: "books", kind: "bc_native", acct: "a-afcu" },
-  { id: "t13", off: -8, name: "Valley Wide Co-op", amt: -71.2, cat: "fuel", st: "matched", acct: "a-capone" },
-  { id: "t14", off: -9, name: "Tithing", amt: -388.08, cat: "tithing", st: "matched", acct: "a-beehive" },
-  { id: "t15", off: -10, name: "Walmart", amt: -89.9, cat: "groceries", st: "books", est: true, acct: "a-beehive" },
-  { id: "t16", off: -12, name: "PennyMac · mortgage", amt: -5670.39, cat: "mortgage", st: "books", kind: "bc_native", acct: "a-afcu" },
+  { id: "t1", off: 0, name: "Maverik", amt: -58.4, cat: "fuel", st: "recorded", acct: "a-capone", who: "CADE" },
+  { id: "t2", off: 0, name: "Broulim's", amt: -64.12, cat: "groceries", st: "recorded", acct: "a-beehive", who: "VANESSA" },
+  { id: "t3", off: -1, name: "Walmart", amt: -142.37, cat: "groceries", st: "question", acct: "a-beehive", receipt: true, split: [["groceries", -88.2], ["household-supplies", -31.17], ["general-merchandise", -23.0]], who: "VANESSA" },
+  { id: "t4", off: -1, name: "Venmo · Kayla M.", amt: 85, cat: "income-lash", st: "question", acct: "a-venmo", who: "VANESSA" },
+  { id: "t5", off: -2, name: "Amazon", amt: -46.18, st: "question", acct: "a-capone", who: "VANESSA" },
+  { id: "t6", off: -2, name: "DoorDash", amt: -31.55, cat: "food-delivery", st: "books", acct: "a-capone", who: "CADE" },
+  { id: "t7", off: -3, name: "Madison School District", amt: -45, cat: "school", st: "books", acct: "a-beehive", who: "VANESSA" },
+  { id: "t8", off: -4, name: "Capital One payment", amt: -400, cat: "card-payment", st: "matched", kind: "transfer", acct: "a-afcu", who: "CADE" },
+  { id: "t9", off: -5, name: "Cade's paycheck · Henry's Fork Homes", amt: 3135.59, cat: "income-hfh-wages", st: "books", kind: "paycheck", acct: "a-afcu", who: "CADE" },
+  { id: "t10", off: -5, name: "To savings", amt: -200, cat: "transfer-own", st: "matched", kind: "transfer", acct: "a-beehive", who: "CADE" },
+  { id: "t11", off: -6, name: "Crumbl", amt: -23, cat: "treats", st: "books", acct: "a-beehive", who: "VANESSA" },
+  { id: "t12", off: -7, name: "Frontier CU · F-350 payment", amt: -1496.09, cat: "car-loan", st: "books", kind: "bc_native", acct: "a-afcu", who: "CADE" },
+  { id: "t13", off: -8, name: "Valley Wide Co-op", amt: -71.2, cat: "fuel", st: "matched", acct: "a-capone", who: "CADE" },
+  { id: "t14", off: -9, name: "Tithing", amt: -388.08, cat: "tithing", st: "matched", acct: "a-beehive", who: "JOINT" },
+  { id: "t15", off: -10, name: "Walmart", amt: -89.9, cat: "groceries", st: "books", est: true, acct: "a-beehive", who: "VANESSA" },
+  { id: "t16", off: -12, name: "PennyMac · mortgage", amt: -5670.39, cat: "mortgage", st: "books", kind: "bc_native", acct: "a-afcu", who: "JOINT" },
 ];
 
 const STATE_OF: Record<SeedTx["st"], TransactionState> = { recorded: "approved", question: "ready_for_review", books: "posted", matched: "reconciled" };
@@ -171,7 +171,15 @@ export interface MockOptions {
   now?: Date;
   /** Shorten the simulated latencies (tests). */
   fast?: boolean;
+  /**
+   * Whether a fresh step-up (Face ID inside 2 minutes) backs the current call. The API refuses to decide a budget
+   * move, rule or settings approval without one, approve or decline alike; the mock does the same.
+   */
+  stepUpFresh?: () => boolean;
 }
+
+/** Approval kinds the API decides only with a fresh step-up (services/api/src/services/approvals.ts). */
+const STEP_UP_KINDS = new Set<Approval["kind"]>(["budget_move", "rule", "auto_post_rule", "settings", "correction"]);
 
 export class MockApi implements HomesteadApi {
   private readonly today: string;
@@ -189,10 +197,12 @@ export class MockApi implements HomesteadApi {
   private revision = 2;
   private receiptSeq = 0;
   private readonly fast: boolean;
+  private readonly stepUpFresh: () => boolean;
 
   constructor(private readonly memberId: () => string, opts: MockOptions = {}) {
     const now = opts.now ?? new Date();
     this.fast = opts.fast ?? false;
+    this.stepUpFresh = opts.stepUpFresh ?? (() => true);
     this.today = todayIso(now);
     // The next Friday at least 3 days out, like the prototype, so "before payday" always holds a few bills.
     this.payday = nextFriday(this.today, 3);
@@ -269,7 +279,7 @@ export class MockApi implements HomesteadApi {
       status: STATUS_OF[state],
       kind,
       ...(s.cat ? { categoryId: s.cat } : {}),
-      dims: {},
+      dims: { FAMILY_AREA: s.who },
       businessFlag: "none",
       splits,
       receiptStatus: s.receipt ? "matched" : s.est ? "estimated" : "none",
@@ -429,11 +439,10 @@ export class MockApi implements HomesteadApi {
     return { questions: list, dataThrough: this.dataThrough() };
   }
 
-  async answerQuestion(id: string, input: AnswerInput, opts: { stepUp?: boolean } = {}): Promise<AnswerResponse> {
+  async answerQuestion(id: string, input: AnswerInput): Promise<AnswerResponse> {
     await this.wait();
     if (id.startsWith("apr:")) {
       const approvalId = id.slice(4);
-      if (input.optionId === "approve" && !opts.stepUp) throw new ApiError(403, "step_up_required", "Confirm it's you first");
       const approval = await this.decideApproval(approvalId, input.optionId === "approve" ? "approved" : "declined", input.note);
       return { approval };
     }
@@ -599,7 +608,7 @@ export class MockApi implements HomesteadApi {
       status: "recorded",
       kind: "spend",
       categoryId: "groceries",
-      dims: {},
+      dims: { FAMILY_AREA: this.me_().id === "dev-cade" ? "CADE" : "VANESSA" },
       businessFlag: "none",
       splits,
       receiptId: id,
@@ -739,6 +748,7 @@ export class MockApi implements HomesteadApi {
     if (!a) throw new ApiError(404, "not_found");
     if (a.requestedBy === this.me_().id) throw new ApiError(403, "other_spouse_decides", "The other spouse decides this one.");
     if (a.decision) throw new ApiError(409, "already_decided", "This was already decided.");
+    if (STEP_UP_KINDS.has(a.kind) && !this.stepUpFresh()) throw new StepUpRequiredError();
     a.decision = decision;
     a.decidedBy = this.me_().id;
     a.decidedAt = new Date().toISOString();

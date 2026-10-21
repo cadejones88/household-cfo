@@ -29,6 +29,10 @@ export interface SafeToSpendVm {
   resultLabel: "Safe to spend" | "Short";
   resultText: string;
   perDayText: string;
+  /** "Next payday Fri, Oct 23 · 3 days away" */
+  paydayText: string;
+  /** "Data through Oct 19 · 2 items pending" (the brief's wording; Ask uses the same line) */
+  dataThroughText: string;
   forecast: string;
   suggestion: string | undefined;
   isShort: boolean;
@@ -45,7 +49,8 @@ export function buildSafeToSpendVm(view: SafeToSpendView, todayIso: string): Saf
     { label: `Bills due before ${fmtShort(view.nextPaydayIso)}`, cents: -view.billsBeforePaydayCents, text: money(-view.billsBeforePaydayCents) },
   ];
   if (view.givingDueCents > 0) parts.push({ label: "Giving due on income already received", cents: -view.givingDueCents, text: money(-view.givingDueCents) });
-  if (view.liquidityFloorCents > 0) parts.push({ label: "Our minimum cushion", cents: -view.liquidityFloorCents, text: money(-view.liquidityFloorCents) });
+  // The floor is always listed so its absence is visible: "Not set yet" until the family approves one (spec: "once it is set").
+  parts.push({ label: "Our minimum cushion", cents: -view.liquidityFloorCents, text: view.liquidityFloorCents > 0 ? money(-view.liquidityFloorCents) : "Not set yet" });
   const quality = view.dataThrough.quality;
   const stale = quality === "stale" || quality === "missing";
   return {
@@ -59,11 +64,20 @@ export function buildSafeToSpendVm(view: SafeToSpendView, todayIso: string): Saf
     resultLabel: isShort ? "Short" : "Safe to spend",
     resultText: money(view.safeCents),
     perDayText: isShort ? "" : `About ${money0(view.perDayCents)} a day for ${view.daysUntilPayday} day${view.daysUntilPayday === 1 ? "" : "s"}`,
+    paydayText: `Next payday ${fmtDate(view.nextPaydayIso)} · ${view.daysUntilPayday} day${view.daysUntilPayday === 1 ? "" : "s"} away`,
+    dataThroughText: dataThroughLine(view.dataThrough),
     forecast: view.forecast ?? defaultForecast(view),
     suggestion: view.suggestion,
     isShort,
     pendingCount: view.dataThrough.pendingCount,
   };
+}
+
+/** "Data through Oct 19 · 2 items pending" — the stamp under every number (DataThrough in @homestead/shared). */
+export function dataThroughLine(dt: DataThrough): string {
+  const stale = dt.quality === "stale" || dt.quality === "missing" ? " · may be out of date" : "";
+  const pending = dt.pendingCount > 0 ? ` · ${dt.pendingCount} item${dt.pendingCount === 1 ? "" : "s"} pending` : "";
+  return `Data through ${fmtStampDate(dt.at)}${pending}${stale}`;
 }
 
 function defaultForecast(view: SafeToSpendView): string {
@@ -107,17 +121,22 @@ export function composeSafeToSpend(opts: {
     quality: cashAccounts.some((a) => a.feedStatus === "stale" || a.feedStatus === "needs_relink") ? "stale" : "imported_pending",
     pendingCount: pending,
   };
-  const names = new Map(opts.bills.map((b) => [`${b.dueDate}|${b.amountCents}`, b.name]));
-  const view: SafeToSpendView = {
-    ...r,
-    billsBeforePayday: r.billsBeforePayday.map((b) => {
+  const view: SafeToSpendView = withBillNames({ ...r, dataThrough }, opts.bills);
+  const forecast = opts.budget ? forecastFromBudget(opts.budget) : undefined;
+  return forecast === undefined ? view : { ...view, forecast };
+}
+
+/** Put the bill names on the breakdown's bills-before-payday lines (matched by due date and amount). */
+export function withBillNames(view: SafeToSpendView, bills: readonly Bill[]): SafeToSpendView {
+  const names = new Map(bills.map((b) => [`${b.dueDate}|${b.amountCents}`, b.name]));
+  return {
+    ...view,
+    billsBeforePayday: view.billsBeforePayday.map((b) => {
+      if (b.name !== undefined) return b;
       const name = names.get(`${b.dueDateIso}|${b.amountCents}`);
       return name === undefined ? b : { ...b, name };
     }),
-    dataThrough,
   };
-  const forecast = opts.budget ? forecastFromBudget(opts.budget) : undefined;
-  return forecast === undefined ? view : { ...view, forecast };
 }
 
 /** "At this pace you'll finish the month about $120 under budget." from the budget's forecast column. */

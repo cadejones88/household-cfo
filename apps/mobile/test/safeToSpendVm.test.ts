@@ -12,14 +12,14 @@ function view(over: Partial<SafeToSpendView> = {}): SafeToSpendView {
     setAsideCents: 30000,
     billsBeforePaydayCents: 27160,
     billsBeforePayday: [
-      { name: "Verizon · phones", dueDateIso: "2026-10-21", amountCents: 15320 },
-      { name: "Rocky Mountain Power", dueDateIso: "2026-10-23", amountCents: 11840 },
+      { name: "Verizon · phones", dueDateIso: "2026-10-20", amountCents: 15320 },
+      { name: "Rocky Mountain Power", dueDateIso: "2026-10-22", amountCents: 11840 },
     ],
     givingDueCents: 0,
     liquidityFloorCents: 0,
-    nextPaydayIso: "2026-10-24",
-    daysUntilPayday: 4,
-    perDayCents: 11010,
+    nextPaydayIso: "2026-10-23",
+    daysUntilPayday: 3,
+    perDayCents: 14680,
     balanceAsOf: "2026-10-19T23:59:00-06:00",
     status: "on_track",
     dataThrough: dt,
@@ -32,13 +32,16 @@ describe("buildSafeToSpendVm", () => {
     const vm = buildSafeToSpendVm(view(), "2026-10-20");
     expect(vm.headline).toBe("$440.42 safe to spend");
     expect(vm.subline).toBe("after bills due before payday and money set aside");
-    expect(vm.untilText).toBe("Until Fri, Oct 24");
+    expect(vm.untilText).toBe("Until Fri, Oct 23");
     expect(vm.statusLabel).toBe("On track");
     expect(vm.asOf).toBe("as of today Oct 20 · bank data through Oct 19");
-    expect(vm.parts.map((p) => p.text)).toEqual(["$1,012.02", "−$300.00", "−$271.60"]);
-    expect(vm.parts[2]?.label).toBe("Bills due before Oct 24");
+    expect(vm.parts.map((p) => p.text)).toEqual(["$1,012.02", "−$300.00", "−$271.60", "Not set yet"]);
+    expect(vm.parts[2]?.label).toBe("Bills due before Oct 23");
+    expect(vm.parts[3]?.label).toBe("Our minimum cushion");
     expect(vm.resultLabel).toBe("Safe to spend");
-    expect(vm.perDayText).toBe("About $110 a day for 4 days");
+    expect(vm.perDayText).toBe("About $147 a day for 3 days");
+    expect(vm.paydayText).toBe("Next payday Fri, Oct 23 · 3 days away");
+    expect(vm.dataThroughText).toBe("Data through Oct 19 · 2 items pending");
     expect(vm.isShort).toBe(false);
     expect(vm.pendingCount).toBe(2);
   });
@@ -55,9 +58,11 @@ describe("buildSafeToSpendVm", () => {
 
   it("adds giving due and the floor as parts only when set, and flags stale data", () => {
     const vm = buildSafeToSpendVm(view({ givingDueCents: 38808, liquidityFloorCents: 50000, status: "watch", dataThrough: { ...dt, quality: "stale" } }), "2026-10-20");
-    expect(vm.parts.map((p) => p.label)).toEqual(["Cash in checking and savings", "Set aside (emergency fund and sinking funds)", "Bills due before Oct 24", "Giving due on income already received", "Our minimum cushion"]);
+    expect(vm.parts.map((p) => p.label)).toEqual(["Cash in checking and savings", "Set aside (emergency fund and sinking funds)", "Bills due before Oct 23", "Giving due on income already received", "Our minimum cushion"]);
+    expect(vm.parts.map((p) => p.text).slice(3)).toEqual(["−$388.08", "−$500.00"]);
     expect(vm.statusLabel).toBe("Watch");
     expect(vm.asOf).toContain("may be out of date");
+    expect(vm.dataThroughText).toBe("Data through Oct 19 · 2 items pending · may be out of date");
   });
 });
 
@@ -74,13 +79,14 @@ describe("composeSafeToSpend", () => {
   ];
   const bills: Bill[] = [
     { id: "b1", name: "Verizon", dueDate: "2026-10-21", amountCents: 15320, isMinimum: false, beforePayday: true, paid: false },
-    { id: "b2", name: "Power", dueDate: "2026-10-23", amountCents: 11840, isMinimum: false, beforePayday: true, paid: false },
+    { id: "b2", name: "Power", dueDate: "2026-10-22", amountCents: 11840, isMinimum: false, beforePayday: true, paid: false },
+    { id: "b5", name: "Due on payday", dueDate: "2026-10-23", amountCents: 9900, isMinimum: false, beforePayday: false, paid: false },
     { id: "b3", name: "Mortgage", dueDate: "2026-11-01", amountCents: 567039, isMinimum: false, beforePayday: false, paid: false },
     { id: "b4", name: "Paid already", dueDate: "2026-10-22", amountCents: 5000, isMinimum: false, beforePayday: true, paid: true },
   ];
 
   it("uses checking and savings only, set-asides from goals other than operating and debt, and bills before payday", () => {
-    const v = composeSafeToSpend({ accounts, goals, bills, nextPaydayIso: "2026-10-24", todayIso: "2026-10-20" });
+    const v = composeSafeToSpend({ accounts, goals, bills, nextPaydayIso: "2026-10-23", todayIso: "2026-10-20" });
     expect(v.cashCents).toBe(101202);
     expect(v.setAsideCents).toBe(30000);
     expect(v.billsBeforePaydayCents).toBe(27160);
@@ -94,7 +100,7 @@ describe("composeSafeToSpend", () => {
 
   it("marks the result stale when a cash feed needs a re-link", () => {
     const stale = accounts.map((a) => (a.id === "chk" ? { ...a, feedStatus: "needs_relink" as const } : a));
-    const v = composeSafeToSpend({ accounts: stale, goals, bills, nextPaydayIso: "2026-10-24", todayIso: "2026-10-20" });
+    const v = composeSafeToSpend({ accounts: stale, goals, bills, nextPaydayIso: "2026-10-23", todayIso: "2026-10-20" });
     expect(v.dataThrough.quality).toBe("stale");
   });
 });

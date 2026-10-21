@@ -13,6 +13,9 @@
       "supportsTablet": false,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
+      },
+      "entitlements": {
+        "com.apple.developer.default-data-protection": "NSFileProtectionCompleteUnlessOpen"
       }
     },
     "android": {
@@ -24,7 +27,7 @@
       "predictiveBackGestureEnabled": false
     },
     "plugins": [
-      "expo-router",
+      ["expo-router", { "root": "./app" }],
       [
         "expo-splash-screen",
         {

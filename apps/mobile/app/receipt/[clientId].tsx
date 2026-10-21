@@ -2,9 +2,10 @@
  * The receipt card after a snap (H3): the photo, "Saved on your phone — not synced yet" while offline,
  * "Reading…" after upload, then merchant, total, date and the split it proposes, with Done. Tap three: Done.
  */
+import { useEffect } from "react";
 import { Image, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useReceipt, useAnswerQuestion } from "@/api/hooks";
+import { useAnswerQuestion, useInvalidateAfterReceipt, useReceipt } from "@/api/hooks";
 import { categoryName } from "@/model/categories";
 import { fmtShort, money } from "@/model/format";
 import { receiptFileUri } from "@/receipts/fileStore";
@@ -24,8 +25,14 @@ export default function ReceiptCard(): React.JSX.Element {
   const receiptId = item?.receiptId;
   const detail = useReceipt(receiptId, { pollWhileReading: true });
   const answer = useAnswerQuestion();
+  const invalidate = useInvalidateAfterReceipt();
   const r = detail.data;
   const read = r?.ocrStatus === "read";
+  // Reading can finish after the upload (the API's OCR job): refresh Activity, questions and safe to spend then too.
+  useEffect(() => {
+    if (read) void invalidate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per read, not per render of the closure
+  }, [read]);
   const failed = item?.status === "error" || r?.ocrStatus === "failed";
   const done = () => (router.canGoBack() ? router.back() : router.replace("/"));
 

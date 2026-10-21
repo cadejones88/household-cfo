@@ -15,27 +15,38 @@ const Env = z.object({
   entraClientId: z.string().default(""),
   entraApiScope: z.string().default(""),
   easProjectId: z.string().default(""),
+  /** Who fixes entries already in the books (Business Central). Cade for the Jones household. */
+  bookkeeperName: z.string().default("Cade"),
 });
 
 export type Env = z.infer<typeof Env>;
 
-function read(name: string): string | undefined {
-  const v = process.env[name];
-  return v === undefined || v === "" ? undefined : v;
+function blankToUndefined(v: string | undefined): string | undefined {
+  return v === undefined || v.trim() === "" ? undefined : v.trim();
 }
 
-export const env: Env = Env.parse({
-  apiUrl: read("EXPO_PUBLIC_API_URL"),
-  apiMode: read("EXPO_PUBLIC_API_MODE"),
-  authMode: read("EXPO_PUBLIC_AUTH_MODE"),
-  devMembers: read("EXPO_PUBLIC_DEV_MEMBERS"),
-  entraTenantName: read("EXPO_PUBLIC_ENTRA_TENANT_NAME"),
-  entraTenantId: read("EXPO_PUBLIC_ENTRA_TENANT_ID"),
-  entraCustomDomain: read("EXPO_PUBLIC_ENTRA_CUSTOM_DOMAIN"),
-  entraClientId: read("EXPO_PUBLIC_ENTRA_CLIENT_ID"),
-  entraApiScope: read("EXPO_PUBLIC_ENTRA_API_SCOPE"),
-  easProjectId: read("EXPO_PUBLIC_EAS_PROJECT_ID"),
-});
+/**
+ * Each variable is read as a literal `process.env.EXPO_PUBLIC_…` member expression on purpose: Expo's Babel
+ * preset inlines only that exact form at bundle time. A computed lookup (`process.env[name]`) is NOT inlined
+ * and would read undefined on a phone (https://docs.expo.dev/guides/environment-variables/).
+ */
+export function readEnv(): Env {
+  return Env.parse({
+    apiUrl: blankToUndefined(process.env.EXPO_PUBLIC_API_URL),
+    apiMode: blankToUndefined(process.env.EXPO_PUBLIC_API_MODE),
+    authMode: blankToUndefined(process.env.EXPO_PUBLIC_AUTH_MODE),
+    devMembers: blankToUndefined(process.env.EXPO_PUBLIC_DEV_MEMBERS),
+    entraTenantName: blankToUndefined(process.env.EXPO_PUBLIC_ENTRA_TENANT_NAME),
+    entraTenantId: blankToUndefined(process.env.EXPO_PUBLIC_ENTRA_TENANT_ID),
+    entraCustomDomain: blankToUndefined(process.env.EXPO_PUBLIC_ENTRA_CUSTOM_DOMAIN),
+    entraClientId: blankToUndefined(process.env.EXPO_PUBLIC_ENTRA_CLIENT_ID),
+    entraApiScope: blankToUndefined(process.env.EXPO_PUBLIC_ENTRA_API_SCOPE),
+    easProjectId: blankToUndefined(process.env.EXPO_PUBLIC_EAS_PROJECT_ID),
+    bookkeeperName: blankToUndefined(process.env.EXPO_PUBLIC_BOOKKEEPER_NAME),
+  });
+}
+
+export const env: Env = readEnv();
 
 /** Dev-mode members: "Vanessa:<uuid>,Cade:<uuid>". Without ids the names alone are used (mock mode). */
 export function devMembers(): { name: string; id: string }[] {

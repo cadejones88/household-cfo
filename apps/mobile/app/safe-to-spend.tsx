@@ -4,23 +4,20 @@
  * When short, the one small move that fixes it, with "Send to …" which drafts the request for the other spouse.
  */
 import { useRouter } from "expo-router";
-import { useSafeToSpend, useMe, useBudget } from "@/api/hooks";
-import { useAuth } from "@/auth/AuthProvider";
+import { useBudget, usePeople, useSafeToSpend } from "@/api/hooks";
 import { buildSafeToSpendVm } from "@/model/safeToSpendVm";
-import { fmtDate, fmtShort, fmtStampDate, money, todayIso } from "@/model/format";
+import { fmtShort, money, todayIso } from "@/model/format";
 import { useTheme } from "@/ui/ThemeProvider";
 import { SheetScreen } from "@/ui/Screen";
-import { Button, ButtonRow, Card, Eyebrow, H2, KV, Note, Pill, Stamp, Sub } from "@/ui/primitives";
+import { Button, ButtonRow, Card, Eyebrow, H2, KV, Note, Pill, Row, Stamp, Sub } from "@/ui/primitives";
 
 export default function SafeToSpendSheet(): React.JSX.Element {
   const router = useRouter();
   const { p } = useTheme();
-  const auth = useAuth();
-  const me = useMe();
+  const { otherName: other } = usePeople();
   const safe = useSafeToSpend();
   const budget = useBudget();
   const today = todayIso();
-  const other = me.data?.members.find((m) => m.id !== auth.member?.id)?.displayName ?? "the other spouse";
   const v = safe.data;
   const vm = v ? buildSafeToSpendVm(v, today) : undefined;
 
@@ -42,13 +39,16 @@ export default function SafeToSpendSheet(): React.JSX.Element {
         {vm.parts.map((part, i) => (
           <KV key={part.label} first={i === 0} label={part.label} value={part.text} />
         ))}
-        <KV label={vm.resultLabel} value={vm.resultText} bold valueColor={vm.isShort ? p.action : p.ink} />
+        <KV label={vm.resultLabel} value={vm.resultText} bold valueColor={p.ink} />
       </Card>
 
       <Card style={{ gap: 6 }}>
-        <Eyebrow>{vm.untilText}</Eyebrow>
-        <Sub>{vm.isShort ? `Payday is ${fmtDate(v.nextPaydayIso)}, ${v.daysUntilPayday} day${v.daysUntilPayday === 1 ? "" : "s"} away.` : vm.perDayText}</Sub>
-        <Pill status={vm.status} style={{ alignSelf: "flex-start" }} />
+        <Row>
+          <Eyebrow>{vm.untilText}</Eyebrow>
+          <Pill status={vm.status} />
+        </Row>
+        <Sub>{vm.paydayText}</Sub>
+        {vm.perDayText !== "" && <Note>{vm.perDayText}</Note>}
       </Card>
 
       {v.billsBeforePayday.length > 0 && (
@@ -74,9 +74,8 @@ export default function SafeToSpendSheet(): React.JSX.Element {
       )}
 
       <Note>{vm.forecast}</Note>
-      <Stamp>
-        {vm.asOf}. Cash is from the bank; set-aside amounts are from the books. Data through {fmtStampDate(v.dataThrough.at)}
-        {v.dataThrough.pendingCount ? ` · ${v.dataThrough.pendingCount} items still being recorded` : ""}.
+      <Stamp testID="safe-data-through">
+        {vm.asOf}. Cash is from the bank; set-aside amounts are from the books. {vm.dataThroughText}.
       </Stamp>
     </SheetScreen>
   );

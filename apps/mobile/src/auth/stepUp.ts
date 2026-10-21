@@ -35,6 +35,32 @@ export class StepUpWindow {
   }
 }
 
+export type StepUpOutcome<T> = { ok: true; value: T } | { ok: false; reason: "not_confirmed" };
+
+/**
+ * Run a sensitive call with step-up. `upfront` (an approval) asks for Face ID before the call; otherwise the call
+ * goes without it and, if the API answers step_up_required (it does for declining a budget move too), Face ID is
+ * asked once and the call is retried with the proof. Errors other than step-up pass through.
+ */
+export async function withStepUp<T>(opts: {
+  confirm: () => Promise<boolean>;
+  upfront: boolean;
+  isStepUpError: (err: unknown) => boolean;
+  run: (stepUp: boolean) => Promise<T>;
+}): Promise<StepUpOutcome<T>> {
+  if (opts.upfront) {
+    if (!(await opts.confirm())) return { ok: false, reason: "not_confirmed" };
+    return { ok: true, value: await opts.run(true) };
+  }
+  try {
+    return { ok: true, value: await opts.run(false) };
+  } catch (err) {
+    if (!opts.isStepUpError(err)) throw err;
+    if (!(await opts.confirm())) return { ok: false, reason: "not_confirmed" };
+    return { ok: true, value: await opts.run(true) };
+  }
+}
+
 /**
  * Face ID unlock policy (spec: "Face ID unlock on the device with a 7-day refresh token; re-authentication
  * with the passkey every 30 days or after a sign-out").

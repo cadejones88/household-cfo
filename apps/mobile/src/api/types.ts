@@ -1,7 +1,8 @@
 /**
- * The API surface the phone uses, reconciled against services/api/openapi.yaml (Oct 20, 2026). DTOs come from
- * @homestead/shared; the view types below exist only in the app (the API has no /me, no safe-to-spend route and
- * no member-facing alerts/export yet; see README "OpenAPI reconciliation").
+ * The API surface the phone uses, reconciled against services/api/openapi.yaml and the routes in services/api/src
+ * (Oct 20, 2026). DTOs come from @homestead/shared; the view types below exist only in the app (the API has no
+ * /me; safe-to-spend, push-token and export exist in code but not yet in openapi.yaml; see README
+ * "OpenAPI reconciliation").
  */
 import type {
   AccountSummary,
@@ -97,6 +98,8 @@ export interface AnswerInput {
 export interface AnswerResponse {
   transaction?: Transaction;
   approval?: Approval;
+  /** For a paycheck_component answer (openapi). */
+  paycheckOutcome?: "approved" | "ready_for_review" | "needs_answers" | "does_not_tie" | "correction_requested";
   nextQuestion?: Question;
 }
 

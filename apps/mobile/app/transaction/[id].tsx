@@ -5,11 +5,12 @@
  */
 import { Image, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useAccounts, useMe, usePaycheck, useReceipt, useTransaction } from "@/api/hooks";
+import { useAccounts, usePaycheckForTransaction, useReceipt, useTransaction } from "@/api/hooks";
 import { useAuth } from "@/auth/AuthProvider";
 import { categoryName } from "@/model/categories";
 import { money, relDate, todayIso } from "@/model/format";
 import { statusKeyOf, statusLine } from "@/model/status";
+import { bookkeeperName, booksFixWords } from "@/model/people";
 import { receiptFileUri } from "@/receipts/fileStore";
 import { useReceiptQueue } from "@/receipts/ReceiptQueueProvider";
 import { useTheme } from "@/ui/ThemeProvider";
@@ -21,15 +22,13 @@ export default function TransactionDetail(): React.JSX.Element {
   const router = useRouter();
   const { p } = useTheme();
   const auth = useAuth();
-  const me = useMe();
   const tx = useTransaction(id);
   const queue = useReceiptQueue();
   const t = tx.data;
   const receipt = useReceipt(t?.receiptId);
-  const paycheck = usePaycheck(t?.kind === "paycheck" ? t.id : undefined);
+  const paycheck = usePaycheckForTransaction(t?.kind === "paycheck" ? t.id : undefined);
   const accounts = useAccounts();
   const today = todayIso();
-  const other = me.data?.members.find((m) => m.id !== auth.member?.id)?.displayName ?? "Cade";
   const fixPending = t?.exceptionReason === "fix_pending";
 
   if (!t) {
@@ -59,7 +58,7 @@ export default function TransactionDetail(): React.JSX.Element {
       <Sub>
         {cat}
         {t.businessFlag !== "none" ? ` · Business (${t.businessFlag === "ctj" ? "CTJ" : "Lash"})` : ""}
-        {fixPending ? ` · Fix pending — ${other} will fix it in the books` : ""}
+        {fixPending ? ` · Fix pending — ${booksFixWords(auth.member?.displayName)}` : ""}
       </Sub>
 
       {t.kind === "paycheck" && paycheck.data && (
@@ -116,7 +115,7 @@ export default function TransactionDetail(): React.JSX.Element {
         </>
       )}
 
-      {t.bc?.difference && <Banner tone="neutral">The books show this differently: {t.bc.difference}. The books win; {other} is looking at it.</Banner>}
+      {t.bc?.difference && <Banner tone="neutral">The books show this differently: {t.bc.difference}. The books win; {bookkeeperName()} is looking at it.</Banner>}
     </SheetScreen>
   );
 }

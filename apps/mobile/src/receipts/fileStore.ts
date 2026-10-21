@@ -1,8 +1,16 @@
 /**
  * Where receipts live on the phone: `<document directory>/receipts/<clientId>.jpg` plus `queue.json`, the offline
- * queue index. The document directory is backed up and persists across app updates; paths in the index are
- * relative so a container path change (reinstall, new device) is harmless. iOS data protection encrypts the
- * directory at rest when the phone is locked (NSFileProtectionComplete is the Expo default for this directory).
+ * queue index. The document directory persists across app updates; paths in the index are relative so a container
+ * path change (reinstall, restore) is harmless.
+ *
+ * "The device's encrypted store" (Phase 3 spec, Receipts step 1): on iPhone, iOS Data Protection encrypts these
+ * files with a key tied to the passcode. app.json sets the default-data-protection entitlement to
+ * NSFileProtectionCompleteUnlessOpen: a file that is not open cannot be read while the phone is locked (iOS's own
+ * default would leave every file readable from the first unlock after a restart), yet a write that is under way
+ * when the phone locks still finishes. The app reads receipts only in the foreground; an upload interrupted by
+ * locking the phone simply retries. On Android, app-private storage is covered by
+ * file-based encryption. Synced photos are pruned after 30 days (ReceiptQueueProvider); the server keeps the
+ * encrypted original.
  */
 import { Directory, File, Paths } from "expo-file-system";
 import { QueueIndexSchema, type QueueIndex, type QueueStore } from "./queue";

@@ -7,6 +7,9 @@ import { Pressable, StyleSheet, Text, TextInput, View, type StyleProp, type Text
 import { useTheme } from "./ThemeProvider";
 import { RADIUS, TAP, statusColors, STATUS_LABEL, type StatusKey } from "./theme";
 
+/** The prototype draws chips and small buttons 40 points tall; the touch area is stretched to the 44-point rule. */
+const HIT_SLOP_40 = { top: 2, bottom: 2, left: 0, right: 0 } as const;
+
 type TxtProps = PropsWithChildren<{ style?: StyleProp<TextStyle> | undefined; numberOfLines?: number | undefined; accessibilityRole?: "header" | "text" | undefined; testID?: string | undefined }>;
 
 export function Eyebrow({ children, style }: TxtProps): React.JSX.Element {
@@ -47,9 +50,9 @@ export function Note({ children, style, numberOfLines }: TxtProps): React.JSX.El
   return <Text numberOfLines={numberOfLines} style={[{ fontSize: 13, lineHeight: 18, color: p.muted }, style]}>{children}</Text>;
 }
 
-export function Stamp({ children, style }: TxtProps): React.JSX.Element {
+export function Stamp({ children, style, testID }: TxtProps): React.JSX.Element {
   const { p } = useTheme();
-  return <Text style={[{ fontSize: 12, lineHeight: 16, color: p.faint }, style]}>{children}</Text>;
+  return <Text testID={testID} style={[{ fontSize: 12, lineHeight: 16, color: p.faintText }, style]}>{children}</Text>;
 }
 
 /** The big number (36pt display). `color` defaults to ink. */
@@ -142,6 +145,7 @@ export function Button({
       testID={testID}
       onPress={onPress}
       disabled={disabled}
+      hitSlop={small ? HIT_SLOP_40 : undefined}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? title}
       accessibilityState={{ disabled: disabled === true }}
@@ -177,6 +181,7 @@ export function Chip({ label, on, onPress, testID }: { label: string; on?: boole
     <Pressable
       testID={testID}
       onPress={onPress}
+      hitSlop={HIT_SLOP_40}
       accessibilityRole="button"
       accessibilityState={{ selected: on === true }}
       accessibilityLabel={label}
@@ -379,7 +384,7 @@ export function Field({ label, style, ...rest }: TextInputProps & { label?: stri
       {label !== undefined && <Text style={{ fontSize: 13, color: p.muted, fontWeight: "600" }}>{label}</Text>}
       <TextInput
         accessibilityLabel={label ?? rest.placeholder}
-        placeholderTextColor={p.faint}
+        placeholderTextColor={p.faintText}
         {...rest}
         style={[{ minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: p.line, backgroundColor: p.surface, paddingHorizontal: 12, color: p.ink, fontSize: 16 }, style]}
       />
@@ -407,8 +412,8 @@ export function Avatar({ initial, onPress, badge }: { initial: string; onPress: 
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={badge ? `Settings, ${badge} new alerts` : "Settings"} hitSlop={6} style={({ pressed }) => ({ width: 36, height: 36, borderRadius: 18, backgroundColor: p.accentSoft, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.8 : 1 })}>
       <Text style={{ color: p.accent, fontWeight: "600", fontSize: 14 }}>{initial}</Text>
       {badge ? (
-        <View style={{ position: "absolute", top: -2, right: -2, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: p.wheat, alignItems: "center", justifyContent: "center", paddingHorizontal: 3 }}>
-          <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>{badge}</Text>
+        <View style={{ position: "absolute", top: -2, right: -2, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: p.accent, alignItems: "center", justifyContent: "center", paddingHorizontal: 3 }}>
+          <Text style={{ color: p.accentInk, fontSize: 10, fontWeight: "700" }}>{badge}</Text>
         </View>
       ) : null}
     </Pressable>

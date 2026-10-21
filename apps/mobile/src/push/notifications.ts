@@ -1,8 +1,8 @@
 /**
  * Push: ask once, get the Expo push token, send it to the API, and route a tapped notification to the right
- * screen. The API has no push-token route yet (openapi.yaml, Oct 20): HttpApi.registerPushToken posts to
- * /v1/devices/push-token and ignores a 404, so the app keeps working and the token is re-sent on the next
- * sign-in once the route exists (README, "What's stubbed").
+ * screen. HttpApi.registerPushToken posts to /v1/devices/push-token (in the API's code, not yet in openapi.yaml)
+ * and ignores a 404 from an older API, so the app keeps working and the token is re-sent on the next sign-in.
+ * Sending pushes (Expo push service, quiet hours, one alert per problem) is the API's alert job, not the phone's.
  *
  * Quiet hours (21:00–07:00 Mountain) are enforced by the API's alert job, not here: the phone shows what it
  * is sent. Alert levels: `action` pushes to both spouses; `watch` is an in-app badge and the daily digest;

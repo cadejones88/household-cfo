@@ -5,6 +5,7 @@
  */
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { ApprovalDecision, BusinessFlag } from "@homestead/shared";
+import { useAuth } from "../auth/AuthProvider";
 import { useApi } from "./ApiProvider";
 import type { AnswerInput, BudgetMoveInput, CorrectionInput, RuleProposalInput, TransactionsQuery } from "./types";
 
@@ -27,6 +28,18 @@ export const keys = {
 export function useMe() {
   const api = useApi();
   return useQuery({ queryKey: keys.me, queryFn: () => api.me(), staleTime: 5 * 60_000 });
+}
+
+/**
+ * Who is who, from GET /v1/me (the household member ids the API uses), falling back to the sign-in until it loads.
+ * `otherName` is the other spouse: approvals go to them, never to a fixed person.
+ */
+export function usePeople(): { myId: string | undefined; myName: string | undefined; otherName: string } {
+  const auth = useAuth();
+  const me = useMe();
+  const myId = me.data?.member.id ?? auth.member?.id;
+  const other = me.data?.members.find((m) => m.id !== myId && m.role === "member");
+  return { myId, myName: me.data?.member.displayName ?? auth.member?.displayName, otherName: other?.displayName ?? "the other spouse" };
 }
 
 export function useAccounts() {
@@ -67,6 +80,19 @@ export function useReceipt(id: string | undefined, opts: { pollWhileReading?: bo
 export function usePaycheck(id: string | undefined) {
   const api = useApi();
   return useQuery({ queryKey: keys.paycheck(id ?? ""), queryFn: () => api.paycheck(id ?? ""), enabled: Boolean(id) });
+}
+
+/**
+ * The paycheck behind a net-pay deposit. `/v1/paychecks/{id}` takes the paycheck's own id and the Transaction DTO
+ * does not carry it, so the list is searched by `transactionId` (null when the deposit has no paycheck record yet).
+ */
+export function usePaycheckForTransaction(transactionId: string | undefined) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ["paycheck-for", transactionId ?? ""] as const,
+    queryFn: async () => (await api.paychecks()).find((p) => p.transactionId === transactionId) ?? null,
+    enabled: Boolean(transactionId),
+  });
 }
 
 export function useBudget() {
