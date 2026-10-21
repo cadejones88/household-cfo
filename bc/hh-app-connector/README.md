@@ -15,7 +15,11 @@ The per-tenant extension the Homestead app needs beyond API v2.0 (Phase 3 spec, 
 
 The TypeScript side of each page is in `packages/ledger-adapter-bc/src/bcAdapter.ts`; the in-process fake of these routes is `packages/ledger-adapter-bc/src/mock/MockBcServer.ts` (section "HH App Connector"). Keep field names in the three places in step.
 
-## Publishing to the sandbox from VS Code
+## Installing in the sandbox (no tools needed)
+
+GitHub Actions compiles this folder against Microsoft's BC 27 symbols on every change and publishes the result as the release `hh-app-connector-v<version>` (asset `HH-App-Connector.zip`; GitHub does not accept `.app` attachments). Download, unzip, then in BC: **Extension Management → Manage → Upload Extension** → `HH-App-Connector.app` → Deploy to **Current version** → **Deploy**, and watch **Deployment Status**. The first compile (10/21/2026, AL compiler 18.1) found and fixed two OnPrem-only tables in `HH-APP`; it now builds with no errors.
+
+## Publishing to the sandbox from VS Code (alternative)
 
 Nothing here is compiled or published from the build environment; this is the by-hand path. The whole thing takes about fifteen minutes the first time.
 
@@ -40,7 +44,7 @@ Production: the extension is not published to production by hand. It goes in the
 
 ## Version assumption
 
-`app.json` targets Business Central 2025 release wave 2 (version 27, `application` 27.0.0.0, `runtime` 16.0), which is the assumption the Phase 3 spec was written against. The sandbox name `CADE_Sandbox_vs25` may mean the environment is still on version 25 (2024 wave 2); the AL in this folder uses nothing newer than runtime 12, so if symbol download complains, set `application` to the sandbox's version (25.0.0.0 → runtime 14.0; 26.0.0.0 → runtime 15.0) and republish. Check the version under **Help & Support** in BC or in the admin center.
+`app.json` targets Business Central 2025 release wave 2 (version 27, `application` 27.0.0.0, `runtime` 16.0). Cade confirmed on 10/21/2026 that the sandbox is on 2025 wave 2 or newer, so the extension installs as built; a newer sandbox runs it unchanged.
 
 ## What is not here
 

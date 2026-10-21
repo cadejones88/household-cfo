@@ -13,6 +13,7 @@ Run it: `pnpm install && pnpm build && pnpm test`. Database-backed tests run whe
 | `docs/phase1-product-spec.md` | The approved product spec: journeys, screens, decisions, Gate 1 outcome |
 | `docs/phase2-prototype-guide.md` | How to try the prototype and what to watch for at Gate 2 |
 | `docs/phase3-architecture-spec.md` | The architecture and integration spec: stack, data model, state machine, BC mapping, HH App Connector, auto-post rules, security, cost, DR, tests, backlog (approved at Gate 3) |
+| `docs/gate4-checklist.md` | Cade's steps for Gate 4, in order (about 45 minutes): install the connector, BC master data, app registration, test certificate, BC application card |
 | `docs/phase4-build-report.md` | What Phase 4 built, test counts, what is faked, the hands-on steps for Gate 4, and the open decisions with their defaults |
 | `prototype/homestead.html` | The Phase 2 clickable prototype (single file, sample data, works offline once loaded). Published as a private artifact for phone testing |
 | `apps/mobile/` | Homestead, the phone app for both spouses (Expo SDK 58, Expo Router, development builds): safe to spend, Needs your answer, receipt snap with an offline queue, Activity, Budget and Move money with Face ID approvals, Goals, Bills, Ask Homestead, Settings, push. Mock mode runs with no API; `apps/mobile/docs/vanessa-guide.md` is the how-to |

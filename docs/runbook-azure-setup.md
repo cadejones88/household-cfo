@@ -94,29 +94,17 @@ If Option A:
 
 Either way, nothing in the repo changes except two variables.
 
-## 5. Business Central app registration and certificate (BC change 1; one per environment)
+## 5. Business Central app registration and certificates (BC change 1; one registration per environment)
 
-In the **firm's workforce tenant** (where BC lives), not the external tenant.
+In the **firm's workforce tenant** (where BC lives), not the external tenant. The step-by-step for Gate 4 is `docs/gate4-checklist.md`; this section is the reference.
 
-1. App registrations → New: `homestead-bc-sandbox`, single tenant, no redirect URI. API permissions → Dynamics 365 Business Central → **Application** permissions → `API.ReadWrite.All` (and `Automation.ReadWrite.All` only if the HH App Connector install is automated; it is not) → Grant admin consent.
-2. Make a certificate on your machine (valid one year; rotation is yearly per the spec):
+1. App registrations → New: `Homestead BC Sandbox`, single tenant, no redirect URI. API permissions → Dynamics 365 Business Central → **Application** permissions → `API.ReadWrite.All` → Grant admin consent. No client secret, ever.
+2. Two certificates on that one registration, each living in exactly one place:
+   - **Test runs (Gate 4, CI):** made on your Mac with `openssl`, public half uploaded to the registration, the PEM (key + certificate) stored only as the GitHub repository secret `BC_SANDBOX_CERT_PEM`, the local key deleted. Exact commands in `docs/gate4-checklist.md`, step 4.
+   - **The deployed app (dev and pilot):** generated *inside* Key Vault after step 8 so the private key never exists as a file: Key Vault → Certificates → Generate, name **`bc-sandbox-client-cert`** (the name `BC_CERT_SECRET_REF` points at), self-signed, subject `CN=homestead-bc-sandbox`, 12 months, content type **PEM**. Download the CER and upload it to the same registration. Key Vault exposes the PEM as a secret of the same name, which is what the API reads.
+3. Business Central (sandbox `CADE_Sandbox_vs25`) → **Microsoft Entra Applications** → New → Client ID = the registration's client id, description `Homestead BC Sandbox`, State **Enabled**; User Permission Sets → **HH-APP** only, company `Cade & Vanessa Jones Family` (not `D365 READ` or any Microsoft set: HH-APP carries exactly the reads the app needs). **Grant Consent**. No posting permission until the auto-post rules are approved (decision 4).
 
-   ```sh
-   openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
-     -subj "/CN=homestead-bc-sandbox" -keyout bc-sandbox.key -out bc-sandbox.crt
-   cat bc-sandbox.key bc-sandbox.crt > bc-sandbox.pem
-   ```
-
-3. App registration → Certificates & secrets → Certificates → upload `bc-sandbox.crt` (the public half).
-4. Business Central (sandbox `CADE_Sandbox_vs25`) → search **Microsoft Entra Applications** → New → Client ID = the registration's client id, description `Homestead`, State **Enabled**; User Permission Sets → add **HH-APP** (created by the BC setup runbook in `records/bc-setup/`) and `D365 READ`. No posting permission until the auto-post rules are approved (decision 4).
-5. After `infra` has deployed Key Vault (step 8), put the PEM in it **from your shell** and delete the local files:
-
-   ```sh
-   az keyvault secret set --vault-name <kv name from the deployment outputs> --name bc-sandbox-client-cert --file bc-sandbox.pem
-   shred -u bc-sandbox.key bc-sandbox.pem   # keep bc-sandbox.crt if you like; it is public
-   ```
-
-**Produces (variables):** `HOMESTEAD_BC_TENANT_ID` (firm tenant id), `HOMESTEAD_BC_CLIENT_ID`, `HOMESTEAD_BC_COMPANY_ID` (`GET https://api.businesscentral.dynamics.com/v2.0/<tenant>/CADE_Sandbox_vs25/api/v2.0/companies`, or Companies page in BC), `HOMESTEAD_BC_COMPANY_NAME` (the display name, for the Console's deep links). **Secret (Key Vault only):** `bc-sandbox-client-cert`. For production later: `homestead-bc-prod`, `bc-prod-client-cert`, the production environment name — only after Gate 5.
+**Produces (variables):** `HOMESTEAD_BC_TENANT_ID` (firm tenant id), `HOMESTEAD_BC_CLIENT_ID`, `HOMESTEAD_BC_COMPANY_ID` (printed by the first sandbox acceptance run, which finds it from the company's name), `HOMESTEAD_BC_COMPANY_NAME`. **Secrets:** `BC_SANDBOX_CERT_PEM` (GitHub, test runs only) and `bc-sandbox-client-cert` (Key Vault, the deployed app). For production later: a separate `Homestead BC Production` registration and `bc-prod-client-cert`, only after Gate 5.
 
 ## 6. Plaid
 
@@ -139,7 +127,8 @@ In the **firm's workforce tenant** (where BC lives), not the external tenant.
 
 | `services/api/.env.example` name | What it is | Where the value lives | Who puts it there |
 | --- | --- | --- | --- |
-| `BC_CERT_SECRET_REF` | **name** of the Key Vault secret holding the BC certificate PEM | Key Vault `bc-sandbox-client-cert` / `bc-prod-client-cert` | Cade, step 5 |
+| `BC_CERT_SECRET_REF` | **name** of the Key Vault secret holding the BC certificate PEM | Key Vault `bc-sandbox-client-cert` / `bc-prod-client-cert` (generated in Key Vault) | Cade, step 5 |
+| `BC_SANDBOX_CERT_PEM` | the test-run certificate (sandbox only, no posting rights) | GitHub repository secret | Cade, `docs/gate4-checklist.md` |
 | `PLAID_SECRET_REF` | **name** of the Key Vault secret holding the Plaid secret | Key Vault `plaid-sandbox-secret` / `plaid-production-secret` | Cade, step 6 |
 | (runtime) | Plaid access tokens | Key Vault `plaid-<household>-<item>` | the API, after Link |
 | (runtime) | per-household blob encryption keys | Key Vault keys `hh-<household id>` | the API, on household creation |
@@ -152,13 +141,13 @@ In the **firm's workforce tenant** (where BC lives), not the external tenant.
 | Static Web App deployment token | pushes the Console | fetched by the workflow at deploy time with OIDC; never stored | the workflow |
 | Expo / Apple signing | TestFlight builds | EAS (Expo) credentials store, per `apps/mobile/README.md` | Cade, step 10 |
 
-Nothing in the table is pasted into chat, the repo, or a GitHub secret. GitHub needs **no secrets at all** for dev.
+Nothing in the table is pasted into chat or the repo. The deploy needs no GitHub secrets; the only GitHub secrets are the three sandbox test-run values (`BC_SANDBOX_TENANT_ID`, `BC_SANDBOX_CLIENT_ID`, `BC_SANDBOX_CERT_PEM`).
 
 ## 8. First deploy
 
 1. GitHub → Settings → Variables (repository): `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `HOMESTEAD_ADMIN_OBJECT_ID` (`az ad signed-in-user show --query id -o tsv`), `HOMESTEAD_ADMIN_UPN`, `HOMESTEAD_BUDGET_EMAIL`, `HOMESTEAD_BC_TENANT_ID`, `HOMESTEAD_BC_CLIENT_ID`, `HOMESTEAD_BC_COMPANY_ID`, `HOMESTEAD_BC_COMPANY_NAME`, `HOMESTEAD_PLAID_CLIENT_ID`, `HOMESTEAD_ENTRA_TENANT_ID`, `HOMESTEAD_ENTRA_API_AUDIENCE`, `HOMESTEAD_ENTRA_API_SCOPE`, `HOMESTEAD_ENTRA_AUTHORITY`, `HOMESTEAD_ENTRA_KNOWN_AUTHORITY`, `HOMESTEAD_CONSOLE_CLIENT_ID`, and (empty until step 11) `HOMESTEAD_FOUNDRY_ENDPOINT`, `HOMESTEAD_FOUNDRY_MODEL`.
 2. Set `DEPLOY_ENABLED` = `true`. Push to `main` (or Actions → Deploy dev → Run workflow). The run creates `rg-homestead-dev`, builds and pushes the image, deploys the API and jobs, builds and publishes the Console, and prints both URLs in its summary. Expect 15–25 minutes the first time (Postgres is the slow one).
-3. Load the two secrets into the new vault (steps 5.5 and 6.4). The API reads them on its next start: Container Apps → `homestead-dev-api` → Revisions → Restart.
+3. Generate `bc-sandbox-client-cert` in the new vault (step 5.2) and load the Plaid secret (step 6.4). The API reads them on its next start: Container Apps → `homestead-dev-api` → Revisions → Restart.
 4. Add `https://<console hostname>` to the `homestead-console` registration's redirect URIs (step 3a).
 
 ## 9. Database migrations
@@ -191,7 +180,7 @@ unset PGPASSWORD
 
 Remove the firewall rule afterwards if you prefer (`az postgres flexible-server firewall-rule delete`).
 
-Note for the first deploy: the API build reads the database only from `DATABASE_URL` today, and the jobs list households in a way row-level security hides from any non-superuser. Both are listed in `infra/README.md` ("What the API build does not do yet"); until they land, the cloud API starts but cannot reach the database.
+The API signs in to Postgres with its managed identity (no password; `PGHOST`, `PGUSER`, `PGDATABASE` set by the templates), and the jobs list households through a security-definer function owned by a non-superuser role (migrations 0006–0007).
 
 ## 10. Apple Developer Program (organization)
 

@@ -24,10 +24,12 @@ Approved at Gate 1. One registration per environment; this one is for the sandbo
 
 The private key is born in Key Vault and never leaves it as a file. The services read the PEM by *name* at start-up; nothing in the repo or a laptop holds it.
 
-1. Key Vault `kv-homestead-dev` (created by the E1 infra) → **Certificates → Generate/Import**.
-2. Method **Generate**; name `bc-sandbox-cert`; type **Self-signed**; subject `CN=homestead-bc-sandbox`; validity **12 months**; content type **PEM**; key type RSA 2048; auto-renew notification at 30 days before expiry.
+For **Gate 4** the test runs use a separate certificate made on Cade's Mac and kept only as the GitHub secret `BC_SANDBOX_CERT_PEM` (`docs/gate4-checklist.md`, step 4). The steps below are for the **deployed** app, after the Azure setup exists.
+
+1. Key Vault `kv-homestead-dev` (created by the infra) → **Certificates → Generate/Import**.
+2. Method **Generate**; name **`bc-sandbox-client-cert`** (the name `BC_CERT_SECRET_REF` points at); type **Self-signed**; subject `CN=homestead-bc-sandbox`; validity **12 months**; content type **PEM**; key type RSA 2048; auto-renew notification at 30 days before expiry.
 3. After creation, open the certificate → the current version → **Download in CER format**. This is the public half only; it is what the app registration needs.
-4. Note the Key Vault *name* and certificate *name* for the service configuration (`BC_CERT_KEYVAULT_NAME`, `BC_CERT_NAME`). The spec's rotation rule is yearly; renewing in Key Vault and uploading the new `.cer` to the registration (step 1.2.5) is the whole rotation.
+4. Nothing to configure: the templates already set `BC_CERT_SECRET_REF=bc-sandbox-client-cert`, and Key Vault serves a PEM certificate's key and certificate as a secret of the same name. The spec's rotation rule is yearly; renewing in Key Vault and uploading the new `.cer` to the registration (step 1.2.5) is the whole rotation.
 
 ### 1.2 The app registration (Azure portal → Microsoft Entra ID)
 
@@ -48,7 +50,7 @@ The private key is born in Key Vault and never leaves it as a file. The services
 
 ### 1.4 Test
 
-From the dev API or jobs container (not a laptop) with `BC_TENANT_ID`, `BC_CLIENT_ID`, `BC_ENVIRONMENT=CADE_Sandbox_vs25` and the PEM from Key Vault:
+The sandbox acceptance run in GitHub Actions does these (it signs in with `BC_SANDBOX_*`); later the deployed jobs repeat them with the Key Vault certificate:
 
 1. Token: `CertificateCredential.getToken()` returns an access token for scope `https://api.businesscentral.dynamics.com/.default`. An `AADSTS700027` answer means the assertion signature is refused: switch `assertionAlgorithm` to `PS256` (see `packages/ledger-adapter-bc/src/auth.ts`). `AADSTS7000215`/`700016` mean the client ID or tenant is wrong.
 2. `GET api/v2.0/companies` lists the household company (a 401 here with a good token means step 1.3.4 was skipped; a 403 means the permission set is missing).
@@ -61,7 +63,7 @@ From the dev API or jobs container (not a laptop) with `BC_TENANT_ID`, `BC_CLIEN
 
 ## Change 2 — Publish the HH App Connector
 
-Approved at Gate 1; `hhJournalLineChecks` added by the Phase 3 spec. The by-hand steps are in `bc/hh-app-connector/README.md` ("Publishing to the sandbox from VS Code"). After publishing, go back to step 1.3.3 and assign `HH-APP`.
+Approved at Gate 1; `hhJournalLineChecks` added by the Phase 3 spec. GitHub Actions compiles the extension against Microsoft's BC 27 symbols on every change (`.github/workflows/al-compile.yml`) and publishes it as the release `hh-app-connector-v<version>`: download `HH-App-Connector.zip`, unzip, and in the sandbox **Extension Management → Manage → Upload Extension** → choose `HH-App-Connector.app` → Deploy to **Current version** → Deploy; **Deployment Status** shows Completed in a minute or two. (Publishing from VS Code, `bc/hh-app-connector/README.md`, also works.) After publishing, go back to step 1.3.3 and assign `HH-APP`.
 
 ### Test
 
