@@ -79,13 +79,15 @@ Approved at Gate 1; `hhJournalLineChecks` added by the Phase 3 spec. GitHub Acti
 Approved at Gate 1. The HHAPP template with FEEDS and RECEIPTS exists from the BC setup; this adds the batch rule-posted lines go to. Text-to-Account Mapping stays empty (nothing to do; just do not add rows for the app's bank accounts).
 
 1. **General Journal Templates** → `HHAPP` → **Batches**.
-2. New batch: **Name** `AUTOPOST`; **Description** `Homestead rule-posted (auto)`; **No. Series**: a new series `HH-AUTO` (**No. Series → New**: code `HH-AUTO`, description `Homestead auto-post documents`, starting no. `HHA00001`, default yes, manual no) so auto-posted document numbers are recognisable at a glance; **Bal. Account Type/No.** blank (every document carries its own bank line); **Reason Code** `AUTOPOST` (after change 6, come back if it does not exist yet); **Copy VAT Setup to Jnl. Lines** off; **Allow Payment Export** off.
-3. Confirm FEEDS and RECEIPTS have their own No. Series (`HH-FEEDS`, `HH-RCPT` or as set up) so the three batches never share document numbers.
+2. New batch: **Name** `AUTOPOST`; **Description** `Homestead rule-posted (auto)`; **No. Series**: a new series `GJ-AUTO` (**No. Series → New**: code `GJ-AUTO`, description `Homestead rule-posted (HHAPP/AUTOPOST)`, one line `AUTO-000001`..`AUTO-999999`, Default Nos on, Manual Nos on, the same as the setup's other `GJ-` series) so auto-posted document numbers are recognisable at a glance; **Bal. Account No.** blank (every document carries its own bank line); **Reason Code** `AUTOPOST` (after change 6, come back if it does not exist yet); **Copy Tax Setup to Jnl. Lines** as FEEDS has it (no tax setup in this company, so it has no effect); **Allow Payment Export** off.
+3. Confirm the batches' No. Series. In the sandbox FEEDS and RECEIPTS share `GJ-RCPT` and AUTOPOST has `GJ-AUTO`. Sharing is harmless: the app keys documents on External Document No. (`HHAPP-<SRC>-…`), never on Document No.
+
+Done in the sandbox October 21, 2026 (series `GJ-AUTO` rather than the earlier draft's `HH-AUTO`/`HHA00001`, to match the house `GJ-` naming; nothing in code refers to the series).
 
 ### Test
 
 1. `resolveJournal("AUTOPOST")` returns the batch (the adapter filters journals by `templateDisplayName eq 'HHAPP'`; without that filter BC lists the GENERAL template's batches, which is why the test exists).
-2. `createJournalLines({ journalCode: "AUTOPOST", … })` lands a document numbered from `HH-AUTO`.
+2. `createJournalLines({ journalCode: "AUTOPOST", … })` lands a document numbered from `GJ-AUTO` (`AUTO-000001`, …).
 3. Posting that batch by hand in BC (Cade, until the posting right exists): the G/L entries show Reason Code `AUTOPOST` and, after change 6, Source Code `HHAUTO`.
 
 ---
@@ -96,8 +98,10 @@ Approved at Gate 1 (optional). The audit trail for drafts the app wrote and a pe
 
 1. **Change Log Setup** → **Setup** (Tables) → find table **81 Gen. Journal Line**.
 2. **Log Insertion** `Some Fields`, **Log Modification** `Some Fields`, **Log Deletion** `All Fields`. For the two "Some Fields" entries pick: Journal Template Name, Journal Batch Name, Line No., Posting Date, Document No., External Document No., Account Type, Account No., Amount, Description, Dimension Set ID, Source Code, Reason Code. (All Fields on insert would log every API write twice over; the chosen fields are what the nightly poll compares.)
-3. Back on **Change Log Setup**, switch **Change Log Activated** on. BC asks to sign out and in again.
-4. Retention: **Retention Policy** for Change Log Entry, 2 years (the spec keeps transactions 7 years in the app; the Change Log is a BC-side cross-check, not the record).
+3. Back on **Change Log Setup**, switch **Change Log Activated** on. BC asks to sign out and in again. (In the sandbox it was already on from the October 19 setup, so no sign-out was needed.)
+4. Retention: **Retention Policy** for Change Log Entry, 2 years (the spec keeps transactions 7 years in the app; the Change Log is a BC-side cross-check, not the record). BC refuses **Apply to all records** on this table because it carries mandatory filters, so: **Retention Periods → New** `2 YEARS` (Custom, `-2Y`); on the Change Log Entry policy set the editable line **Protected: No** to `2 YEARS` (Microsoft's two locked lines, Protected: Yes at 1 year and Monitor Sensitive Fields at 28 days, stay as they are); switch the policy **Enabled** on.
+
+Done in the sandbox October 21, 2026: table 81 logs the 13 fields above on insert and modify (both columns, nothing else ticked) and all fields on delete; retention as in step 4, 0 expired records.
 
 ### Test
 
@@ -122,6 +126,8 @@ Approved October 20, 2026. Keeps the W-2 tie-out: box 1 = 401101 + 401102 + pre-
 4. **Financial Reports** (Account Schedules) → row definitions `HH-IS` and `HH-GIVE`: find the rows that total gross wages (`401101|401201` or similar) and widen the **Totaling** to `401101..401102|401201..401202` (or to the ranges the rows already use). Save; the column definitions are unchanged.
 5. Run the HH-IS report for the current year: it still foots (no amounts yet on the new accounts, so the totals are unchanged).
 
+Done in the sandbox October 21, 2026. Both accounts match 401101/401201 (Income Statement, Income, blank subcategory, Both, Posting, Direct Posting on) with FAMILY_AREA CADE and TAX_TREATMENT TAXABLE, Value Posting blank as on 401101. Steps 3 and 4 needed no edits: total 401999 is `401000..401999`, HH-IS row I10 is `401000..401999` and HH-GIVE row I10 is `401000..402999|404101|404102`, all ranges that already include the new accounts.
+
 ### Test
 
 1. `listAccounts()` returns 401102 and 401202 as Posting, direct posting, not blocked. Remove them from `PENDING_SANDBOX_ACCOUNTS` in `packages/shared/src/chart.ts` once this passes (the paycheck pipeline then stops falling back to 401101 with a BONUS comment).
@@ -138,6 +144,8 @@ Approved October 20, 2026. Costs nothing today; makes the first auto-post audit 
 2. **Reason Codes → New**: code `AUTOPOST`, description `Posted by an approved Homestead rule`.
 3. **General Journal Templates → HHAPP → Batches → AUTOPOST**: Reason Code `AUTOPOST` (change 3, step 2).
 4. Source Code on the lines: the HH App Connector's `HH AutoPost Defaults` codeunit stamps `HHAUTO` (and `AUTOPOST`) on every line inserted into HHAPP/AUTOPOST, because the API's journalLines resource has no source-code field and the template's source code (`GENJNL`) would otherwise apply. Nothing to set by hand.
+
+Done in the sandbox October 21, 2026.
 
 ### Test
 

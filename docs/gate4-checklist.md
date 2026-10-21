@@ -2,21 +2,23 @@
 
 Gate 4 is the nine acceptance tests passing against the real BC sandbox. Everything below happens in `CADE_Sandbox_vs25` and the firm's Microsoft tenant. Nothing touches production, a bank, or money. About 45 minutes in all.
 
-## 1. Install the HH App Connector in the sandbox (5 minutes)
+**Progress:** steps 1 and 2 done October 21, 2026 (connector 1.0.0.1 installed by Cade; master data entered by Claude in the built-in browser). Steps 3–5 are next.
+
+## 1. Install the HH App Connector in the sandbox (5 minutes) — done
 
 1. Download `HH-App-Connector.zip` (version 1.0.0.1 or later) from https://github.com/cadejones88/household-cfo/releases/latest/download/HH-App-Connector.zip and unzip it. Version 1.0.0.0 cannot install in this sandbox: its object numbers collided with the Risky Cards Connector.
 2. In the sandbox: search **Extension Management** → **Manage** → **Upload Extension**.
 3. Choose `HH-App-Connector.app`, Deploy to **Current version**, accept, **Deploy**.
 4. **Deployment Status** shows *Completed* within a couple of minutes. Extension Management then lists "HH App Connector" by Cade T. Jones CPA, P.C., version 1.0.0.1.
 
-## 2. The BC master data (changes 3–6, about 20 minutes, or Claude does it)
+## 2. The BC master data (changes 3–6) — done by Claude
 
-Claude can do this step in the built-in browser while you watch; sign in to the sandbox there and say "go". To do it yourself, follow `bc/runbook-additions.md` in this order:
+Entered in the sandbox October 21, 2026, following `bc/runbook-additions.md`:
 
 1. **Change 6:** Source Code `HHAUTO`; Reason Code `AUTOPOST`.
-2. **Change 3:** No. Series `HH-AUTO` (starting `HHA00001`); journal batch `HHAPP` / `AUTOPOST` with that series and reason code `AUTOPOST`.
-3. **Change 5:** G/L accounts `401102` and `401202` (bonus compensation, with FAMILY_AREA CADE and TAX_TREATMENT TAXABLE), and widen the wage rows in HH-IS and HH-GIVE.
-4. **Change 4:** Change Log on table 81 Gen. Journal Line, then switch the Change Log on.
+2. **Change 3:** No. Series `GJ-AUTO` (`AUTO-000001`..`AUTO-999999`); journal batch `HHAPP` / `AUTOPOST` with that series and reason code `AUTOPOST`.
+3. **Change 5:** G/L accounts `401102` and `401202` (bonus compensation, with FAMILY_AREA CADE and TAX_TREATMENT TAXABLE). The wage rows in HH-IS and HH-GIVE already total by range, so they needed no edit.
+4. **Change 4:** Change Log on table 81 Gen. Journal Line (13 fields on insert and modify, all fields on delete); the Change Log was already on. Change Log entries kept 2 years.
 
 ## 3. Register the app in the firm's tenant (10 minutes)
 
