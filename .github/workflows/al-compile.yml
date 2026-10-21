@@ -70,9 +70,14 @@ jobs:
           cp "$APP" "$RUNNER_TEMP/HH-App-Connector.app"
           (cd "$RUNNER_TEMP" && zip -q HH-App-Connector.zip HH-App-Connector.app)
           report() { if ! out=$("$@" 2>&1); then echo "::error::$1 $2 failed: $(echo "$out" | tr '\n' ' ' | cut -c1-400)"; return 1; fi; }
+          # A released version is never replaced: the file installed in BC must stay the file its version names.
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null | grep -qx "HH-App-Connector.zip"; then
+            echo "::notice::$TAG is already released and is not replaced. Bump the version in app.json to publish a change."
+            exit 0
+          fi
           if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             report gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "HH App Connector $VERSION" \
               --notes "Compiled from bc/hh-app-connector at ${GITHUB_SHA::7} against BC 27 symbols. Download HH-App-Connector.zip, unzip it, and upload HH-App-Connector.app in Business Central (sandbox CADE_Sandbox_vs25): Extension Management > Manage > Upload Extension."
           fi
-          report gh release upload "$TAG" "$RUNNER_TEMP/HH-App-Connector.zip" --repo "$GITHUB_REPOSITORY" --clobber
+          report gh release upload "$TAG" "$RUNNER_TEMP/HH-App-Connector.zip" --repo "$GITHUB_REPOSITORY"
           echo "::notice::Release $TAG has HH-App-Connector.zip"

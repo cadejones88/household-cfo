@@ -107,9 +107,6 @@ permissionset 72100 "HH-APP"
         tabledata "Change Log Setup (Field)" = r,
         tabledata "Field Monitoring Setup" = r,
         tabledata "CDS Connection Setup" = r,
-        // 1.0.0.4: the Acc. Sched. KPI Web Srv. Setup "Published" FlowField counts Web Service rows; codeunit 198
-        // calculates it on every budget-entry insert (sandbox: "TableData 2000000076 Web Service IndirectRead").
-        tabledata "Web Service" = r,
         // "API Webhook Subscription" (read by codeunit 6153 on table writes) is OnPrem-scoped for a cloud extension
         // (AL0296); Microsoft grants it only inside the assignable "System App - Basic". Left out unless a sandbox run
         // shows BC needs it, in which case that Microsoft set is assigned on the application card instead.
