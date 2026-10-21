@@ -34,10 +34,8 @@ jobs:
       - run: pnpm build
       - run: pnpm typecheck
       - run: pnpm test
-  sandbox-acceptance:
-    # Nightly A1–A9 against the BC sandbox and Plaid Sandbox. Needs the sandbox secrets as repository secrets
-    # (never in code) and runs only when they exist; the result is posted to the Console's health page.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  console-smoke:
+    # Playwright smoke test of every Console page in mock mode.
     needs: build-test
     runs-on: ubuntu-latest
     steps:
@@ -48,15 +46,50 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - name: Acceptance tests (skipped until sandbox secrets are configured)
+      - run: pnpm --filter @homestead/console exec playwright install --with-deps chromium
+      - run: pnpm --filter @homestead/console exec playwright test
+  sandbox-acceptance:
+    # A1–A9 against the BC sandbox. The sandbox values are repository secrets (never in code); without them the job
+    # says so and stops, because build-test already ran the same suite against MockBcServer. The harness refuses any
+    # environment name without "sandbox" in it.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build-test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
         env:
-          BC_TENANT_ID: ${{ secrets.BC_TENANT_ID }}
-          BC_CLIENT_ID: ${{ secrets.BC_CLIENT_ID }}
-          BC_CLIENT_CERT_PEM: ${{ secrets.BC_CLIENT_CERT_PEM }}
-          BC_ENVIRONMENT: CADE_Sandbox_vs25
-          BC_COMPANY_ID: ${{ secrets.BC_COMPANY_ID }}
-          PLAID_CLIENT_ID: ${{ secrets.PLAID_CLIENT_ID }}
-          PLAID_SANDBOX_SECRET: ${{ secrets.PLAID_SANDBOX_SECRET }}
+          POSTGRES_USER: homestead
+          POSTGRES_PASSWORD: homestead
+          POSTGRES_DB: homestead_acceptance
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U homestead" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://homestead:homestead@localhost:5432/homestead_acceptance
+      PGSSLMODE: disable
+      AUTH_MODE: dev
+      BC_SANDBOX_TENANT_ID: ${{ secrets.BC_SANDBOX_TENANT_ID }}
+      BC_SANDBOX_ENVIRONMENT: CADE_Sandbox_vs25
+      BC_SANDBOX_COMPANY_ID: ${{ secrets.BC_SANDBOX_COMPANY_ID }}
+      BC_SANDBOX_CLIENT_ID: ${{ secrets.BC_SANDBOX_CLIENT_ID }}
+      BC_SANDBOX_CERT_PEM: ${{ secrets.BC_SANDBOX_CERT_PEM }}
+      BC_SANDBOX_CONNECTOR_INSTALLED: ${{ vars.BC_SANDBOX_CONNECTOR_INSTALLED || 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Acceptance tests A1–A9 against the BC sandbox
         run: |
-          if [ -z "$BC_CLIENT_ID" ]; then echo "No sandbox secrets configured; skipping A1–A9"; exit 0; fi
+          if [ -z "$BC_SANDBOX_CLIENT_ID" ]; then echo "No sandbox secrets configured yet; A1–A9 ran against MockBcServer in build-test"; exit 0; fi
           pnpm --filter @homestead/acceptance test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: acceptance-health
+          path: test/test-results/health.json
+          if-no-files-found: ignore

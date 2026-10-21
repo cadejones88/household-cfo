@@ -2,7 +2,9 @@
 
 Household finance app for the Jones family: a phone-first app for both spouses, a desktop console for the CFO, and a backend that keeps Business Central as the single ledger. Built for the family first; structured so a client version is configuration, not a rewrite.
 
-**Status (Oct 20, 2026):** Gates 1–3 approved. Phase 4 (MVP against the BC sandbox and Plaid Sandbox) in progress. No real accounts connected, nothing in Business Central production.
+**Status (Oct 21, 2026):** Gates 1–3 approved. Phase 4 MVP code is complete for all seven epics and green against in-process fakes (Business Central, Plaid, Document Intelligence, Claude): about 400 tests across the packages, including the A1–A9 acceptance suite against `MockBcServer`. Gate 4 needs the same suite to pass against the real BC sandbox, which waits on the hands-on setup in GitHub issues #2, #3, #5, #7 and #11. Auto-posting is off. No real accounts connected, nothing in Business Central production.
+
+Run it: `pnpm install && pnpm build && pnpm test`. Database-backed tests run when `DATABASE_URL` points at a Postgres 16 (see `docs/dev-setup.md`).
 
 ## What's here
 
@@ -24,7 +26,7 @@ Household finance app for the Jones family: a phone-first app for both spouses, 
 | `packages/ledger-adapter-bc/` | The ledger adapter interface and its Business Central implementation: certificate auth, `$batch` splits, pre-write check, post and read-back, bank ledger entries, budget revisions, webhooks, the retry schedule, the transaction-to-journal-lines mapping, and `MockBcServer` (the in-process BC fake the tests run against) |
 | `bc/hh-app-connector/`, `bc/runbook-additions.md` | The HH App Connector AL extension (`hhBankLedgerEntries`, `hhBudgetEntries`, `hhJournalLineChecks`, permission set HH-APP) with its publishing guide, and the by-hand sandbox steps for BC changes 1–6 |
 
-## Planned layout (Phase 3)
+## Layout
 
 ```
 apps/mobile          Expo (React Native) app — Homestead
