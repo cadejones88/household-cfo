@@ -184,7 +184,7 @@ export function bcSide(env: NodeJS.ProcessEnv = process.env): BcSide {
     dropSubscriptions: async (ids) => {
       for (const id of ids) await server.fetch(`${server.baseUrl}/api/v2.0/subscriptions('${id}')`, { method: "DELETE", headers: { authorization: "Bearer cade", "if-match": "*" } });
     },
-    subscriptionCount: async (ids) => server.listSubscriptions().filter((s) => !ids || ids.includes(s.id)).length,
+    subscriptionCount: async (ids) => server.listSubscriptions().filter((s) => !ids || ids.includes(s.subscriptionId)).length,
     setReceiver: (d) => {
       receiver = d;
     },

@@ -402,19 +402,19 @@ describe("webhook subscriptions", () => {
     expect(JSON.parse(createCall?.body ?? "{}")).toEqual({ notificationUrl: "https://homestead-dev-api.example/webhooks/bc", resource: sub.resource, clientState: "shared-secret-1" });
 
     server.advanceTime(2 * 24 * 3600 * 1000);
-    const renewed = await adapter.subscriptions.renew(sub.id, "shared-secret-2");
+    const renewed = await adapter.subscriptions.renew(sub.subscriptionId, "shared-secret-2");
     expect(receiver.handshakes).toHaveLength(2);
     expect(Date.parse(renewed.expirationDateTime) - server.now()).toBe(3 * 24 * 3600 * 1000);
     const patchCall = server.log.find((l) => l.method === "PATCH");
     expect(patchCall?.headers["if-match"]).toBe("*");
-    expect(patchCall?.url).toContain(`subscriptions('${sub.id}')`);
+    expect(patchCall?.url).toContain(`subscriptions('${sub.subscriptionId}')`);
 
     // A posting notifies with the new clientState; an expired subscription is dropped silently.
     await adapter.createJournalLines({ journalCode: "FEEDS", lines: walmartSplit() });
     await adapter.postBatch("FEEDS");
     expect(receiver.notifications).toHaveLength(1);
     const n = receiver.notifications[0] as { value: { clientState: string; resource: string; changeType: string; subscriptionId: string }[] };
-    expect(n.value[0]).toMatchObject({ clientState: "shared-secret-2", changeType: "collection", subscriptionId: sub.id });
+    expect(n.value[0]).toMatchObject({ clientState: "shared-secret-2", changeType: "collection", subscriptionId: sub.subscriptionId });
     expect(n.value[0]?.resource).toContain("generalLedgerEntries");
 
     server.advanceTime(4 * 24 * 3600 * 1000);
@@ -424,7 +424,7 @@ describe("webhook subscriptions", () => {
     expect(receiver.notifications).toHaveLength(1);
 
     const fresh = await adapter.subscriptions.create({ resource: "journals", notificationUrl: "https://homestead-dev-api.example/webhooks/bc", clientState: "s3" });
-    await adapter.subscriptions.delete(fresh.id);
+    await adapter.subscriptions.delete(fresh.subscriptionId);
     expect(await adapter.subscriptions.list()).toHaveLength(0);
   });
 
@@ -438,7 +438,7 @@ describe("webhook subscriptions", () => {
     receiver.mode = "server_error"; // 5xx: BC retries, keeps the subscription
     await adapter.createJournalLines({ journalCode: "FEEDS", lines: walmartSplit() });
     await adapter.postBatch("FEEDS");
-    expect(server.listSubscriptions().map((s) => s.id)).toEqual([sub.id]);
+    expect(server.listSubscriptions().map((s) => s.subscriptionId)).toEqual([sub.subscriptionId]);
     receiver.mode = "bad_request"; // 4xx: no retry, subscription deleted
     await adapter.createJournalLines({ journalCode: "FEEDS", lines: walmartSplit(idempotencyKey.plaid("acct1", "txn-3")) });
     await adapter.postBatch("FEEDS");

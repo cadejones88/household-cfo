@@ -172,6 +172,7 @@ export interface WebhookSubscription {
 export interface ListedWebhookSubscription {
   subscriptionId: string;
   resource: string;
+  notificationUrl?: string;
   expiresAt: string;
 }
 
@@ -444,7 +445,7 @@ export class InMemoryLedger implements LedgerPort {
   }
   async listWebhookSubscriptions(): Promise<ListedWebhookSubscription[]> {
     this.calls.push("listSubs");
-    return [...this.subscriptions.values()].map((s) => ({ subscriptionId: s.subscriptionId, resource: s.resource, expiresAt: s.expiresAt }));
+    return [...this.subscriptions.values()].map((s) => ({ subscriptionId: s.subscriptionId, resource: s.resource, notificationUrl: s.notificationUrl, expiresAt: s.expiresAt }));
   }
 
   async listAppDocuments(q: AppDocumentQuery): Promise<AppDocumentRow[]> {

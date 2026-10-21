@@ -136,7 +136,8 @@ interface MockBudgetEntry {
 }
 
 interface MockSubscription {
-  id: string;
+  /** BC's key for a subscription is subscriptionId (there is no "id" property). */
+  subscriptionId: string;
   notificationUrl: string;
   resource: string;
   clientState: string;
@@ -765,14 +766,14 @@ export class MockBcServer {
         if (!handshake) return odataError(400, "BadRequest", "The subscription could not be validated: the notification URL did not echo the validationToken with status 200.");
         const now = this.now();
         const sub: MockSubscription = {
-          id: randomUUID().replace(/-/g, "").slice(0, 20),
+          subscriptionId: randomUUID().replace(/-/g, "").slice(0, 20),
           notificationUrl,
           resource,
           clientState,
           expirationDateTime: new Date(now + THREE_DAYS_MS).toISOString(),
           lastModifiedDateTime: new Date(now).toISOString(),
         };
-        this.subscriptions.set(sub.id, sub);
+        this.subscriptions.set(sub.subscriptionId, sub);
         return ok(sub, 201);
       }
       return odataError(405, "MethodNotAllowed", "");
@@ -825,11 +826,11 @@ export class MockBcServer {
     for (const s of [...this.subscriptions.values()]) {
       if (!s.resource.endsWith(`/${resourceKind}`)) continue;
       if (this.expired(s)) {
-        this.subscriptions.delete(s.id);
+        this.subscriptions.delete(s.subscriptionId);
         continue;
       }
       const body = {
-        value: [{ subscriptionId: s.id, clientState: s.clientState, expirationDateTime: s.expirationDateTime, resource: resourcePath, changeType, lastModifiedDateTime: new Date(this.now()).toISOString() }],
+        value: [{ subscriptionId: s.subscriptionId, clientState: s.clientState, expirationDateTime: s.expirationDateTime, resource: resourcePath, changeType, lastModifiedDateTime: new Date(this.now()).toISOString() }],
       };
       let status = 0;
       try {
@@ -841,7 +842,7 @@ export class MockBcServer {
       this.notifications.push({ url: s.notificationUrl, body, status });
       // dynamics-subscriptions doc: 408, 429 and 5xx are retried; any other failure deletes the subscription.
       const retryable = status === 0 || status === 408 || status === 429 || (status >= 500 && status < 600);
-      if (!(status >= 200 && status < 300) && !retryable) this.subscriptions.delete(s.id);
+      if (!(status >= 200 && status < 300) && !retryable) this.subscriptions.delete(s.subscriptionId);
     }
   }
 

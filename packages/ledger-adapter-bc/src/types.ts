@@ -205,8 +205,9 @@ export interface BudgetReadOptions {
 
 export type WebhookResource = "generalLedgerEntries" | "journals";
 
+/** BC's subscription entity (api/v2.0 subscriptions); its key is subscriptionId (resources/dynamics_subscriptions). */
 export interface WebhookSubscription {
-  id: string;
+  subscriptionId: string;
   resource: string;
   notificationUrl: string;
   clientState?: string;

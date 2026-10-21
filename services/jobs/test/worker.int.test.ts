@@ -166,7 +166,7 @@ describeDb("outbox relay, BC worker, read-back and nightly poll", () => {
     expect(await run("webhook-renewal")).toMatchObject({ counts: { [hh.householdId]: { renewed: 2 } } });
     // BC drops one (a non-2xx reply, an environment update): the next run recreates it although it is not near expiry.
     const dropped = server.listSubscriptions().find((s) => s.resource.endsWith("journals"))!;
-    await deps.ledger.deleteWebhookSubscription(dropped.id);
+    await deps.ledger.deleteWebhookSubscription(dropped.subscriptionId);
     expect(await run("webhook-renewal")).toMatchObject({ counts: { [hh.householdId]: { kept: 1, recreated: 1, created: 1 } } });
     expect(server.listSubscriptions()).toHaveLength(2);
   });

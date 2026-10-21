@@ -131,6 +131,13 @@ d("A1–A9", () => {
           .join(" || ")
           .slice(0, 3000);
       });
+    // Subscriptions an earlier guided run left behind point at a tunnel that no longer exists (only ever a
+    // trycloudflare.com address; the pilot's point at the dev deployment): delete them first.
+    if (side.kind === "sandbox") {
+      for (const s of (await w.side.ledger.listWebhookSubscriptions?.()) ?? []) {
+        if (s.notificationUrl && /^https:\/\/[a-z0-9-]+\.trycloudflare\.com\//.test(s.notificationUrl)) await w.side.ledger.deleteWebhookSubscription(s.subscriptionId).catch(() => undefined);
+      }
+    }
     // Webhook subscriptions first, so BC's notifications reach the app during the run.
     await w.job("webhook-renewal");
   });

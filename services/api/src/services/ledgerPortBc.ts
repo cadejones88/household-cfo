@@ -300,7 +300,7 @@ export class BcLedgerPort implements LedgerPort {
     return wrap(async () => {
       if (resource !== "generalLedgerEntries" && resource !== "journals") throw new LedgerError(`Unsupported webhook resource ${resource}`, 400, false, "unsupported_resource");
       const s = await this.adapter.subscriptions.create({ resource, notificationUrl, clientState });
-      return { subscriptionId: s.id, resource, notificationUrl: s.notificationUrl, clientState, expiresAt: s.expirationDateTime };
+      return { subscriptionId: s.subscriptionId, resource, notificationUrl: s.notificationUrl, clientState, expiresAt: s.expirationDateTime };
     });
   }
 
@@ -309,7 +309,7 @@ export class BcLedgerPort implements LedgerPort {
       // The PATCH resends clientState; without it the renewal would blank the secret, so refuse and let the job recreate.
       if (!clientState) throw new LedgerError("Renewal needs the subscription's clientState", 400, false, "client_state_required");
       const s = await this.adapter.subscriptions.renew(subscriptionId, clientState);
-      return { subscriptionId: s.id, resource: s.resource, notificationUrl: s.notificationUrl, clientState, expiresAt: s.expirationDateTime };
+      return { subscriptionId: s.subscriptionId, resource: s.resource, notificationUrl: s.notificationUrl, clientState, expiresAt: s.expirationDateTime };
     });
   }
 
@@ -318,7 +318,7 @@ export class BcLedgerPort implements LedgerPort {
   }
 
   listWebhookSubscriptions(): Promise<ListedWebhookSubscription[]> {
-    return wrap(async () => (await this.adapter.subscriptions.list()).map((s) => ({ subscriptionId: s.id, resource: s.resource, expiresAt: s.expirationDateTime })));
+    return wrap(async () => (await this.adapter.subscriptions.list()).map((s) => ({ subscriptionId: s.subscriptionId, resource: s.resource, notificationUrl: s.notificationUrl, expiresAt: s.expirationDateTime })));
   }
 
   listAppDocuments(q: AppDocumentQuery): Promise<AppDocumentRow[]> {
