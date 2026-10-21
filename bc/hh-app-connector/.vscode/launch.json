@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Sandbox: CADE_Sandbox_vs25",
+      "type": "al",
+      "request": "launch",
+      "environmentType": "Sandbox",
+      "environmentName": "CADE_Sandbox_vs25",
+      "tenant": "REPLACE-WITH-THE-FIRM-TENANT-ID-OR-DOMAIN",
+      "startupObjectType": "Page",
+      "startupObjectId": 22,
+      "breakOnError": "All",
+      "breakOnRecordWrite": "None",
+      "launchBrowser": true,
+      "enableLongRunningSqlStatements": true,
+      "enableSqlInformationDebugger": true,
+      "schemaUpdateMode": "ForceSync",
+      "usePublishingFromPackage": false
+    }
+  ]
+}

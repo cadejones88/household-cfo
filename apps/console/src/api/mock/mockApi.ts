@@ -7,6 +7,7 @@ import {
   assertTransition,
   plainStatus,
   CATEGORIES,
+  type Actor,
   type AuditEntry,
   type BcBatch,
   type ConsolePage,
@@ -51,8 +52,8 @@ export function createMockApi(): ConsoleApi {
   function record(a: Omit<AuditEntry, "id" | "at">): void {
     audit.unshift({ id: `aud-${seq++}`, at: new Date().toISOString(), ...a });
   }
-  function move(t: ConsoleTransactionRow, to: TransactionState, actor: AuditEntry["actor"], action: string, extra?: Record<string, unknown>): void {
-    assertTransition(t.state, to, actor === data.CADE_ID ? "cade" : "member");
+  function move(t: ConsoleTransactionRow, to: TransactionState, actor: AuditEntry["actor"], action: string, extra?: Record<string, unknown>, as?: Actor): void {
+    assertTransition(t.state, to, as ?? (actor === data.CADE_ID ? "cade" : "member"));
     const before = { state: t.state, ...extra };
     t.state = to;
     t.status = plainStatus(to);
@@ -124,7 +125,9 @@ export function createMockApi(): ConsoleApi {
       t.categoryName = cat.name;
       t.dims = cat.dims;
       t.splits = [{ lineNo: 1, amountCents: t.amountCents, categoryId: cat.id, glAccount: cat.glAccount, dims: cat.dims }];
-      if (t.state === "needs_classification") move(t, "ready_for_review", data.CADE_ID, "transaction.classify", { categoryId: cat.id });
+      // A person's pick on a needs_classification item is the rule engine's input: the API's classifyOne moves it
+      // to ready_for_review as rule_engine (the state machine allows no person transition out of needs_classification).
+      if (t.state === "needs_classification") move(t, "ready_for_review", "jobs:rule_engine", "transaction.classify", { categoryId: cat.id, pickedBy: data.CADE_ID }, "rule_engine");
       else record({ actor: data.CADE_ID, action: "transaction.correct", entity: "transaction", entityId: t.id, before, after: { categoryId: cat.id } });
       if (input.makeRule) {
         rules.unshift({

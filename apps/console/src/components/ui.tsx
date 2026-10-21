@@ -98,7 +98,10 @@ export function Dialog({ open, title, onClose, children, footer, testId }: { ope
     if (open && !d.open) {
       if (typeof d.showModal === "function") d.showModal();
       else d.setAttribute("open", "");
-    } else if (!open && d.open) d.close();
+    } else if (!open && d.open) {
+      if (typeof d.close === "function") d.close();
+      else d.removeAttribute("open");
+    }
   }, [open]);
   return (
     <dialog ref={ref} className="dlg" onClose={onClose} onCancel={onClose} aria-label={title} data-testid={testId}>

@@ -65,6 +65,24 @@ describe("$batch multipart/mixed (OData 4 §11.7)", () => {
   });
 });
 
+describe("mock $filter evaluator", () => {
+  it("parses comparisons, BC's trailing wildcard and the string functions the adapter sends", async () => {
+    const { matchesFilter, parseFilter } = await import("../src/mock/filter.js");
+    const fields = ["externalDocumentNo", "postingDate", "source", "amount", "open"];
+    const terms = parseFilter("startswith(externalDocumentNo,'HHAPP-') and postingDate ge 2026-10-01 and source eq 'Ledger' and open eq false");
+    expect(terms.map((t) => t.op)).toEqual(["startswith", "ge", "eq", "eq"]);
+    expect(matchesFilter({ externalDocumentNo: "HHAPP-PLD-20261020-AAAAAAAA", postingDate: "2026-10-20", source: "Ledger", open: false }, terms, fields)).toBe(true);
+    expect(matchesFilter({ externalDocumentNo: "INV-42", postingDate: "2026-10-20", source: "Ledger", open: false }, terms, fields)).toBe(false);
+    expect(matchesFilter({ externalDocumentNo: "HHAPP-PLD-20260920-AAAAAAAA", postingDate: "2026-09-20", source: "Ledger", open: false }, terms, fields)).toBe(false);
+    const wild = parseFilter("externalDocumentNo eq 'HHAPP-RCP*'");
+    expect(wild[0]?.wildcard).toBe(true);
+    expect(matchesFilter({ externalDocumentNo: "HHAPP-RCP-20261020-AAAAAAAA" }, wild, fields)).toBe(true);
+    expect(() => parseFilter("contains(externalDocumentNo,'O''Brien')")).not.toThrow();
+    expect(() => matchesFilter({}, parseFilter("nope eq 1"), fields)).toThrow(/Could not find a property/);
+    expect(() => parseFilter("externalDocumentNo like 'x'")).toThrow(/Unsupported/);
+  });
+});
+
 describe("scrub", () => {
   it("removes tokens, amounts, masks, PEM blocks and correlation ids", () => {
     const s = redactString("Bearer abc.def.ghi paid $1,234.56 and 42.50 on x6450 CorrelationId:  12ab-34cd. eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJlc2lnbmF0dXJl");

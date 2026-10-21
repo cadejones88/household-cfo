@@ -24,6 +24,8 @@ import { LedgerAdapterError } from "./errors.js";
 import { BcHttp, type BcHttpConfig } from "./http.js";
 import { odataDate, odataString, type BatchRequest } from "./odata.js";
 import type {
+  AppDocumentFilter,
+  AppDocumentRow,
   BankLedgerEntry,
   BankLedgerEntryFilter,
   BudgetEntryInput,
@@ -120,8 +122,9 @@ interface BcGlEntry {
   dimensionSetLines?: { code: string; valueCode: string }[];
 }
 
-/** One row of hhJournalLineChecks (bc/hh-app-connector/src/HHDocCheck.Page.al). */
+/** One row of hhJournalLineChecks (bc/hh-app-connector/src/HHJournalLineCheck.Page.al). */
 interface ConnectorCheckRow {
+  rowNo?: number;
   externalDocumentNo: string;
   source: "Journal" | "Ledger";
   journalTemplateName: string;
@@ -134,6 +137,9 @@ interface ConnectorCheckRow {
   accountType: string;
   accountNo: string;
   amount: number;
+  dimensionSetId?: number;
+  sourceCode?: string;
+  reasonCode?: string;
 }
 
 interface ConnectorBankLedgerEntry {
@@ -289,32 +295,30 @@ export class BusinessCentralAdapter implements LedgerAdapter {
     return j;
   }
 
-  async findByExternalDocumentNo(externalDocumentNo: string, journalCode: string, hints?: { documentNumber?: string }): Promise<ExternalDocLookup> {
+  /** Every batch of the household template (for a pre-write check that names no batch). */
+  async listJournals(): Promise<BcJournal[]> {
+    const rows = await this.http.getAll<BcJournal>(this.v2("journals", { $filter: `templateDisplayName eq ${odataString(this.journalTemplate)}` }));
+    for (const j of rows) this.journalIds.set(j.code, j);
+    return rows.filter((r) => r.templateDisplayName === this.journalTemplate);
+  }
+
+  async findByExternalDocumentNo(externalDocumentNo: string, journalCode?: string, hints?: { documentNumber?: string }): Promise<ExternalDocLookup> {
     assertExternalDocNo(externalDocumentNo);
-    const journal = await this.resolveJournal(journalCode);
     if (this.connectorInstalled) {
+      // One call answers both sides, across every batch; the template is the household's, so any hit counts.
       const rows = await this.http.getAll<ConnectorCheckRow>(this.connector("hhJournalLineChecks", { $filter: `externalDocumentNo eq ${odataString(externalDocumentNo)}` }));
-      const journalLines: WrittenJournalLine[] = rows
-        .filter((r) => r.source === "Journal")
-        .map((r) => ({
-          id: r.lineSystemId,
-          lineNumber: r.lineNo,
-          documentNumber: r.documentNo,
-          externalDocumentNumber: r.externalDocumentNo,
-          accountNumber: r.accountNo,
-          amountCents: toCents(r.amount),
-          postingDate: r.postingDate,
-          journalCode: r.journalBatchName,
-        }));
-      const ledgerEntries: LedgerEntryRef[] = rows
-        .filter((r) => r.source === "Ledger")
-        .map((r) => ({ entryNumber: r.entryNo, documentNumber: r.documentNo, postingDate: r.postingDate, accountNumber: r.accountNo, amountCents: toCents(r.amount) }));
+      const journalLines: WrittenJournalLine[] = rows.filter((r) => r.source === "Journal").map(connectorRowToWrittenLine);
+      const ledgerEntries: LedgerEntryRef[] = rows.filter((r) => r.source === "Ledger").map(connectorRowToEntryRef);
       return { externalDocumentNo, journalLines, ledgerEntries, answeredBy: "connector", ledgerCheckIncomplete: false };
     }
     // Two standard filters. journalLines exposes externalDocumentNumber; generalLedgerEntries does not, so the ledger
     // side can only be checked by a document number the caller already knows (stored after the draft was created).
-    const lines = await this.http.getAll<BcJournalLine>(this.v2(`journals(${journal.id})/journalLines`, { $filter: `externalDocumentNumber eq ${odataString(externalDocumentNo)}` }));
-    const journalLines = lines.map((l) => mapWrittenLine(l, journalCode));
+    const journals = journalCode ? [await this.resolveJournal(journalCode)] : await this.listJournals();
+    const journalLines: WrittenJournalLine[] = [];
+    for (const journal of journals) {
+      const lines = await this.http.getAll<BcJournalLine>(this.v2(`journals(${journal.id})/journalLines`, { $filter: `externalDocumentNumber eq ${odataString(externalDocumentNo)}` }));
+      journalLines.push(...lines.map((l) => mapWrittenLine(l, journal.code)));
+    }
     let ledgerEntries: LedgerEntryRef[] = [];
     let ledgerCheckIncomplete = true;
     const docNo = hints?.documentNumber ?? journalLines[0]?.documentNumber;
@@ -332,7 +336,9 @@ export class BusinessCentralAdapter implements LedgerAdapter {
     const journal = await this.resolveJournal(req.journalCode);
 
     // Pre-write check, every time (spec item 2 and 4): a retry after a timeout must find what the first try wrote.
-    const found = await this.findByExternalDocumentNo(extDoc, req.journalCode);
+    // Every batch of the household template is checked, not only the target, so a resend routed to another batch
+    // (a rule changed between two attempts) still finds the first document instead of writing a second one.
+    const found = await this.findByExternalDocumentNo(extDoc);
     if (found.ledgerEntries.length > 0) return { outcome: "already_posted", entries: found.ledgerEntries };
     if (found.journalLines.length > 0) return { outcome: "already_in_journal", journalId: journal.id, lines: found.journalLines };
 
@@ -358,7 +364,7 @@ export class BusinessCentralAdapter implements LedgerAdapter {
     let postingDate = hints?.postingDate;
     if (this.connectorInstalled) {
       const rows = await this.http.getAll<ConnectorCheckRow>(this.connector("hhJournalLineChecks", { $filter: `externalDocumentNo eq ${odataString(externalDocumentNo)} and source eq 'Ledger'` }));
-      refs = rows.map((r) => ({ entryNumber: r.entryNo, documentNumber: r.documentNo, postingDate: r.postingDate, accountNumber: r.accountNo, amountCents: toCents(r.amount) }));
+      refs = rows.map(connectorRowToEntryRef);
       if (refs.length === 0) return [];
       docNo = docNo ?? refs[0]?.documentNumber;
       postingDate = postingDate ?? refs[0]?.postingDate;
@@ -381,6 +387,52 @@ export class BusinessCentralAdapter implements LedgerAdapter {
         dimensionSetLines: (e.dimensionSetLines ?? []).map((d) => ({ code: d.code, valueCode: d.valueCode })),
         externalDocumentNumber: externalDocumentNo,
       }));
+  }
+
+  /**
+   * The nightly poll's view (spec: Webhooks and polling): every draft line and posted entry whose External Document
+   * No. the app owns, in a posting-date window, so the worker can compare count and sum per batch and date with its
+   * own rows and open an Exception for any difference. Connector only: journalLines cannot be listed across batches
+   * by prefix and generalLedgerEntries has no External Document No.
+   */
+  async listAppDocuments(filter: AppDocumentFilter): Promise<AppDocumentRow[]> {
+    this.requireConnector("hhJournalLineChecks");
+    const terms: string[] = [];
+    if (filter.externalDocumentNo) {
+      assertExternalDocNo(filter.externalDocumentNo);
+      terms.push(`externalDocumentNo eq ${odataString(filter.externalDocumentNo)}`);
+    } else {
+      const prefix = filter.externalDocumentNoStartsWith ?? "HHAPP-";
+      if (!prefix.startsWith("HHAPP-")) throw new LedgerAdapterError("listAppDocuments only reads documents the app owns (prefix HHAPP-)");
+      // VERIFY on the sandbox: BC translates startswith(field,'v') into the AL filter v* that the page passes through.
+      terms.push(`startswith(externalDocumentNo,${odataString(prefix)})`);
+    }
+    if (filter.postingDateFrom) terms.push(`postingDate ge ${odataDate(filter.postingDateFrom)}`);
+    if (filter.postingDateTo) terms.push(`postingDate le ${odataDate(filter.postingDateTo)}`);
+    if (filter.source) terms.push(`source eq ${odataString(filter.source === "journal" ? "Journal" : "Ledger")}`);
+    if (filter.journalCode) terms.push(`journalBatchName eq ${odataString(filter.journalCode)}`);
+    const rows = await this.http.getAll<ConnectorCheckRow>(this.connector("hhJournalLineChecks", { $filter: terms.join(" and ") }));
+    return rows.map((r) => {
+      const row: AppDocumentRow = {
+        externalDocumentNumber: r.externalDocumentNo,
+        source: r.source === "Journal" ? "journal" : "ledger",
+        documentNumber: r.documentNo,
+        postingDate: r.postingDate,
+        accountType: r.accountType,
+        accountNumber: r.accountNo,
+        amountCents: toCents(r.amount),
+      };
+      if (r.journalBatchName) row.journalCode = r.journalBatchName;
+      if (r.source === "Journal") {
+        row.lineId = r.lineSystemId;
+        row.lineNumber = r.lineNo;
+      } else {
+        row.entryNumber = r.entryNo;
+      }
+      if (r.sourceCode) row.sourceCode = r.sourceCode;
+      if (r.reasonCode) row.reasonCode = r.reasonCode;
+      return row;
+    });
   }
 
   async readBankLedgerEntries(filter: BankLedgerEntryFilter): Promise<BankLedgerEntry[]> {
@@ -565,6 +617,23 @@ function mapWrittenLine(l: BcJournalLine, journalCode: string): WrittenJournalLi
     postingDate: l.postingDate,
     journalCode,
   };
+}
+
+function connectorRowToWrittenLine(r: ConnectorCheckRow): WrittenJournalLine {
+  return {
+    id: r.lineSystemId,
+    lineNumber: r.lineNo,
+    documentNumber: r.documentNo,
+    externalDocumentNumber: r.externalDocumentNo,
+    accountNumber: r.accountNo,
+    amountCents: toCents(r.amount),
+    postingDate: r.postingDate,
+    journalCode: r.journalBatchName,
+  };
+}
+
+function connectorRowToEntryRef(r: ConnectorCheckRow): LedgerEntryRef {
+  return { entryNumber: r.entryNo, documentNumber: r.documentNo, postingDate: r.postingDate, accountNumber: r.accountNo, amountCents: toCents(r.amount) };
 }
 
 function mapEntryRef(e: BcGlEntry): LedgerEntryRef {

@@ -97,7 +97,7 @@ export interface LedgerEntryRef {
 
 export interface ExternalDocLookup {
   externalDocumentNo: string;
-  /** Draft lines found in the target batch. */
+  /** Draft lines found: in the target batch when one was named, else in any batch of the household template. */
   journalLines: WrittenJournalLine[];
   /** Posted G/L entries found. */
   ledgerEntries: LedgerEntryRef[];
@@ -115,6 +115,34 @@ export interface LedgerEntry extends LedgerEntryRef {
   dimensions: DimensionSet;
   dimensionSetLines: BcDimensionSetLine[];
   externalDocumentNumber?: string;
+}
+
+/** A document the app owns, as the ledger holds it: a draft line or a posted entry (for the nightly completeness poll). */
+export interface AppDocumentRow {
+  externalDocumentNumber: string;
+  source: "journal" | "ledger";
+  /** The batch the draft sits in, or the batch a posted entry came from. */
+  journalCode?: string;
+  lineId?: string;
+  lineNumber?: number;
+  entryNumber?: number;
+  documentNumber: string;
+  postingDate: string;
+  accountType: string;
+  accountNumber: string;
+  amountCents: Cents;
+  sourceCode?: string;
+  reasonCode?: string;
+}
+
+export interface AppDocumentFilter {
+  externalDocumentNo?: string;
+  /** e.g. "HHAPP-" for everything the app might own, or "HHAPP-PAY-" for one source. */
+  externalDocumentNoStartsWith?: string;
+  postingDateFrom?: string;
+  postingDateTo?: string;
+  source?: "journal" | "ledger";
+  journalCode?: string;
 }
 
 export interface BankLedgerEntry {
@@ -206,13 +234,18 @@ export interface LedgerAdapter {
   listAccounts(): Promise<LedgerAccount[]>;
   listDimensions(): Promise<LedgerDimension[]>;
   listBankAccounts(): Promise<LedgerBankAccount[]>;
-  /** Pre-write check: drafts in the target batch plus posted entries for one External Document No. */
-  findByExternalDocumentNo(externalDocumentNo: string, journalCode: string): Promise<ExternalDocLookup>;
+  /**
+   * Pre-write check: drafts plus posted entries for one External Document No. With `journalCode` the draft side is
+   * the target batch; without it, every batch of the household template.
+   */
+  findByExternalDocumentNo(externalDocumentNo: string, journalCode?: string): Promise<ExternalDocLookup>;
   /** Writes all lines of one transaction atomically, after rerunning the pre-write check. */
   createJournalLines(req: CreateJournalLinesRequest): Promise<CreateJournalLinesResult>;
   /** Posts every line in the batch. */
   postBatch(journalCode: string): Promise<void>;
   readGlEntriesByExternalDocNo(externalDocumentNo: string): Promise<LedgerEntry[]>;
+  /** Every draft line and posted entry the app owns in a range: the nightly poll's count-and-sum comparison. */
+  listAppDocuments(filter: AppDocumentFilter): Promise<AppDocumentRow[]>;
   readBankLedgerEntries(filter: BankLedgerEntryFilter): Promise<BankLedgerEntry[]>;
   writeBudgetEntries(budgetName: string, entries: readonly BudgetEntryInput[]): Promise<WriteBudgetEntriesResult>;
   readBudget(budgetName: string, opts?: BudgetReadOptions): Promise<BudgetRead>;

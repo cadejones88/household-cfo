@@ -3,7 +3,8 @@
  * goals and bills with the shared calculation when the API has no dedicated endpoint) and produces the plain
  * words the hero card and its breakdown sheet show. Every number carries its data-through stamp.
  */
-import { safeToSpend, type AccountSummary, type Bill, type BudgetStatus, type DataThrough, type Goal, type SafeToSpendView } from "@homestead/shared";
+import { safeToSpend, type AccountSummary, type Bill, type BudgetStatus, type DataThrough, type Goal } from "@homestead/shared";
+import type { SafeToSpendView } from "../api/types";
 import { fmtDate, fmtShort, fmtStampDate, money, money0 } from "./format";
 import type { StatusKey } from "../ui/theme";
 

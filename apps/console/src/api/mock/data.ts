@@ -562,6 +562,7 @@ export const authority: AuthorityMatrix = {
     { ruleNo: "R6", name: "Small known merchant", state: "proposed", mayAutoPost: true },
     { ruleNo: "R7", name: "BC-native payments", state: "proposed", mayAutoPost: true },
   ],
+  dataThrough: dataThrough("posted_reconciled", 0, 60_000),
 };
 
 export function reconciliationCards(): BankCardReconStatus[] {

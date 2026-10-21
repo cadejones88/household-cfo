@@ -47,9 +47,9 @@ export const BACKGROUND_GRACE_MS = 5 * 60 * 1000;
 export interface LockInput {
   faceIdEnabled: boolean;
   /** When the app was last unlocked with Face ID or passcode in this install; undefined on first run. */
-  lastUnlockAt?: number;
+  lastUnlockAt?: number | undefined;
   /** When the app went to the background; undefined on a cold start. */
-  backgroundedAt?: number;
+  backgroundedAt?: number | undefined;
   now: number;
 }
 

@@ -3,6 +3,8 @@
  * See README.md for the shape of the package and what is faked.
  */
 export type {
+  AppDocumentFilter,
+  AppDocumentRow,
   BankLedgerEntry,
   BankLedgerEntryFilter,
   BudgetEntryInput,

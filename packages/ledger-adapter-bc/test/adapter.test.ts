@@ -162,6 +162,69 @@ describe("pre-write check (idempotency)", () => {
   });
 });
 
+describe("pre-write check without a batch, and the nightly poll's range read", () => {
+  it("finds a draft in any HHAPP batch when no batch is named (connector and plain OData)", async () => {
+    for (const connectorInstalled of [true, false]) {
+      const { adapter, server } = makeAdapter({ connectorInstalled });
+      const lines = walmartSplit();
+      await adapter.createJournalLines({ journalCode: "RECEIPTS", lines });
+      const found = await adapter.findByExternalDocumentNo(lines[0]!.externalDocumentNumber);
+      expect(found.journalLines).toHaveLength(3);
+      expect(found.journalLines.every((l) => l.journalCode === "RECEIPTS")).toBe(true);
+      expect(found.answeredBy).toBe(connectorInstalled ? "connector" : "odata");
+      // A resend aimed at another batch must not write a second document.
+      const again = await adapter.createJournalLines({ journalCode: "FEEDS", lines });
+      expect(again.outcome).toBe("already_in_journal");
+      expect(server.draftLines("FEEDS")).toHaveLength(0);
+      expect(server.draftLines("RECEIPTS")).toHaveLength(3);
+      if (!connectorInstalled) {
+        const journalListCalls = server.log.filter((l) => l.url.includes("/journals?") && new URL(l.url).searchParams.get("$filter") === "templateDisplayName eq 'HHAPP'");
+        expect(journalListCalls.length).toBeGreaterThanOrEqual(1);
+      }
+    }
+  });
+
+  it("lists every app-owned draft and entry in a posting-date window, by batch, with source and reason codes", async () => {
+    const { adapter, server } = makeAdapter();
+    await adapter.createJournalLines({ journalCode: "FEEDS", lines: walmartSplit(idempotencyKey.plaid("acct1", "a"), "2026-10-01") });
+    await adapter.createJournalLines({ journalCode: "AUTOPOST", lines: walmartSplit(idempotencyKey.plaid("acct1", "b"), "2026-10-10") });
+    await adapter.createJournalLines({ journalCode: "RECEIPTS", lines: walmartSplit(idempotencyKey.receipt("ab".repeat(32)), "2026-10-15") });
+    await adapter.postBatch("AUTOPOST");
+    // A line Cade typed himself with no HHAPP- document number is not the app's.
+    await server.fetch(`${server.baseUrl}/api/v2.0/companies(${server.companyId})/journals(${server.journalId("FEEDS")})/journalLines`, {
+      method: "POST",
+      headers: { authorization: "Bearer x", "content-type": "application/json" },
+      body: JSON.stringify({ accountNumber: "603101", postingDate: "2026-10-12", amount: 5, description: "manual", externalDocumentNumber: "INV-42" }),
+    });
+
+    const all = await adapter.listAppDocuments({ postingDateFrom: "2026-10-01", postingDateTo: "2026-10-31" });
+    expect(all).toHaveLength(9);
+    expect(all.every((r) => r.externalDocumentNumber.startsWith("HHAPP-"))).toBe(true);
+    const bySource = { journal: all.filter((r) => r.source === "journal").length, ledger: all.filter((r) => r.source === "ledger").length };
+    expect(bySource).toEqual({ journal: 6, ledger: 3 });
+    const posted = all.filter((r) => r.source === "ledger");
+    expect(posted.map((r) => r.entryNumber)).toEqual([1, 2, 3]);
+    expect(posted.every((r) => r.journalCode === "AUTOPOST" && r.sourceCode === "HHAUTO" && r.reasonCode === "AUTOPOST")).toBe(true);
+    expect(posted.reduce((s, r) => s + r.amountCents, 0)).toBe(0);
+    const drafts = all.filter((r) => r.source === "journal");
+    expect(drafts.every((r) => r.lineId && r.lineNumber && r.entryNumber === undefined)).toBe(true);
+    expect(drafts.filter((r) => r.journalCode === "FEEDS").every((r) => r.sourceCode === "GENJNL" && r.reasonCode === undefined)).toBe(true);
+
+    const window = await adapter.listAppDocuments({ postingDateFrom: "2026-10-05", postingDateTo: "2026-10-12", source: "journal" });
+    expect(window).toHaveLength(0); // the AUTOPOST drafts were posted; FEEDS is on the 1st, RECEIPTS on the 15th
+    const receipts = await adapter.listAppDocuments({ externalDocumentNoStartsWith: "HHAPP-RCP-" });
+    expect(receipts).toHaveLength(3);
+    expect(receipts.every((r) => r.journalCode === "RECEIPTS")).toBe(true);
+    const oneBatch = await adapter.listAppDocuments({ journalCode: "FEEDS" });
+    expect(oneBatch).toHaveLength(3);
+    const call = new URL(server.log.filter((l) => l.url.includes("hhJournalLineChecks")).at(-1)?.url ?? "https://x");
+    expect(call.searchParams.get("$filter")).toBe("startswith(externalDocumentNo,'HHAPP-') and journalBatchName eq 'FEEDS'");
+
+    await expect(adapter.listAppDocuments({ externalDocumentNoStartsWith: "INV-" })).rejects.toThrow(/HHAPP-/);
+    await expect(makeAdapter({ connectorInstalled: false }).adapter.listAppDocuments({})).rejects.toThrow(/HH App Connector/);
+  });
+});
+
 describe("post and read-back", () => {
   it("posts the batch (204), then reads back entry numbers, document no, posting date and the five dimensions", async () => {
     const { adapter, server } = makeAdapter();

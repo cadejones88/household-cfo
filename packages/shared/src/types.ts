@@ -489,6 +489,8 @@ export interface AuthorityMatrix {
     history: readonly { version: number; effectiveFrom: string; approvedBy: readonly string[] }[];
   };
   autoPostRules: readonly { ruleNo: string; name: string; state: RuleSummary["state"]; mayAutoPost: boolean; testPassedAt?: string }[];
+  /** When the settings version and rule states were read (the matrix itself is static until re-approved). */
+  dataThrough?: DataThrough;
 }
 
 export interface FeedConnectionSummary {

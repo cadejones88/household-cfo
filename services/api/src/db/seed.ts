@@ -16,6 +16,8 @@ import { DEFAULT_SETTINGS, type HouseholdSettings } from "../services/households
 import { nextDueDate, todayIso } from "../lib/dates.js";
 import { RULE_SEEDS } from "../services/ruleSeeds.js";
 import { IMPORT_PROFILE_SEEDS } from "../services/bankData/profiles.js";
+import { PAYCHECK_CATEGORY_SEEDS } from "../services/paychecks/categories.js";
+import { account as chartAccount } from "@homestead/shared";
 
 export interface SeedOptions {
   name?: string;
@@ -116,6 +118,15 @@ export async function seedHousehold(db: Queryable, opts: SeedOptions = {}): Prom
       `insert into categories (id, household_id, name, "group", gl_account, dimension_defaults, spend_class, is_allowance, is_transfer, household_visible, examples, version)
        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [c.id, hh, c.name, c.group, c.glAccount, JSON.stringify(c.dims), c.dims.SPEND_CLASS ?? null, c.isAllowance, c.isTransfer, c.householdVisible, [...c.examples], CATEGORY_CATALOG_VERSION],
+    );
+  }
+  // CFO-only categories for paycheck withholding lines (never shown to the household).
+  for (const c of PAYCHECK_CATEGORY_SEEDS) {
+    const dims = chartAccount(c.glAccount).dims;
+    await db.query(
+      `insert into categories (id, household_id, name, "group", gl_account, dimension_defaults, spend_class, is_allowance, is_transfer, household_visible, examples, version)
+       values ($1,$2,$3,$4,$5,$6,$7,false,false,false,'{}',$8)`,
+      [c.id, hh, c.name, c.group, c.glAccount, JSON.stringify(dims), dims.SPEND_CLASS ?? null, CATEGORY_CATALOG_VERSION],
     );
   }
 

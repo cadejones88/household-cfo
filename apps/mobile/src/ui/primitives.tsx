@@ -7,7 +7,7 @@ import { Pressable, StyleSheet, Text, TextInput, View, type StyleProp, type Text
 import { useTheme } from "./ThemeProvider";
 import { RADIUS, TAP, statusColors, STATUS_LABEL, type StatusKey } from "./theme";
 
-type TxtProps = PropsWithChildren<{ style?: StyleProp<TextStyle>; numberOfLines?: number; accessibilityRole?: "header" | "text"; testID?: string }>;
+type TxtProps = PropsWithChildren<{ style?: StyleProp<TextStyle> | undefined; numberOfLines?: number | undefined; accessibilityRole?: "header" | "text" | undefined; testID?: string | undefined }>;
 
 export function Eyebrow({ children, style }: TxtProps): React.JSX.Element {
   const { p } = useTheme();
@@ -67,7 +67,7 @@ export function Num({ children, style, numberOfLines }: TxtProps): React.JSX.Ele
   return <Text numberOfLines={numberOfLines} style={[{ fontVariant: ["tabular-nums"], color: p.ink, fontWeight: "600", fontSize: 16 }, style]}>{children}</Text>;
 }
 
-export function Card({ children, style, onPress, accessibilityLabel, hero, testID }: PropsWithChildren<{ style?: StyleProp<ViewStyle>; onPress?: () => void; accessibilityLabel?: string; hero?: boolean; testID?: string }>): React.JSX.Element {
+export function Card({ children, style, onPress, accessibilityLabel, hero, testID }: PropsWithChildren<{ style?: StyleProp<ViewStyle> | undefined; onPress?: (() => void) | undefined; accessibilityLabel?: string | undefined; hero?: boolean | undefined; testID?: string | undefined }>): React.JSX.Element {
   const { p } = useTheme();
   const base: ViewStyle = { backgroundColor: p.surface, borderRadius: RADIUS, padding: 16, gap: 10, paddingTop: hero ? 18 : 16 };
   if (onPress) {
@@ -86,11 +86,11 @@ export function Card({ children, style, onPress, accessibilityLabel, hero, testI
   return <View testID={testID} style={[base, style]}>{children}</View>;
 }
 
-export function Row({ children, style }: PropsWithChildren<{ style?: StyleProp<ViewStyle> }>): React.JSX.Element {
+export function Row({ children, style }: PropsWithChildren<{ style?: StyleProp<ViewStyle> | undefined }>): React.JSX.Element {
   return <View style={[{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }, style]}>{children}</View>;
 }
 
-export function Pill({ status, label, style }: { status: StatusKey; label?: string; style?: StyleProp<ViewStyle> }): React.JSX.Element {
+export function Pill({ status, label, style }: { status: StatusKey; label?: string | undefined; style?: StyleProp<ViewStyle> | undefined }): React.JSX.Element {
   const { p } = useTheme();
   const c = statusColors(p, status);
   const text = label ?? (status === "neutral" ? "" : STATUS_LABEL[status]);
@@ -125,14 +125,14 @@ export function Button({
   accessibilityLabel,
 }: {
   title: string;
-  onPress?: () => void;
-  kind?: ButtonKind;
-  block?: boolean;
-  small?: boolean;
-  disabled?: boolean;
-  style?: StyleProp<ViewStyle>;
-  testID?: string;
-  accessibilityLabel?: string;
+  onPress?: (() => void) | undefined;
+  kind?: ButtonKind | undefined;
+  block?: boolean | undefined;
+  small?: boolean | undefined;
+  disabled?: boolean | undefined;
+  style?: StyleProp<ViewStyle> | undefined;
+  testID?: string | undefined;
+  accessibilityLabel?: string | undefined;
 }): React.JSX.Element {
   const { p } = useTheme();
   const bg = kind === "primary" ? p.accent : kind === "ghost" ? "transparent" : p.surface2;
@@ -167,11 +167,11 @@ export function Button({
   );
 }
 
-export function ButtonRow({ children, style }: PropsWithChildren<{ style?: StyleProp<ViewStyle> }>): React.JSX.Element {
+export function ButtonRow({ children, style }: PropsWithChildren<{ style?: StyleProp<ViewStyle> | undefined }>): React.JSX.Element {
   return <View style={[{ flexDirection: "row", gap: 10, flexWrap: "wrap" }, style]}>{children}</View>;
 }
 
-export function Chip({ label, on, onPress, testID }: { label: string; on?: boolean; onPress: () => void; testID?: string }): React.JSX.Element {
+export function Chip({ label, on, onPress, testID }: { label: string; on?: boolean | undefined; onPress: () => void; testID?: string | undefined }): React.JSX.Element {
   const { p } = useTheme();
   return (
     <Pressable
@@ -199,7 +199,7 @@ export function Chips({ children }: PropsWithChildren): React.JSX.Element {
   return <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>{children}</View>;
 }
 
-export function Bar({ fraction, tone = "accent", style }: { fraction: number; tone?: "accent" | "wheat" | "watch" | "action"; style?: StyleProp<ViewStyle> }): React.JSX.Element {
+export function Bar({ fraction, tone = "accent", style }: { fraction: number; tone?: "accent" | "wheat" | "watch" | "action" | undefined; style?: StyleProp<ViewStyle> | undefined }): React.JSX.Element {
   const { p } = useTheme();
   const color = tone === "wheat" ? p.wheat : tone === "watch" ? p.watch : tone === "action" ? p.action : p.accent;
   const pct = Math.max(0, Math.min(1, Number.isFinite(fraction) ? fraction : 0));
@@ -210,7 +210,7 @@ export function Bar({ fraction, tone = "accent", style }: { fraction: number; to
   );
 }
 
-export function KV({ label, value, bold, first, valueColor }: { label: ReactNode; value: ReactNode; bold?: boolean; first?: boolean; valueColor?: string }): React.JSX.Element {
+export function KV({ label, value, bold, first, valueColor }: { label: ReactNode; value: ReactNode; bold?: boolean | undefined; first?: boolean | undefined; valueColor?: string | undefined }): React.JSX.Element {
   const { p } = useTheme();
   return (
     <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12, paddingVertical: 8, borderTopWidth: first ? 0 : StyleSheet.hairlineWidth, borderTopColor: p.line }}>
@@ -220,7 +220,7 @@ export function KV({ label, value, bold, first, valueColor }: { label: ReactNode
   );
 }
 
-export function Banner({ children, tone = "wheat" }: PropsWithChildren<{ tone?: "wheat" | "neutral" }>): React.JSX.Element {
+export function Banner({ children, tone = "wheat" }: PropsWithChildren<{ tone?: "wheat" | "neutral" | undefined }>): React.JSX.Element {
   const { p } = useTheme();
   return (
     <View accessibilityRole="text" style={{ backgroundColor: tone === "wheat" ? p.wheatSoft : p.surface2, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12 }}>
@@ -230,7 +230,7 @@ export function Banner({ children, tone = "wheat" }: PropsWithChildren<{ tone?: 
 }
 
 /** A list container (white, rounded, rows separated by hairlines). */
-export function List({ children, style }: PropsWithChildren<{ style?: StyleProp<ViewStyle> }>): React.JSX.Element {
+export function List({ children, style }: PropsWithChildren<{ style?: StyleProp<ViewStyle> | undefined }>): React.JSX.Element {
   const { p } = useTheme();
   return <View style={[{ backgroundColor: p.surface, borderRadius: RADIUS, overflow: "hidden" }, style]}>{children}</View>;
 }
@@ -251,17 +251,17 @@ export function ListItem({
   testID,
   accessibilityLabel,
 }: PropsWithChildren<{
-  glyph?: string;
-  tone?: IconTone;
+  glyph?: string | undefined;
+  tone?: IconTone | undefined;
   title: string;
-  subtitle?: string;
-  amount?: string;
-  amountIn?: boolean;
-  amountSub?: string;
-  onPress?: () => void;
-  first?: boolean;
-  testID?: string;
-  accessibilityLabel?: string;
+  subtitle?: string | undefined;
+  amount?: string | undefined;
+  amountIn?: boolean | undefined;
+  amountSub?: string | undefined;
+  onPress?: (() => void) | undefined;
+  first?: boolean | undefined;
+  testID?: string | undefined;
+  accessibilityLabel?: string | undefined;
 }>): React.JSX.Element {
   const { p } = useTheme();
   const icoBg = tone === "in" ? p.goodSoft : tone === "q" ? p.wheatSoft : tone === "rc" ? p.accentSoft : p.surface2;
@@ -314,7 +314,7 @@ export function ListItem({
 }
 
 /** A question card: wheat left border, the question, its options, and why we ask. */
-export function QCard({ children, why, style, testID }: PropsWithChildren<{ why?: string; style?: StyleProp<ViewStyle>; testID?: string }>): React.JSX.Element {
+export function QCard({ children, why, style, testID }: PropsWithChildren<{ why?: string | undefined; style?: StyleProp<ViewStyle> | undefined; testID?: string | undefined }>): React.JSX.Element {
   const { p } = useTheme();
   return (
     <View testID={testID} style={[{ backgroundColor: p.surface, borderRadius: RADIUS, paddingVertical: 14, paddingHorizontal: 16, gap: 10, borderLeftWidth: 4, borderLeftColor: p.wheat }, style]}>
@@ -324,7 +324,7 @@ export function QCard({ children, why, style, testID }: PropsWithChildren<{ why?
   );
 }
 
-export function CalRow({ weekday, day, title, note, amount, first }: { weekday: string; day: string; title: string; note?: string; amount: string; first?: boolean }): React.JSX.Element {
+export function CalRow({ weekday, day, title, note, amount, first }: { weekday: string; day: string; title: string; note?: string | undefined; amount: string; first?: boolean | undefined }): React.JSX.Element {
   const { p } = useTheme();
   return (
     <View accessible accessibilityLabel={`${weekday} ${day}, ${title}, ${amount}${note ? `, ${note}` : ""}`} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, paddingHorizontal: 14, borderTopWidth: first ? 0 : StyleSheet.hairlineWidth, borderTopColor: p.line }}>
@@ -350,7 +350,7 @@ export function PayLine({ children }: PropsWithChildren): React.JSX.Element {
   );
 }
 
-export function Toggle({ label, note, value, onChange, testID }: { label: string; note?: string; value: boolean; onChange: (v: boolean) => void; testID?: string }): React.JSX.Element {
+export function Toggle({ label, note, value, onChange, testID }: { label: string; note?: string | undefined; value: boolean; onChange: (v: boolean) => void; testID?: string | undefined }): React.JSX.Element {
   const { p } = useTheme();
   return (
     <Pressable
@@ -372,7 +372,7 @@ export function Toggle({ label, note, value, onChange, testID }: { label: string
   );
 }
 
-export function Field({ label, style, ...rest }: TextInputProps & { label?: string; style?: StyleProp<TextStyle> }): React.JSX.Element {
+export function Field({ label, style, ...rest }: TextInputProps & { label?: string | undefined; style?: StyleProp<TextStyle> | undefined }): React.JSX.Element {
   const { p } = useTheme();
   return (
     <View style={{ gap: 6 }}>
@@ -392,7 +392,7 @@ export function Grab(): React.JSX.Element {
   return <View style={{ width: 40, height: 5, borderRadius: 999, backgroundColor: p.line, alignSelf: "center" }} />;
 }
 
-export function CloseButton({ onPress, label = "Close" }: { onPress: () => void; label?: string }): React.JSX.Element {
+export function CloseButton({ onPress, label = "Close" }: { onPress: () => void; label?: string | undefined }): React.JSX.Element {
   const { p } = useTheme();
   return (
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={({ pressed }) => ({ minWidth: TAP, minHeight: TAP, alignItems: "center", justifyContent: "center", borderRadius: 12, opacity: pressed ? 0.7 : 1 })}>
@@ -401,7 +401,7 @@ export function CloseButton({ onPress, label = "Close" }: { onPress: () => void;
   );
 }
 
-export function Avatar({ initial, onPress, badge }: { initial: string; onPress: () => void; badge?: number }): React.JSX.Element {
+export function Avatar({ initial, onPress, badge }: { initial: string; onPress: () => void; badge?: number | undefined }): React.JSX.Element {
   const { p } = useTheme();
   return (
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={badge ? `Settings, ${badge} new alerts` : "Settings"} hitSlop={6} style={({ pressed }) => ({ width: 36, height: 36, borderRadius: 18, backgroundColor: p.accentSoft, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.8 : 1 })}>

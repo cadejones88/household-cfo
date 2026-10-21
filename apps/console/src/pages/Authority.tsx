@@ -12,6 +12,7 @@ export function Authority() {
         title="Authority matrix"
         lede="Who may do what, and with which step-up. Stored as household settings version 1 and shown read-only until both spouses approve it in writing. Nothing here is editable from the Console."
         right={q.data ? <Tag tone="neutral">settings v{q.data.settings.version}</Tag> : null}
+        dataThrough={q.data?.dataThrough}
       />
       {q.isLoading ? <Loading what="Reading the authority matrix" /> : q.error ? <ErrorNotice error={q.error} /> : null}
       {q.data ? (

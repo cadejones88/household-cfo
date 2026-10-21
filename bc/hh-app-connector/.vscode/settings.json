@@ -1,0 +1,8 @@
+{
+  "al.enableCodeAnalysis": true,
+  "al.codeAnalyzers": ["${CodeCop}", "${PerTenantExtensionCop}"],
+  "al.packageCachePath": ".alpackages",
+  "al.backgroundCodeAnalysis": "Project",
+  "al.ruleSetPath": "",
+  "files.trimTrailingWhitespace": true
+}

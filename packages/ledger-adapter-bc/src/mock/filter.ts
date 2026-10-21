@@ -1,11 +1,12 @@
 /**
  * A small OData $filter evaluator for the mock: `field op literal [and …]` with eq/ne/gt/ge/lt/le, string, number,
- * boolean and date literals, and BC's `'v2.0*'` wildcard on eq. Enough for every filter the adapter sends.
+ * boolean and date literals, BC's `'v2.0*'` wildcard on eq, and the string functions `startswith(field,'v')`,
+ * `endswith(field,'v')` and `contains(field,'v')`. Enough for every filter the adapter sends.
  */
 
 export interface FilterTerm {
   field: string;
-  op: "eq" | "ne" | "gt" | "ge" | "lt" | "le";
+  op: "eq" | "ne" | "gt" | "ge" | "lt" | "le" | "startswith" | "endswith" | "contains";
   value: string | number | boolean;
   wildcard: boolean;
 }
@@ -13,6 +14,7 @@ export interface FilterTerm {
 export class FilterError extends Error {}
 
 const TERM_RE = /^\s*([A-Za-z_][\w./]*)\s+(eq|ne|gt|ge|lt|le)\s+(.+?)\s*$/;
+const FUNC_RE = /^\s*(startswith|endswith|contains)\(\s*([A-Za-z_][\w./]*)\s*,\s*'((?:[^']|'')*)'\s*\)\s*$/i;
 
 export function parseFilter(filter: string | null | undefined): FilterTerm[] {
   if (!filter || !filter.trim()) return [];
@@ -33,6 +35,8 @@ export function parseFilter(filter: string | null | undefined): FilterTerm[] {
   }
   parts.push(cur);
   return parts.map((p) => {
+    const f = FUNC_RE.exec(p);
+    if (f) return { field: f[2] ?? "", op: (f[1] ?? "").toLowerCase() as FilterTerm["op"], value: (f[3] ?? "").replace(/''/g, "'"), wildcard: false };
     const m = TERM_RE.exec(p);
     if (!m) throw new FilterError(`Unsupported $filter term: ${p}`);
     const field = m[1] ?? "";
@@ -67,6 +71,13 @@ export function matchesFilter(row: Record<string, unknown>, terms: readonly Filt
   for (const t of terms) {
     if (!exposedFields.includes(t.field)) throw new FilterError(`Could not find a property named '${t.field}' on type 'Microsoft.NAV.${exposedFields[0] ?? "entity"}'.`);
     const v = row[t.field];
+    if (t.op === "startswith" || t.op === "endswith" || t.op === "contains") {
+      const s = String(v ?? "");
+      const needle = String(t.value);
+      const hit = t.op === "startswith" ? s.startsWith(needle) : t.op === "endswith" ? s.endsWith(needle) : s.includes(needle);
+      if (!hit) return false;
+      continue;
+    }
     if (t.wildcard) {
       const hit = String(v ?? "").startsWith(String(t.value));
       if (t.op === "eq" ? !hit : hit) return false;

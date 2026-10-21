@@ -352,6 +352,8 @@ export function createHttpApi(getAuthHeaders: AuthHeaders, member: () => MemberI
         rows: (matrix.rows ?? []).map((r) => ({ ...r, tbd: /TBD/.test(r.notes) || /TBD/.test(r.who), settingKeys: /I-\d\d/.test(r.notes) ? r.notes.match(/I-\d\d/g) ?? undefined : undefined })),
         settings: { version: settings.version ?? 1, effectiveFrom: new Date().toISOString(), values, history: [] },
         autoPostRules: (rules.rules ?? []).filter((r) => r.ruleNo).map((r) => ({ ruleNo: r.ruleNo!, name: r.name, state: r.state, mayAutoPost: r.mayAutoPost, testPassedAt: r.testPassedAt })),
+        // Settings and rule states are posted records with nothing pending; the matrix is static until re-approved.
+        dataThrough: nowThrough("posted_reconciled"),
       };
     },
 

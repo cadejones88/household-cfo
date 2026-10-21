@@ -344,19 +344,24 @@ export async function applyTemplateFallbacks(db: Queryable, householdId: string,
   );
   const done: string[] = [];
   for (const { id } of r.rows) {
-    const p = await loadPaycheck(db, id);
-    const employers = await listEmployers(db, householdId);
-    const emp = employers.find((e) => e.id === p.employer_id);
-    if (!emp) continue;
-    const comps = applyTemplate(emp.template, p.net_cents);
     try {
-      await applyComponents(db, householdId, id, comps, { source: "template", estimated: true, stubRead: false }, actor);
+      await applyTemplateToPaycheck(db, householdId, id, actor);
       done.push(id);
     } catch (e) {
       if (!(e instanceof PaycheckDoesNotTieError)) throw e;
     }
   }
   return done;
+}
+
+/** Apply the employer template to one paycheck now (the 3-day fallback, or a member asking for the estimate). */
+export async function applyTemplateToPaycheck(db: Queryable, householdId: string, paycheckId: string, actor: string): Promise<IntakeResult["outcome"]> {
+  const p = await loadPaycheck(db, paycheckId);
+  const employers = await listEmployers(db, householdId);
+  const emp = employers.find((e) => e.id === p.employer_id);
+  if (!emp) throw notFound("employer");
+  const comps = applyTemplate(emp.template, p.net_cents);
+  return applyComponents(db, householdId, paycheckId, comps, { source: "template", estimated: true, stubRead: false }, actor);
 }
 
 export function assertComponentKind(k: string): PaycheckComponentKind {

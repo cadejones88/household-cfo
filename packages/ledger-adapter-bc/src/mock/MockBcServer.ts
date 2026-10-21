@@ -67,6 +67,9 @@ interface MockLine {
   description: string;
   comment: string;
   lastModifiedDateTime: string;
+  /** Not exposed on journalLines; stamped like the HH AutoPost Defaults subscriber and read through the connector. */
+  sourceCode: string;
+  reasonCode: string;
   dimensionSetLines: MockDimLine[];
 }
 
@@ -611,6 +614,9 @@ export class MockBcServer {
       description,
       comment,
       lastModifiedDateTime: new Date(this.now()).toISOString(),
+      // bc/hh-app-connector/src/HHAutoPostDefaults.Codeunit.al (BC change 6): HHAPP/AUTOPOST lines carry HHAUTO/AUTOPOST.
+      sourceCode: journal.templateDisplayName === this.journalTemplate && journal.code === "AUTOPOST" ? "HHAUTO" : "GENJNL",
+      reasonCode: journal.templateDisplayName === this.journalTemplate && journal.code === "AUTOPOST" ? "AUTOPOST" : "",
       dimensionSetLines: [],
     };
     // Deep insert of the dimensionSetLines part.
@@ -676,8 +682,9 @@ export class MockBcServer {
         lastModifiedDateTime: stamp,
         externalDocumentNumber: l.externalDocumentNumber,
         journalBatchName: journal.code,
-        sourceCode: journal.templateDisplayName === this.journalTemplate ? (journal.code === "AUTOPOST" ? "HHAUTO" : "GENJNL") : "GENJNL",
-        reasonCode: journal.code === "AUTOPOST" ? "AUTOPOST" : "",
+        // Codeunit 12 copies the line's Source Code and Reason Code to the entry.
+        sourceCode: l.sourceCode,
+        reasonCode: l.reasonCode,
         dimensionSetLines: l.dimensionSetLines.map((d) => ({ ...d, parentType: "General Ledger Entry" })),
       };
       entry.dimensionSetLines.forEach((d) => {
@@ -817,16 +824,21 @@ export class MockBcServer {
       case "hhJournalLineChecks": {
         if (method !== "GET") return odataError(405, "MethodNotAllowed", "hhJournalLineChecks is read-only");
         const terms = parseFilter(ctx.query.get("$filter"));
-        const ext = terms.find((t) => t.field === "externalDocumentNo" && t.op === "eq");
-        if (!ext) return odataError(400, "BadRequest", "You must filter hhJournalLineChecks by externalDocumentNo.");
+        // HHJournalLineCheck.Page.al: a filter on externalDocumentNo (exact or startswith) is required; the other terms
+        // are applied by the page to the buffer.
+        const ext = terms.find((t) => t.field === "externalDocumentNo" && (t.op === "eq" || t.op === "startswith"));
+        if (!ext) return odataError(400, "Application_DialogException", "hhJournalLineChecks needs a $filter on externalDocumentNo (an exact value or startswith).");
         const rows: Record<string, unknown>[] = [];
-        for (const l of this.state.lines.filter((x) => x.externalDocumentNumber === ext.value)) {
-          rows.push({ externalDocumentNo: l.externalDocumentNumber, source: "Journal", journalTemplateName: l.templateName, journalBatchName: l.journalDisplayName, lineNo: l.lineNumber, lineSystemId: l.id, entryNo: 0, documentNo: l.documentNumber, postingDate: l.postingDate, accountType: l.accountType, accountNo: l.accountNumber, amount: l.amount });
+        let rowNo = 0;
+        for (const l of this.state.lines) {
+          rowNo += 1;
+          rows.push({ rowNo, externalDocumentNo: l.externalDocumentNumber, source: "Journal", journalTemplateName: l.templateName, journalBatchName: l.journalDisplayName, lineNo: l.lineNumber, lineSystemId: l.id, entryNo: 0, documentNo: l.documentNumber, postingDate: l.postingDate, accountType: l.accountType, accountNo: l.accountNumber, amount: l.amount, dimensionSetId: 0, sourceCode: l.sourceCode, reasonCode: l.reasonCode });
         }
-        for (const g of this.state.glEntries.filter((x) => x.externalDocumentNumber === ext.value)) {
-          rows.push({ externalDocumentNo: g.externalDocumentNumber, source: "Ledger", journalTemplateName: "", journalBatchName: g.journalBatchName, lineNo: 0, lineSystemId: "00000000-0000-0000-0000-000000000000", entryNo: g.entryNumber, documentNo: g.documentNumber, postingDate: g.postingDate, accountType: "G/L Account", accountNo: g.accountNumber, amount: g.debitAmount - g.creditAmount });
+        for (const g of this.state.glEntries) {
+          rowNo += 1;
+          rows.push({ rowNo, externalDocumentNo: g.externalDocumentNumber, source: "Ledger", journalTemplateName: "", journalBatchName: g.journalBatchName, lineNo: 0, lineSystemId: "00000000-0000-0000-0000-000000000000", entryNo: g.entryNumber, documentNo: g.documentNumber, postingDate: g.postingDate, accountType: "G/L Account", accountNo: g.accountNumber, amount: g.debitAmount - g.creditAmount, dimensionSetId: 0, sourceCode: g.sourceCode, reasonCode: g.reasonCode });
         }
-        return ok({ value: rows.filter((r) => matchesFilter(r, terms, ["externalDocumentNo", "source", "journalTemplateName", "journalBatchName", "lineNo", "lineSystemId", "entryNo", "documentNo", "postingDate", "accountType", "accountNo", "amount"])) });
+        return ok({ value: rows.filter((r) => matchesFilter(r, terms, ["rowNo", "externalDocumentNo", "source", "journalTemplateName", "journalBatchName", "lineNo", "lineSystemId", "entryNo", "documentNo", "postingDate", "accountType", "accountNo", "amount", "dimensionSetId", "sourceCode", "reasonCode"])) });
       }
       case "hhBankLedgerEntries": {
         if (method !== "GET") return odataError(405, "MethodNotAllowed", "hhBankLedgerEntries is read-only");
@@ -1034,7 +1046,7 @@ function lineExposedFields(): string[] {
 }
 
 function publicLine(l: MockLine): Record<string, unknown> {
-  const { dimensionSetLines: _d, templateName: _t, ...pub } = l;
+  const { dimensionSetLines: _d, templateName: _t, sourceCode: _s, reasonCode: _r, ...pub } = l;
   return pub;
 }
 
