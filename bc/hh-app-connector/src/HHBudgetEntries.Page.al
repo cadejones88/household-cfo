@@ -8,10 +8,10 @@
 ///   POST .../api/cadejonescpa/homestead/v1.0/companies({id})/hhBudgetEntries   (one $batch change set per revision)
 ///   { "budgetName": "2026-REV3", "glAccountNo": "603101", "date": "2026-11-01", "amount": 600.00,
 ///     "description": "REV 3", "globalDimension1Code": "ESSENTIAL", "globalDimension2Code": "",
-///     "budgetDimension1Code": "JOINT", "budgetDimension2Code": "NONDEDUCT", "budgetDimension3Code": "", "budgetDimension4Code": "" }
+///     "budgetDimension1Code": "JOINT", "budgetDimension2Code": "", "budgetDimension3Code": "", "budgetDimension4Code": "" }
 ///
 /// Dimension layout (BC Setup Design): Global 1 SPEND_CLASS, Global 2 FUND_GOAL; the G/L Budget Name card assigns
-/// Budget Dimension 1-4 (FAMILY_AREA, TAX_TREATMENT, PROJECT, blank). The adapter's DEFAULT_BUDGET_DIMENSION_LAYOUT
+/// Budget Dimension 1-4 (FAMILY_AREA, PROJECT, blank, blank; TAX_TREATMENT is not a budget dimension). The adapter's DEFAULT_BUDGET_DIMENSION_LAYOUT
 /// mirrors that order; keep them in step.
 /// </summary>
 page 72101 "HH Budget Entries"

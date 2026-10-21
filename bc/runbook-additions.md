@@ -70,7 +70,7 @@ Approved at Gate 1; `hhJournalLineChecks` added by the Phase 3 spec. GitHub Acti
 1. The four smoke calls in the README's step 9 (companies, hhJournalLineChecks empty answer, hhBankLedgerEntries, the `2026-ORIG` refusal) pass with the firm account's token.
 2. The same four calls pass with the application's token (change 1). This is the proof that `HH-APP` carries enough rights for the connector pages.
 3. `findByExternalDocumentNo()` for the draft document from test 1.4.4 answers `answeredBy: "connector"` with three `journalLines` and no `ledgerEntries`.
-4. A8: with a budget `2026-REV1` created in BC (**G/L Budgets → New**, name `2026-REV1`, Budget Dimension 1–3 = FAMILY_AREA, TAX_TREATMENT, PROJECT), `writeBudgetEntries("2026-REV1", …)` lands two entries visible in the budget matrix with their dimensions; `writeBudgetEntries("2026-ORIG", …)` is refused by the adapter before any call, and a direct `POST hhBudgetEntries` with `budgetName: "2026-ORIG"` is refused by BC with "original budget".
+4. A8: with a budget `2026-REV1` created in BC (**G/L Budgets → New**, name `2026-REV1`, Budget Dimension 1–2 = FAMILY_AREA, PROJECT, as the household's budget cards have it), `writeBudgetEntries("2026-REV1", …)` lands two entries visible in the budget matrix with their dimensions; `writeBudgetEntries("2026-ORIG", …)` is refused by the adapter before any call, and a direct `POST hhBudgetEntries` with `budgetName: "2026-ORIG"` is refused by BC with "original budget".
 
 ---
 
