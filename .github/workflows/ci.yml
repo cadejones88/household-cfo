@@ -3,6 +3,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 permissions:
   contents: read
   id-token: write
@@ -50,7 +51,7 @@ jobs:
     # A1–A9 against the BC sandbox. The sandbox values are repository secrets (never in code); without them the job
     # says so and stops, because build-test already ran the same suite against MockBcServer. The harness refuses any
     # environment name without "sandbox" in it.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: build-test
     runs-on: ubuntu-latest
     services:
@@ -69,7 +70,8 @@ jobs:
       AUTH_MODE: dev
       BC_SANDBOX_TENANT_ID: ${{ secrets.BC_SANDBOX_TENANT_ID }}
       BC_SANDBOX_ENVIRONMENT: CADE_Sandbox_vs25
-      BC_SANDBOX_COMPANY_ID: ${{ secrets.BC_SANDBOX_COMPANY_ID }}
+      # The company id is found from its name at the start of the run (and printed); no GUID to look up by hand.
+      BC_SANDBOX_COMPANY_NAME: ${{ vars.BC_SANDBOX_COMPANY_NAME || 'Cade & Vanessa Jones Family' }}
       BC_SANDBOX_CLIENT_ID: ${{ secrets.BC_SANDBOX_CLIENT_ID }}
       BC_SANDBOX_CERT_PEM: ${{ secrets.BC_SANDBOX_CERT_PEM }}
       BC_SANDBOX_CONNECTOR_INSTALLED: ${{ vars.BC_SANDBOX_CONNECTOR_INSTALLED || 'true' }}

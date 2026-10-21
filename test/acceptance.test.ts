@@ -11,10 +11,11 @@ import { CATEGORIES, externalDocumentNo, idempotencyKey, isSpendingAccount, sha2
 import { LedgerError, closePool, listRules, loadTx, type GlEntry, type InMemoryQueue, type TxRow } from "@homestead/api";
 import { afterAll, beforeAll, describe, expect, it, type TestContext } from "vitest";
 import { Recorder } from "./harness/report.js";
-import { ManualStep, bcSide, sandboxConfigured } from "./harness/target.js";
+import { ManualStep, bcSide, prepareSandboxEnv, sandboxConfigured } from "./harness/target.js";
 import { as, makeWorld, multipart, readFixture, type ReceiptFixture, type World } from "./harness/world.js";
 
 const hasDb = Boolean(process.env["DATABASE_URL"]);
+await prepareSandboxEnv();
 const side = bcSide();
 const recorder = new Recorder(side.kind === "sandbox" ? "bc-sandbox" : "mock-bc");
 

@@ -10,7 +10,7 @@
  * Nothing here can reach production: the sandbox environment name is checked.
  */
 import { MockBcServer } from "@homestead/ledger-adapter-bc";
-import { bcLedgerPortForMock, createBcLedgerPort, type LedgerPort } from "@homestead/api";
+import { bcLedgerPortForMock, createBcLedgerPort, resolveCompanyId, type LedgerPort } from "@homestead/api";
 
 export class ManualStep extends Error {
   constructor(what: string) {
@@ -43,7 +43,24 @@ export interface BcSide {
 }
 
 export function sandboxConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
-  return Boolean(env["BC_SANDBOX_TENANT_ID"] && env["BC_SANDBOX_COMPANY_ID"] && env["BC_SANDBOX_CLIENT_ID"] && env["BC_SANDBOX_CERT_PEM"]);
+  return Boolean(env["BC_SANDBOX_TENANT_ID"] && env["BC_SANDBOX_CLIENT_ID"] && env["BC_SANDBOX_CERT_PEM"]);
+}
+
+/** The household company in the sandbox. */
+export const DEFAULT_SANDBOX_COMPANY_NAME = "Cade & Vanessa Jones Family";
+
+/**
+ * Before the sandbox run: when BC_SANDBOX_COMPANY_ID is not set, find it from the company's name
+ * (BC_SANDBOX_COMPANY_NAME, default the household company) and print it, so setup never needs the GUID.
+ */
+export async function prepareSandboxEnv(env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  if (!sandboxConfigured(env) || env["BC_SANDBOX_COMPANY_ID"]) return;
+  const environment = env["BC_SANDBOX_ENVIRONMENT"] ?? "CADE_Sandbox_vs25";
+  if (!/sandbox/i.test(environment)) throw new Error(`Refusing to run acceptance against a non-sandbox environment (${environment})`);
+  const companyName = env["BC_SANDBOX_COMPANY_NAME"] ?? DEFAULT_SANDBOX_COMPANY_NAME;
+  const id = await resolveCompanyId({ tenantId: env["BC_SANDBOX_TENANT_ID"]!, environment, clientId: env["BC_SANDBOX_CLIENT_ID"]!, pem: env["BC_SANDBOX_CERT_PEM"]!, companyName });
+  env["BC_SANDBOX_COMPANY_ID"] = id;
+  console.log(`BC sandbox company "${companyName}" has id ${id} (not a secret; use it as HOMESTEAD_BC_COMPANY_ID for the dev deployment).`);
 }
 
 export function bcSide(env: NodeJS.ProcessEnv = process.env): BcSide {

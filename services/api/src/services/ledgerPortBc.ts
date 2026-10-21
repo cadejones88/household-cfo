@@ -369,6 +369,21 @@ export function createBcLedgerPort(cfg: BcLedgerConfig): BcLedgerPort {
   return new BcLedgerPort(adapter);
 }
 
+/**
+ * Find a company's id by its name in one BC environment (`GET api/v2.0/companies`), so setup needs only the name
+ * people see in BC ("Cade & Vanessa Jones Family"), not the GUID. Matches `name` or `displayName`, ignoring case.
+ */
+export async function resolveCompanyId(cfg: Omit<BcLedgerConfig, "companyId"> & { companyName: string }): Promise<string> {
+  const tokenProvider: TokenProvider = new CertificateCredential({ tenantId: cfg.tenantId, clientId: cfg.clientId, pem: cfg.pem, ...(cfg.fetch ? { fetch: cfg.fetch } : {}) });
+  const root = (cfg.apiBaseUrl ?? "https://api.businesscentral.dynamics.com/v2.0").replace(/\/+$/, "");
+  const http = new BcHttp({ baseUrl: `${root}/${cfg.tenantId}/${cfg.environment}`, tokenProvider, ...(cfg.fetch ? { fetch: cfg.fetch } : {}) });
+  const companies = await http.getAll<{ id: string; name?: string; displayName?: string }>(http.url("api/v2.0", "companies"));
+  const want = cfg.companyName.trim().toLowerCase();
+  const hit = companies.find((c) => c.name?.trim().toLowerCase() === want || c.displayName?.trim().toLowerCase() === want);
+  if (!hit) throw new Error(`No company named "${cfg.companyName}" in ${cfg.environment}; found: ${companies.map((c) => c.displayName ?? c.name).join(", ") || "none"}`);
+  return hit.id;
+}
+
 /** The real adapter pointed at the in-process `MockBcServer` (integration and acceptance tests, no network). */
 export function bcLedgerPortForMock(server: MockBcServer, opts: { connectorInstalled?: boolean; batchFormat?: BatchFormat } = {}): BcLedgerPort {
   const http = new BcHttp({ baseUrl: server.baseUrl, tokenProvider: new StaticTokenProvider(), fetch: server.fetch, timeoutMs: 10_000, ...(opts.batchFormat ? { batchFormat: opts.batchFormat } : {}) });
