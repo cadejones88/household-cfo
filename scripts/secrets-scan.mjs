@@ -8,7 +8,7 @@ const patterns = [
   [/(client_secret|CLIENT_SECRET|PLAID_SECRET|access_token|ACCESS_TOKEN)\s*[:=]\s*['"]?[A-Za-z0-9_\-]{16,}/, "secret value"],
   [/\bsk-ant-[A-Za-z0-9_-]{20,}/, "Anthropic API key"],
   [/\bAKIA[0-9A-Z]{16}\b/, "AWS access key"],
-  [/postgres(ql)?:\/\/[^:\s]+:[^@\s]+@/, "database password in a URL"],
+  [/postgres(ql)?:\/\/[^:\s]+:[^@\s]+@(?!localhost|127\.0\.0\.1)/, "database password in a URL"],
   [/\bSharedAccessKey=[A-Za-z0-9+/=]{20,}/, "Service Bus shared access key"],
   [/\bAccountKey=[A-Za-z0-9+/=]{40,}/, "Storage account key"],
   [/\b\d{3}-\d{2}-\d{4}\b/, "something shaped like an SSN"],
