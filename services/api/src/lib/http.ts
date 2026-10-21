@@ -71,7 +71,8 @@ export const splitInput = z.object({ amountCents: cents, categoryId: z.string().
 export async function readMultipart(req: FastifyRequest): Promise<{ file?: { bytes: Uint8Array; contentType: string; filename: string }; fields: Record<string, string> }> {
   const fields: Record<string, string> = {};
   let file: { bytes: Uint8Array; contentType: string; filename: string } | undefined;
-  const parts = (req as FastifyRequest & { parts: () => AsyncIterable<{ type: string; fieldname: string; value?: unknown; mimetype?: string; filename?: string; toBuffer?: () => Promise<Buffer> }> }).parts();
+  type Part = { type: string; fieldname: string; value?: unknown; mimetype?: string; filename?: string; toBuffer?: () => Promise<Buffer> };
+  const parts = (req as unknown as { parts: () => AsyncIterable<Part> }).parts();
   for await (const part of parts) {
     if (part.type === "file" && part.toBuffer) {
       if (!file) file = { bytes: new Uint8Array(await part.toBuffer()), contentType: part.mimetype ?? "application/octet-stream", filename: part.filename ?? "" };

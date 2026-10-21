@@ -29,6 +29,11 @@ export function useMe() {
   return useQuery({ queryKey: keys.me, queryFn: () => api.me(), staleTime: 5 * 60_000 });
 }
 
+export function useAccounts() {
+  const api = useApi();
+  return useQuery({ queryKey: ["accounts"] as const, queryFn: () => api.accounts(), staleTime: 60_000 });
+}
+
 export function useSafeToSpend() {
   const api = useApi();
   return useQuery({ queryKey: keys.safe, queryFn: () => api.safeToSpend() });

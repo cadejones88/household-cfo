@@ -9,9 +9,10 @@ import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "@/auth/AuthProvider";
-import { ApiProvider } from "@/api/ApiProvider";
+import { KEYS, SecureKeyValueStore } from "@/auth/tokenStore";
+import { ApiProvider, useApi } from "@/api/ApiProvider";
 import { ReceiptQueueProvider } from "@/receipts/ReceiptQueueProvider";
-import { onNotificationTap } from "@/push/notifications";
+import { onNotificationTap, registerForPush } from "@/push/notifications";
 import { ThemeProvider, useTheme } from "@/ui/ThemeProvider";
 import { ToastProvider } from "@/ui/Toast";
 import { FaceIdGate } from "@/ui/FaceIdGate";
@@ -38,6 +39,7 @@ export default function RootLayout(): React.JSX.Element {
 
 function Shell(): React.JSX.Element {
   const auth = useAuth();
+  const api = useApi();
   const { p, dark } = useTheme();
   const router = useRouter();
   const signedIn = auth.status === "ready" || auth.status === "locked";
@@ -50,6 +52,13 @@ function Shell(): React.JSX.Element {
     if (auth.status !== "ready") return;
     return onNotificationTap((route) => router.push(route as never));
   }, [auth.status, router]);
+
+  // Re-send the push token on each sign-in when notifications are on (the API route is a stub for now).
+  useEffect(() => {
+    if (auth.status !== "ready") return;
+    const store = new SecureKeyValueStore();
+    void store.get<boolean>(KEYS.notifications).then((on) => (on ? registerForPush(api, store) : undefined)).catch(() => undefined);
+  }, [auth.status, api]);
 
   if (auth.status === "loading") return <View style={{ flex: 1, backgroundColor: p.bg }} />;
 

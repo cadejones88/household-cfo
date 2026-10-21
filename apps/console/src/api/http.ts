@@ -1,10 +1,10 @@
 /**
- * HTTP implementation of ConsoleApi, written against services/api/openapi.yaml (Oct 20, 2026).
- *
- * The screens use the richer Console DTOs from @homestead/shared; this client composes them from the routes the
- * API actually documents. Where the API has no route yet (outbox listing and retry, receipt match from the
- * Console, loan rollforwards, employer templates) the method throws ApiError 501 `not_in_api` so the screen says
- * so instead of guessing. See README "API routes" for the full mismatch list.
+ * HTTP implementation of ConsoleApi, written against services/api/openapi.yaml and reconciled with the routes as
+ * implemented in services/api/src/routes/console.ts (Oct 20, 2026), which return a little more than the OpenAPI
+ * documents (outbox list and retry, subscription ids, draft sums, documentNo on exception resolution, the
+ * household in /console/settings). The screens use the richer Console DTOs from @homestead/shared; this client
+ * composes them from those routes. Where the API has no data yet (loan rollforwards, employer templates, BC-side
+ * draft counts) the field is left empty and the screen says so. See README "API routes" for the list.
  *
  * Auth: `getAuthHeaders` supplies `Authorization: Bearer …` (Entra) or `x-dev-member` (AUTH_MODE=dev). Step-up
  * sends `x-step-up: true` in dev; with Entra a fresh token's `amr` claim carries it.
@@ -30,6 +30,7 @@ import {
   type HealthReport,
   type MappingProposal,
   type MappingSet,
+  type OutboxItem,
   type ReceiptSummary,
   type RuleSummary,
   type SyncRunSummary,
@@ -55,31 +56,43 @@ interface QueuesResponse {
   dataThrough?: DataThrough;
 }
 interface PostingResponse {
-  batches?: { batch: BcBatch; approved?: number; sentToBc?: number; draftCreated?: number; posted?: number; exceptions?: number; deadLettered?: number }[];
+  batches?: { batch: BcBatch; approved?: number; sentToBc?: number; draftCreated?: number; posted?: number; exceptions?: number; deadLettered?: number; draftSumCents?: number }[];
   autoPostEnabled?: boolean;
   outboxDue?: number;
+  lastPollAt?: string;
+  lastWebhookAt?: string;
 }
 interface ConnectionsResponse {
-  feeds?: { id: string; provider: "plaid" | "file" | "simplefin"; institutionName?: string; ownerMemberId?: string; status?: FeedConnectionSummary["status"]; needsRelink?: boolean; lastSyncedAt?: string; staleHours?: number }[];
+  feeds?: { id: string; provider: "plaid" | "file" | "simplefin"; institutionName?: string; ownerMemberId?: string; ownerName?: string; status?: FeedConnectionSummary["status"]; needsRelink?: boolean; lastSyncedAt?: string; staleHours?: number; accountCount?: number; cursorPresent?: boolean }[];
   ledger?: { environment?: string; companyId?: string; autoPostEnabled?: boolean; lastPollAt?: string; lastWebhookAt?: string };
-  webhooks?: { resource: string; expiresAt?: string; lastRenewedAt?: string }[];
-  outbox?: { due?: number; deadLettered?: number };
+  webhooks?: { resource: string; subscriptionId?: string; expiresAt?: string; lastRenewedAt?: string; needsRenewal?: boolean }[];
+  outbox?: { due?: number; deadLettered?: number; oldestPendingAt?: string };
 }
 interface SettingsResponse {
   version?: number;
   settings?: Record<string, unknown> & { authorityMatrix?: unknown[] };
+  household?: { id: string; name: string; timezone: string; currency: string };
+  history?: { version: number; effectiveFrom: string; approvedBy: string[] }[];
 }
 interface MatrixResponse {
   version?: number;
   rows?: { action: string; who: string; stepUp: string; notes: string }[];
+  approvedAt?: string;
+  approvedBy?: string[];
+  settingsVersion?: number;
+  autoPostRules?: { ruleNo: string; name: string; state: RuleSummary["state"]; mayAutoPost: boolean; testPassedAt?: string }[];
 }
 interface ReconResponse {
-  accounts?: { accountId: string; displayName?: string; bcBankAccountCode?: string; posted?: number; reconciled?: number; bcNative?: number; differences?: number; lastPollAt?: string }[];
+  accounts?: { accountId: string; displayName?: string; bcBankAccountCode?: string; glAccount?: string; mask?: string; institution?: string; posted?: number; reconciled?: number; bcNative?: number; differences?: number; lastPollAt?: string }[];
 }
 interface MappingsResponse {
-  categories?: { id: string; name: string; group: string; glAccount: string; dims?: Record<string, string>; isAllowance?: boolean; isTransfer?: boolean; householdVisible?: boolean }[];
-  accounts?: AccountSummary[];
+  catalogVersion?: number;
+  categories?: { id: string; name: string; group: string; glAccount: string; dims?: Record<string, string>; isAllowance?: boolean; isTransfer?: boolean; householdVisible?: boolean; version?: number }[];
+  accounts?: (AccountSummary & { bcBankAccountCode?: string; bcGlAccount?: string })[];
   dimensions?: Record<string, string[]>;
+}
+interface OutboxResponse {
+  items?: (OutboxItem & { operation?: string })[];
 }
 
 function qs(params: Record<string, string | number | boolean | undefined>): string {
@@ -97,10 +110,6 @@ function page<T>(items: readonly T[], q: PageQuery | undefined, dataThrough: Dat
 }
 
 const nowThrough = (quality: DataThrough["quality"], pendingCount = 0): DataThrough => ({ at: new Date().toISOString(), quality, pendingCount });
-
-function notInApi(what: string): never {
-  throw new ApiError(501, "not_in_api", `${what} is not in services/api/openapi.yaml yet; see apps/console/README.md "API routes".`);
-}
 
 export function createHttpApi(getAuthHeaders: AuthHeaders, member: () => MemberInfo, baseUrl = config.apiBaseUrl): ConsoleApi {
   async function call<T>(method: "GET" | "POST" | "PUT", path: string, body?: unknown, extra: Record<string, string> = {}): Promise<T> {
@@ -159,12 +168,13 @@ export function createHttpApi(getAuthHeaders: AuthHeaders, member: () => MemberI
   }
 
   const api: ConsoleApi = {
+    // No /v1/me route: the household comes from /v1/console/settings and the BC connection from /v1/console/connections.
     async me(): Promise<ConsoleMe> {
       const [conn, settings] = await Promise.all([get<ConnectionsResponse>("/v1/console/connections"), get<SettingsResponse>("/v1/console/settings")]);
       const m = member();
       return {
         member: { id: m.id, displayName: m.displayName, role: "member" },
-        household: { id: "", name: "Household", timezone: config.timeZone, settingsVersion: settings.version ?? 1 },
+        household: { id: settings.household?.id ?? "", name: settings.household?.name ?? "Household", timezone: settings.household?.timezone ?? config.timeZone, settingsVersion: settings.version ?? 1 },
         ledger: {
           tenantId: config.bc.tenant,
           environment: conn.ledger?.environment ?? config.bc.environment,
@@ -244,7 +254,7 @@ export function createHttpApi(getAuthHeaders: AuthHeaders, member: () => MemberI
     },
 
     async resolveException(id, resolution: ExceptionResolution) {
-      const body = resolution.to === "posted" ? { to: "posted", entryNos: resolution.bcEntryNos, postingDate: resolution.bcPostingDate, note: resolution.note } : { to: "ready_for_review", note: resolution.note };
+      const body = resolution.to === "posted" ? { to: "posted", entryNos: resolution.bcEntryNos, documentNo: resolution.bcDocumentNo, postingDate: resolution.bcPostingDate, note: resolution.note } : { to: "ready_for_review", note: resolution.note };
       const t = await post<Transaction>(`/v1/console/exceptions/${id}/resolve`, body, true);
       bust();
       return enrich(t);
@@ -257,7 +267,12 @@ export function createHttpApi(getAuthHeaders: AuthHeaders, member: () => MemberI
       return page(items, q, r.dataThrough ?? nowThrough("imported_pending"));
     },
 
-    matchReceipt: () => notInApi("Matching a receipt from the Console (POST /v1/receipts/{id}/match)"),
+    async matchReceipt(receiptId, transactionId) {
+      const r = await post<ReceiptSummary & { transaction?: Transaction }>(`/v1/receipts/${receiptId}/match`, { transactionId });
+      bust();
+      const { transaction: _tx, ...summary } = r;
+      return { ...summary, memberName: "—" };
+    },
 
     async rules(state, q) {
       const r = await get<{ rules?: RuleSummary[] }>(`/v1/rules${qs({ state })}`);
@@ -272,24 +287,27 @@ export function createHttpApi(getAuthHeaders: AuthHeaders, member: () => MemberI
 
     async syncStatus(): Promise<SyncStatus> {
       const [posting, conn] = await Promise.all([get<PostingResponse>("/v1/console/posting"), get<ConnectionsResponse>("/v1/console/connections")]);
+      // BC-side draft counts (bcDraftCount/bcDraftSumCents) come from the nightly poll and are not exposed yet;
+      // the API's `exceptions` per batch is the difference count the poll raised.
       const batches = (["FEEDS", "RECEIPTS", "AUTOPOST"] as BcBatch[]).map((batch) => {
         const b = posting.batches?.find((x) => x.batch === batch);
         return {
           batch,
           appDraftCount: b?.draftCreated ?? 0,
-          appDraftSumCents: 0,
+          appDraftSumCents: b?.draftSumCents ?? 0,
           inFlightCount: (b?.approved ?? 0) + (b?.sentToBc ?? 0),
           differenceCount: b?.exceptions ?? 0,
         };
       });
+      const lastPollAt = posting.lastPollAt ?? conn.ledger?.lastPollAt;
       return {
         batches,
-        lastWebhookAt: conn.ledger?.lastWebhookAt,
-        lastPollAt: conn.ledger?.lastPollAt,
-        outbox: { depth: posting.outboxDue ?? conn.outbox?.due ?? 0, deadLetters: conn.outbox?.deadLettered ?? 0 },
+        lastWebhookAt: posting.lastWebhookAt ?? conn.ledger?.lastWebhookAt,
+        lastPollAt,
+        outbox: { depth: posting.outboxDue ?? conn.outbox?.due ?? 0, deadLetters: conn.outbox?.deadLettered ?? 0, oldestPendingAt: conn.outbox?.oldestPendingAt },
         subscriptions: toSubscriptions(conn.webhooks),
         autoPostEnabled: posting.autoPostEnabled ?? conn.ledger?.autoPostEnabled ?? false,
-        dataThrough: nowThrough(conn.ledger?.lastPollAt ? "posted_unreconciled" : "missing"),
+        dataThrough: nowThrough(lastPollAt ? "posted_unreconciled" : "missing"),
       };
     },
 
@@ -324,14 +342,14 @@ export function createHttpApi(getAuthHeaders: AuthHeaders, member: () => MemberI
       const [m, approvals] = await Promise.all([get<MappingsResponse>("/v1/console/mappings"), get<{ approvals?: { id: string; kind: string; payload: Record<string, unknown>; requestedByName?: string; requestedBy: string; requestedAt: string }[] }>("/v1/approvals?state=open").catch(() => ({ approvals: [] }))]);
       const byCode = new Map((m.accounts ?? []).map((a) => [a.bcBankAccountCode, a]));
       return {
-        catalogVersion: CATEGORY_CATALOG_VERSION,
-        categories: (m.categories ?? []).map((c) => ({ id: c.id, name: c.name, group: c.group, glAccount: c.glAccount, dims: c.dims ?? {}, spendClass: c.dims?.["SPEND_CLASS"], isAllowance: c.isAllowance ?? false, isTransfer: c.isTransfer ?? false, householdVisible: c.householdVisible ?? true, version: 1 })),
+        catalogVersion: m.catalogVersion ?? CATEGORY_CATALOG_VERSION,
+        categories: (m.categories ?? []).map((c) => ({ id: c.id, name: c.name, group: c.group, glAccount: c.glAccount, dims: c.dims ?? {}, spendClass: c.dims?.["SPEND_CLASS"], isAllowance: c.isAllowance ?? false, isTransfer: c.isTransfer ?? false, householdVisible: c.householdVisible ?? true, version: c.version ?? 1 })),
         dimensions: Object.entries(m.dimensions ?? {}).map(([code, values], i) => ({ code, name: code.replace("_", " ").toLowerCase(), slot: (["global1", "global2", "shortcut3", "shortcut4", "shortcut5"] as const)[i] ?? "shortcut5", values: values.map((v) => ({ code: v, name: v })) })),
         bankCards: BANK_CARD_LIST.map((b) => {
           const a = byCode.get(b.code);
           return { code: b.code, glAccount: b.glAccount, name: b.name, kind: b.kind, institution: b.institution, mask: b.mask, accountId: a?.id, feedProvider: a?.feedStatus === "file_only" ? "file" : a && a.feedStatus !== "none" ? "plaid" : undefined };
         }),
-        employers: [], // not in openapi.yaml yet
+        employers: [], // employer templates are not exposed by /v1/console/mappings yet
         pendingProposals: (approvals.approvals ?? []).filter((a) => a.kind === "settings" && a.payload["kind"] === "mapping").map((a) => ({ approvalId: a.id, categoryId: String(a.payload["categoryId"] ?? ""), requestedBy: a.requestedByName ?? a.requestedBy, requestedAt: a.requestedAt })),
         dataThrough: nowThrough("posted_unreconciled"),
       };
@@ -344,14 +362,18 @@ export function createHttpApi(getAuthHeaders: AuthHeaders, member: () => MemberI
     },
 
     async authority(): Promise<AuthorityMatrix> {
-      const [matrix, settings, rules] = await Promise.all([get<MatrixResponse>("/v1/console/authority-matrix"), get<SettingsResponse>("/v1/console/settings"), get<{ rules?: RuleSummary[] }>("/v1/rules?state=all").catch(() => ({ rules: [] }))]);
+      const [matrix, settings] = await Promise.all([get<MatrixResponse>("/v1/console/authority-matrix"), get<SettingsResponse>("/v1/console/settings")]);
       const values = { ...(settings.settings ?? {}) };
       delete values.authorityMatrix;
+      const history = settings.history ?? [];
+      const current = history.find((h) => h.version === (settings.version ?? 1));
       return {
         version: matrix.version ?? settings.version ?? 1,
+        approvedAt: matrix.approvedAt,
+        approvedBy: matrix.approvedBy,
         rows: (matrix.rows ?? []).map((r) => ({ ...r, tbd: /TBD/.test(r.notes) || /TBD/.test(r.who), settingKeys: /I-\d\d/.test(r.notes) ? r.notes.match(/I-\d\d/g) ?? undefined : undefined })),
-        settings: { version: settings.version ?? 1, effectiveFrom: new Date().toISOString(), values, history: [] },
-        autoPostRules: (rules.rules ?? []).filter((r) => r.ruleNo).map((r) => ({ ruleNo: r.ruleNo!, name: r.name, state: r.state, mayAutoPost: r.mayAutoPost, testPassedAt: r.testPassedAt })),
+        settings: { version: settings.version ?? 1, effectiveFrom: current?.effectiveFrom ?? history.at(-1)?.effectiveFrom ?? new Date().toISOString(), values, history },
+        autoPostRules: matrix.autoPostRules ?? [],
         // Settings and rule states are posted records with nothing pending; the matrix is static until re-approved.
         dataThrough: nowThrough("posted_reconciled"),
       };
@@ -362,13 +384,13 @@ export function createHttpApi(getAuthHeaders: AuthHeaders, member: () => MemberI
       const feeds: FeedConnectionSummary[] = (conn.feeds ?? []).map((f) => ({
         id: f.id,
         provider: f.provider,
-        institutionName: f.institutionName ?? f.id,
-        ownerName: f.ownerMemberId ?? "—",
+        institutionName: f.institutionName || f.id,
+        ownerName: f.ownerName || f.ownerMemberId || "—",
         status: f.status ?? "ok",
         needsRelink: f.needsRelink ?? f.status === "needs_relink",
         lastSyncedAt: f.lastSyncedAt,
-        accountCount: 0,
-        cursorPresent: f.provider === "plaid",
+        accountCount: f.accountCount ?? 0,
+        cursorPresent: f.cursorPresent ?? f.provider === "plaid",
       }));
       return {
         feeds,
@@ -384,8 +406,18 @@ export function createHttpApi(getAuthHeaders: AuthHeaders, member: () => MemberI
       return page(items, q, nowThrough("imported_pending"));
     },
 
-    outbox: () => notInApi("Listing the outbox (GET /v1/console/outbox)"),
-    retryOutbox: () => notInApi("Retrying a dead-lettered outbox row (POST /v1/console/outbox/{id}/retry)"),
+    // GET /v1/console/outbox?state=due|dead|done|all (implemented in routes/console.ts; not in openapi.yaml yet).
+    async outbox(q) {
+      const state = q?.deadLettered === true ? "dead" : q?.deadLettered === false ? "due" : "all";
+      const r = await get<OutboxResponse>(`/v1/console/outbox${qs({ state, limit: 500 })}`);
+      return page((r.items ?? []).map((o) => ({ ...o, operation: o.operation ?? "" })), q, nowThrough("imported_pending"));
+    },
+
+    // POST /v1/console/outbox/{id}/retry (step-up): back to due with attempts reset; the worker's pre-write check keeps it safe.
+    async retryOutbox(id) {
+      const o = await post<OutboxItem & { operation?: string }>(`/v1/console/outbox/${id}/retry`, {}, true);
+      return { ...o, operation: o.operation ?? "" };
+    },
 
     // The API pages by `before` cursor; the Console asks for page*pageSize and slices, which is fine at household scale.
     async audit(q) {
@@ -412,9 +444,9 @@ function toSubscriptions(webhooks: ConnectionsResponse["webhooks"]): BcSubscript
   const soon = Date.now() + 24 * 3_600_000;
   return (webhooks ?? []).map((w) => ({
     resource: w.resource,
-    subscriptionId: "—",
+    subscriptionId: w.subscriptionId ?? "—",
     expiresAt: w.expiresAt ?? "",
     lastRenewedAt: w.lastRenewedAt,
-    needsRenewal: !w.expiresAt || Date.parse(w.expiresAt) < soon,
+    needsRenewal: w.needsRenewal ?? (!w.expiresAt || Date.parse(w.expiresAt) < soon),
   }));
 }

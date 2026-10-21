@@ -363,9 +363,9 @@ export async function patchTx(db: Queryable, householdId: string, txId: string, 
 export interface SplitInput {
   amountCents: number;
   categoryId: string;
-  description?: string;
-  receiptLineId?: string;
-  dims?: DimensionSet;
+  description?: string | undefined;
+  receiptLineId?: string | undefined;
+  dims?: DimensionSet | undefined;
 }
 
 const EDITABLE_STATES: readonly TransactionState[] = ["imported", "possible_duplicate", "needs_receipt", "needs_classification", "ready_for_review", "approved", "exception"];

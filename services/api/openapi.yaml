@@ -71,11 +71,62 @@ paths:
                   accounts: { type: array, items: { $ref: "#/components/schemas/AccountSummary" } }
                   dataThrough: { $ref: "#/components/schemas/DataThrough" }
 
+  /v1/accounts/link-token:
+    post:
+      tags: [accounts]
+      summary: A Plaid Link token for the signed-in member (Link runs in Plaid's own view)
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { institutionId: { type: string } } }
+      responses:
+        "200": { description: Link token, content: { application/json: { schema: { type: object, required: [linkToken, expiration], properties: { linkToken: { type: string }, expiration: { type: string, format: date-time } } } } } }
+
+  /v1/accounts/link:
+    post:
+      tags: [accounts]
+      summary: Exchange the public token from Link (step-up); the access token is vaulted by name, never returned
+      description: Only the login's owner holds it. `accounts` maps household accounts to the Plaid account ids chosen in Link.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [publicToken]
+              properties:
+                publicToken: { type: string }
+                institutionId: { type: string }
+                institutionName: { type: string }
+                accounts: { type: array, items: { type: object, required: [accountId, plaidAccountId], properties: { accountId: { type: string, format: uuid }, plaidAccountId: { type: string } } } }
+      responses:
+        "201": { description: Linked, content: { application/json: { schema: { type: object, properties: { feedConnectionId: { type: string, format: uuid }, itemId: { type: string } } } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /v1/accounts/feeds/{id}/unlink:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    post:
+      tags: [accounts]
+      summary: Remove a bank login (the login's owner only; step-up). The vaulted token is deleted.
+      responses:
+        "200": { description: Removed }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /v1/accounts/institutions:
+    get:
+      tags: [accounts]
+      summary: Search institutions Plaid supports (coverage confirmation)
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 2 } }
+      responses:
+        "200": { description: Institutions, content: { application/json: { schema: { type: object, properties: { institutions: { type: array, items: { type: object, properties: { id: { type: string }, name: { type: string } } } } } } } } }
+
   /v1/transactions:
     get:
       tags: [transactions]
       summary: Recent activity, searchable
       parameters:
+        - { name: includePending, in: query, schema: { type: boolean, default: true }, description: Pending feed lines carry `pending: true` and no BC key }
         - { name: from, in: query, schema: { type: string, format: date } }
         - { name: to, in: query, schema: { type: string, format: date } }
         - { name: q, in: query, schema: { type: string }, description: Merchant text, matched against the normalized merchant }
@@ -248,7 +299,9 @@ paths:
                 properties:
                   transaction: { $ref: "#/components/schemas/Transaction" }
                   approval: { $ref: "#/components/schemas/Approval" }
+                  paycheckOutcome: { type: string, enum: [approved, ready_for_review, needs_answers, does_not_tie, correction_requested], description: For a paycheck_component answer }
                   nextQuestion: { $ref: "#/components/schemas/Question" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
@@ -258,6 +311,8 @@ paths:
       summary: Receipts, newest first
       parameters:
         - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
+        - { name: status, in: query, schema: { type: string, enum: [queued, read, failed, needs_review] } }
+        - { name: unmatched, in: query, schema: { type: boolean }, description: Only receipts not yet matched to a bank line }
       responses:
         "200":
           description: Receipts
@@ -305,6 +360,28 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ReceiptDetail" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/receipts/{id}/match:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    post:
+      tags: [receipts]
+      summary: Pick the bank line for a receipt the matcher could not decide (Console function 1)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [transactionId], properties: { transactionId: { type: string, format: uuid } } }
+      responses:
+        "200":
+          description: Linked; the line's splits are written from the receipt and it moves on through the state machine
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ReceiptSummary"
+                  - type: object
+                    properties: { transaction: { $ref: "#/components/schemas/Transaction" } }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/receipts/amazon-email:

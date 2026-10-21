@@ -7,6 +7,7 @@ import type { QueueItem } from "../receipts/queue";
 import { categoryName } from "../model/categories";
 import { money, relDate } from "../model/format";
 import { rowIcon, statusLine } from "../model/status";
+import { queuedReceiptWords } from "../model/syncWords";
 import { ListItem } from "./primitives";
 
 export function TxRow({ tx, today, first, onPress }: { tx: Transaction; today: string; first?: boolean; onPress: () => void }): React.JSX.Element {
@@ -32,6 +33,5 @@ export function TxRow({ tx, today, first, onPress }: { tx: Transaction; today: s
 
 /** A receipt still on the phone (or just uploaded and being read). */
 export function QueuedReceiptRow({ item, first, onPress }: { item: QueueItem; first?: boolean; onPress: () => void }): React.JSX.Element {
-  const status = item.status === "synced" || item.status === "duplicate" ? "Reading your receipt…" : item.status === "error" ? "Couldn't be read — tap for details" : "Not synced yet";
-  return <ListItem first={first} glyph="▣" tone="rc" title="Receipt you snapped" subtitle={status} amountSub="Today" onPress={onPress} testID={`queued-${item.clientId}`} />;
+  return <ListItem first={first} glyph="▣" tone="rc" title="Receipt you snapped" subtitle={queuedReceiptWords(item.status)} amountSub="Today" onPress={onPress} testID={`queued-${item.clientId}`} />;
 }

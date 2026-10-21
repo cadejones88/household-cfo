@@ -67,7 +67,7 @@ export async function audit(db: Queryable, householdId: string, a: AuditInput): 
 }
 
 export interface OutboxInput {
-  aggregate: "transaction" | "budget_revision" | "receipt" | "paycheck";
+  aggregate: "transaction" | "budget_revision" | "receipt" | "paycheck" | "household";
   aggregateId: string;
   operation: string;
   payload: unknown;

@@ -26,8 +26,8 @@ export interface PreparedCapture {
 
 export interface CaptureSource {
   uri: string;
-  width?: number;
-  height?: number;
+  width?: number | undefined;
+  height?: number | undefined;
 }
 
 /** Mint the queue id once; it is the `offlineId` the API echoes and the `sourceRef` on the transaction. */

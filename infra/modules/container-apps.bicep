@@ -97,7 +97,7 @@ var scheduledJobs = [
 
 resource scheduled 'Microsoft.App/jobs@2025-01-01' = [
   for j in scheduledJobs: {
-    name: 'homestead-${env}-job-${j.name}'
+    name: 'homestead-${env}-${j.name}' // job names are limited to 32 characters
     location: location
     tags: union(tags, { 'homestead-job': j.name, note: j.note })
     identity: { type: 'UserAssigned', userAssignedIdentities: { '${jobsIdentityId}': {} } }
@@ -141,7 +141,7 @@ var eventJobs = [
 
 resource eventDriven 'Microsoft.App/jobs@2025-01-01' = [
   for j in eventJobs: {
-    name: 'homestead-${env}-job-${j.name}'
+    name: 'homestead-${env}-${j.name}' // job names are limited to 32 characters
     location: location
     tags: union(tags, { 'homestead-job': j.name, note: j.note })
     identity: { type: 'UserAssigned', userAssignedIdentities: { '${jobsIdentityId}': {} } }
@@ -200,4 +200,4 @@ resource eventDriven 'Microsoft.App/jobs@2025-01-01' = [
 output apiName string = api.name
 output apiFqdn string = api.properties.configuration.ingress.fqdn
 output apiUrl string = 'https://${api.properties.configuration.ingress.fqdn}'
-output jobNames array = concat(map(scheduledJobs, j => 'homestead-${env}-job-${j.name}'), map(eventJobs, j => 'homestead-${env}-job-${j.name}'))
+output jobNames array = concat(map(scheduledJobs, j => 'homestead-${env}-${j.name}'), map(eventJobs, j => 'homestead-${env}-${j.name}'))

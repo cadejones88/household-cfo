@@ -1,0 +1,18 @@
+# Build context for services/api/Dockerfile is the repository root. Only package manifests and the four packages
+# the image needs are COPYed; this keeps the context small and keeps local build output and env files out.
+**/node_modules
+**/dist
+**/.turbo
+**/coverage
+**/test-results
+**/playwright-report
+**/.expo
+.git
+.github
+bc/
+docs/
+infra/
+prototype/
+**/.env
+**/.env.*
+!**/.env.example

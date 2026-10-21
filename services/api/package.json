@@ -4,7 +4,7 @@
   "private": true,
   "description": "Homestead API: auth, households, transactions, receipts, paychecks, approvals, Ask Homestead, Plaid and BC webhooks",
   "type": "module",
-  "main": "./dist/server.js",
+  "main": "./dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -12,7 +12,8 @@
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
     "db:migrate": "tsx src/db/migrate.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "db:seed": "tsx src/db/seed.ts"
   },
   "dependencies": {
     "@homestead/shared": "workspace:*",
@@ -34,5 +35,16 @@
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^3.1.0"
+  },
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./app": {
+      "types": "./dist/app.d.ts",
+      "import": "./dist/app.js"
+    }
   }
 }

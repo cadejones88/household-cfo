@@ -5,18 +5,9 @@
 import { useEffect, useRef } from "react";
 import { Animated, Text, View } from "react-native";
 import { useReceiptQueue } from "../receipts/ReceiptQueueProvider";
+import { syncBarText } from "../model/syncWords";
 import { useTheme } from "./ThemeProvider";
 import { GUTTER } from "./theme";
-
-export function syncBarText(online: boolean, pendingCount: number): string | undefined {
-  if (!online) {
-    return pendingCount
-      ? `You're offline. ${pendingCount} receipt${pendingCount > 1 ? "s" : ""} saved on your phone — not synced yet.`
-      : "You're offline. Receipts you snap will be saved on your phone and sent when you're back online.";
-  }
-  if (pendingCount) return `Uploading ${pendingCount} receipt${pendingCount > 1 ? "s" : ""}…`;
-  return undefined;
-}
 
 export function SyncBar(): React.JSX.Element | null {
   const { p } = useTheme();

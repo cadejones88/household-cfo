@@ -12,6 +12,11 @@ Household finance app for the Jones family: a phone-first app for both spouses, 
 | `docs/phase2-prototype-guide.md` | How to try the prototype and what to watch for at Gate 2 |
 | `docs/phase3-architecture-spec.md` | The architecture and integration spec: stack, data model, state machine, BC mapping, HH App Connector, auto-post rules, security, cost, DR, tests, backlog (approved at Gate 3) |
 | `prototype/homestead.html` | The Phase 2 clickable prototype (single file, sample data, works offline once loaded). Published as a private artifact for phone testing |
+| `apps/console/` | Homestead Console, the desktop CFO view (React + Vite): work queues, BC sync and posting, reconciliation, mappings, authority matrix, health/logs/audit, plus six "after the pilot" tiles. Mock mode runs with no API; see its README for the API-route gaps |
+| `infra/` | Bicep for `rg-homestead-dev/pilot/prod` (Postgres, Key Vault, storage, Service Bus, Container Apps + jobs, Static Web App, registry, monitoring, RBAC, budget) and the per-environment parameter files; `infra/README.md` for deploy commands |
+| `services/api/Dockerfile` | The one image for the API and the jobs (multi-stage, pnpm deploy, non-root) |
+| `.github/workflows/deploy-dev.yml` | Deploys dev on push to `main` with OIDC once the repository variable `DEPLOY_ENABLED` is `true` |
+| `docs/runbook-azure-setup.md` | Cade's one-time checklist: subscription, GitHub OIDC, Entra External ID tenant and app registrations, custom domain, BC app registration and certificate, Plaid, Apple, where every secret lives |
 | `packages/ledger-adapter-bc/` | The ledger adapter interface and its Business Central implementation: certificate auth, `$batch` splits, pre-write check, post and read-back, bank ledger entries, budget revisions, webhooks, the retry schedule, the transaction-to-journal-lines mapping, and `MockBcServer` (the in-process BC fake the tests run against) |
 | `bc/hh-app-connector/`, `bc/runbook-additions.md` | The HH App Connector AL extension (`hhBankLedgerEntries`, `hhBudgetEntries`, `hhJournalLineChecks`, permission set HH-APP) with its publishing guide, and the by-hand sandbox steps for BC changes 1–6 |
 

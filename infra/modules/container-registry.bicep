@@ -16,11 +16,9 @@ resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
   properties: {
     adminUserEnabled: false
     publicNetworkAccess: 'Enabled'
-    anonymousPullEnabled: false
     zoneRedundancy: 'Disabled'
-    policies: {
-      retentionPolicy: { status: 'enabled', days: 30 } // untagged manifests
-    }
+    // Retention policies for untagged manifests are a Premium feature; the deploy workflow prunes old tags
+    // instead (`az acr repository delete`), see infra/README.md.
   }
 }
 

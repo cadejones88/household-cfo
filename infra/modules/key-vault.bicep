@@ -17,7 +17,7 @@ param suffix string
 param storageCmkKeyName string = 'storage-cmk'
 
 resource vault 'Microsoft.KeyVault/vaults@2023-07-01' = {
-  name: 'kv-homestead-${env}-${suffix}'
+  name: 'kv-homestead-${env}-${take(suffix, 4)}' // vault names are limited to 24 characters
   location: location
   tags: tags
   properties: {
@@ -46,8 +46,8 @@ resource storageCmk 'Microsoft.KeyVault/vaults/keys@2023-07-01' = {
     keyOps: ['wrapKey', 'unwrapKey']
     rotationPolicy: {
       lifetimeActions: [
-        { trigger: { timeBeforeExpiry: 'P30D' }, action: { type: 'Rotate' } }
-        { trigger: { timeBeforeExpiry: 'P14D' }, action: { type: 'Notify' } }
+        { trigger: { timeBeforeExpiry: 'P30D' }, action: { type: 'rotate' } }
+        { trigger: { timeBeforeExpiry: 'P14D' }, action: { type: 'notify' } }
       ]
       attributes: { expiryTime: 'P1Y' }
     }
