@@ -68,7 +68,7 @@ In the sandbox:
 2. **Client ID** = the Application (client) ID; **Description** `Homestead BC Sandbox`; **State** Enabled.
 3. **User Permission Sets**: Permission Set **HH-APP**, Company **Cade & Vanessa Jones Family**. The first runs showed BC also needs two read-only sets that an extension cannot carry. Both were added with Cade's approval and both are for the household company only:
    - **SUSTAINABILITY READ** (Microsoft's): BC reads Sustainability Setup on every journal line.
-   - **HH-APP-SYS** (user-defined): a single line, Table Data 2000000076 Web Service, Read Indirect. BC reads it when a budget entry is inserted.
+   - **HH-APP-SYS** (user-defined): Read Indirect on two tables. Web Service (2000000076) is read when a budget entry is inserted. API Webhook Subscription (2000000095) is read on every insert the app makes while a webhook subscription exists.
 
    Nothing else (`bc/runbook-additions.md`, change 1.3).
 4. Do **not** use **Grant Consent**. The admin consent from step 3 already covers it, and BC's button needs a redirect URI that this registration deliberately doesn't have (it fails with AADSTS900561, "The endpoint only accepts POST requests").
@@ -111,7 +111,9 @@ To open an HHAPP batch: search **General Journal Templates**, select **HHAPP**, 
 
 Then tell Claude "done". The next run should pass A1, A2 and A7. Claude can do these steps in the built-in browser instead, if you approve the list.
 
-A guided run is also possible. Start CI with **Run workflow** and wait_minutes = 30. The run then waits at each step, checking BC every 20 seconds, instead of skipping. A6 needs this, because it needs a posting during the run, as well as a public webhook receiver.
+A guided run is also possible. Start CI with **Run workflow** and wait_minutes = 30. The run then waits at each step, checking BC every 20 seconds, instead of skipping.
+
+**A6** needs a guided run with **a6_receiver** ticked as well. CI then opens a temporary public webhook receiver for that run only: a Cloudflare quick tunnel to the test run, answering BC's webhook route and nothing else. About two minutes into the test step, HHAPP/FEEDS gets one new line: WinCo Foods, $33.10, 10/27/2026. Post it while the run waits. The run deletes its own subscriptions when it ends.
 
 ## 7. Gate 4
 
