@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      wait_minutes:
+        description: "Sandbox run: minutes to wait at each step Cade does in BC (0 = report the step and move on)"
+        required: false
+        default: "0"
 permissions:
   contents: read
   id-token: write
@@ -75,6 +80,8 @@ jobs:
       BC_SANDBOX_CLIENT_ID: ${{ secrets.BC_SANDBOX_CLIENT_ID }}
       BC_SANDBOX_CERT_PEM: ${{ secrets.BC_SANDBOX_CERT_PEM }}
       BC_SANDBOX_CONNECTOR_INSTALLED: ${{ vars.BC_SANDBOX_CONNECTOR_INSTALLED || 'true' }}
+      # A guided run (workflow_dispatch with wait_minutes): each of Cade's BC steps is waited for instead of reported.
+      BC_SANDBOX_WAIT_MINUTES: ${{ github.event.inputs.wait_minutes || '0' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

@@ -4,8 +4,11 @@
  * adapter. Results are read back from the ledger, never inferred. The database-backed tests need DATABASE_URL and
  * skip without it. After the run the health report the Console shows is written (harness/report.ts).
  *
- * Steps that need Cade's own BC sign-in in the sandbox (posting FEEDS/RECEIPTS, bank reconciliation, a recurring
- * journal) raise ManualStep and the test is skipped there with that reason; the mock does them through BC's API.
+ * Steps that need Cade's own BC sign-in in the sandbox (posting FEEDS/RECEIPTS, bank reconciliation, BC's own journal
+ * entries) are checked in BC there: done, the test goes on; not done, it is skipped with the exact instruction (or the
+ * run waits, BC_SANDBOX_WAIT_MINUTES). The mock does them through BC's API. The sandbox keeps every document between
+ * runs and the keys are fixed, so a test there accepts a document Cade has already posted or reconciled: the app's
+ * pre-write check records BC's state instead of writing a second document, which is itself part of what A1 proves.
  */
 import { CATEGORIES, externalDocumentNo, idempotencyKey, isSpendingAccount, sha256Hex, type DataThrough } from "@homestead/shared";
 import { LedgerError, closePool, listRules, loadTx, type GlEntry, type InMemoryQueue, type TxRow } from "@homestead/api";
@@ -18,6 +21,10 @@ const hasDb = Boolean(process.env["DATABASE_URL"]);
 await prepareSandboxEnv();
 const side = bcSide();
 const recorder = new Recorder(side.kind === "sandbox" ? "bc-sandbox" : "mock-bc");
+/** A guided sandbox run waits for up to two of Cade's steps in one test (A1: post, then reconcile). */
+const waitMs = side.kind === "sandbox" ? Number(process.env["BC_SANDBOX_WAIT_MINUTES"] ?? "0") * 60_000 : 0;
+/** States a document can already be in when the sandbox kept it from an earlier run. */
+const ahead = (...states: string[]): string[] => (side.kind === "sandbox" ? states : []);
 
 const NAMES: Record<string, string> = {
   A1: "Receipt matches its bank line, posts as a draft with the account and dimensions, entry IDs come back, reconciles, no duplicates on resends",
@@ -62,7 +69,7 @@ function acceptance(id: string, fn: (ctx: TestContext) => Promise<void>): void {
       recorder.record(id, name, "fail", Date.now() - t0, (e as Error).message);
       throw e;
     }
-  });
+  }, 120_000 + 2 * waitMs);
 }
 
 afterAll(() => {
@@ -164,21 +171,24 @@ d("A1–A9", () => {
     await answer(w.hh.members.vanessa, q.id, "confirm");
     await w.job("outbox-relay");
     const drafted = await tx(bankLine.id);
-    expect(drafted).toMatchObject({ state: "bc_draft_created", bc_batch: "RECEIPTS" });
+    expect(["bc_draft_created", ...ahead("posted", "reconciled")]).toContain(drafted.state);
+    expect(drafted.bc_batch).toBe("RECEIPTS");
     const doc = drafted.bc_external_doc_no!;
     expect(doc).toBe(externalDocumentNo(key, "2026-10-19"));
-    // The draft in HHAPP/RECEIPTS: 603101 with the dimension set of Groceries, as BC holds it.
+    // The draft in HHAPP/RECEIPTS: 603101 with the dimension set of Groceries, as BC holds it (or its two entries).
     const found = await w.side.ledger.findByExternalDocumentNo(doc);
-    expect(found).toMatchObject({ batch: "RECEIPTS", lineCount: 2, sumCents: 0 });
+    expect(found).toMatchObject({ lineCount: 2, sumCents: 0 });
+    if (found.journalLineIds.length > 0) expect(found.batch).toBe("RECEIPTS");
     if (w.side.server) {
       const g = w.side.server.draftLines("RECEIPTS").find((l) => l.externalDocumentNumber === doc && l.accountNumber === "603101")!;
       expect(Object.fromEntries(g.dimensionSetLines.map((x) => [x.code, x.valueCode]))).toEqual({ SPEND_CLASS: "ESSENTIAL", FAMILY_AREA: "JOINT", TAX_TREATMENT: "NONDEDUCT" });
     }
     // Cade posts the batch in BC; the webhook notification reaches the app and the read-back records the entries.
-    await w.side.postAsCade("RECEIPTS");
+    await w.side.postAsCade("RECEIPTS", [doc]);
     await w.job("outbox-relay"); // the receiver queued a bc_readback; the worker runs it
+    if (side.kind === "sandbox") await w.job("bc-readback"); // no notification reaches a CI run; the read-back finds the entries
     const posted = await tx(bankLine.id);
-    expect(posted.state).toBe("posted");
+    expect(["posted", ...ahead("reconciled")]).toContain(posted.state);
     expect(posted.bc_entry_nos).toHaveLength(2);
     expect((await entries(doc)).map((e) => e.entryNo).sort()).toEqual([...posted.bc_entry_nos!].sort());
     // The poll agrees.
@@ -205,7 +215,6 @@ d("A1–A9", () => {
       const res = await w.app.inject({ method: "POST", url: `/v1/rules/${r.id}/approve`, headers: as(w.hh.members.cade, true), payload: { approvalNote: `Approved in writing by Cade for the acceptance run (${ruleNo})` } });
       expect(res.statusCode, res.body).toBe(200);
     }
-    await w.side.nativePayment("AFCU-CHK", "2026-11-01", -567039, "RJ-PM-1101");
     w.plaidTx("BEEHIVE-CHK", "a2-xfer-out", "2026-10-21", 500, "ONLINE TRANSFER TO SAVINGS");
     w.plaidTx("BEEHIVE-SAV", "a2-xfer-in", "2026-10-22", -500, "ONLINE TRANSFER FROM CHECKING");
     w.plaidTx("AFCU-CHK", "a2-pay-out", "2026-10-23", 363, "CAPITAL ONE ONLINE PMT");
@@ -216,14 +225,24 @@ d("A1–A9", () => {
     const k = (code: string, id: string) => idempotencyKey.plaid(({ "BEEHIVE-CHK": "plaid-beehive-chk", "BEEHIVE-SAV": "plaid-beehive-sav", "AFCU-CHK": "plaid-afcu-chk", "CAPONE-CC": "plaid-capone-cc" } as Record<string, string>)[code]!, id);
     const [xo, xi, po, pi, pm] = await Promise.all([txByKey(k("BEEHIVE-CHK", "a2-xfer-out")), txByKey(k("BEEHIVE-SAV", "a2-xfer-in")), txByKey(k("AFCU-CHK", "a2-pay-out")), txByKey(k("CAPONE-CC", "a2-pay-in")), txByKey(k("AFCU-CHK", "a2-pennymac"))]);
     expect([xo.kind, po.kind, pm.kind]).toEqual(["transfer", "transfer", "bc_native"]);
-    expect(pm.state).toBe("reconciled");
+    // The four transfer documents go to HHAPP/FEEDS first, so one session in BC covers both of Cade's steps.
     await w.job("outbox-relay");
-    await w.side.postAsCade("FEEDS");
+    const docs: string[] = [];
+    for (const t of [xo, xi, po, pi]) {
+      const now = await tx(t.id);
+      expect(["bc_draft_created", ...ahead("posted", "reconciled")], `${now.merchant_norm}: ${now.state} ${now.exception_reason ?? ""}`).toContain(now.state);
+      docs.push(now.bc_external_doc_no!);
+    }
+    // BC's own recurring-journal payment for PennyMac: the app finds it and reconciles the bank line to it (R7).
+    await w.side.nativePayment("AFCU-CHK", "2026-11-01", -567039, "RJ-PM-1101");
+    await w.job("matching");
+    expect((await tx(pm.id)).state).toBe("reconciled");
+    await w.side.postAsCade("FEEDS", docs);
     await w.job("bc-readback");
     const posted: GlEntry[] = [];
     for (const t of [xo, xi, po, pi]) {
       const now = await tx(t.id);
-      expect(now.state).toBe("posted");
+      expect(["posted", ...ahead("reconciled")]).toContain(now.state);
       posted.push(...(await entries(now.bc_external_doc_no!)));
     }
     const net = (acct: string) => posted.filter((e) => e.accountNo === acct).reduce((s, e) => s + e.amountCents, 0);
@@ -308,13 +327,16 @@ d("A1–A9", () => {
     expect(before.length).toBe(2);
     await w.side.dropSubscriptions(before);
     expect(await w.side.subscriptionCount(before)).toBe(0);
-    w.plaidTx("BEEHIVE-CHK", "a6-line", "2026-10-27", 33.1, "WINCO FOODS", "WinCo");
+    // A6 needs a posting during the run, so in the sandbox its line is new every run (and Cade posts it while the
+    // guided run waits).
+    const lineId = side.kind === "sandbox" ? `a6-line-${w.hh.householdId.slice(0, 8)}` : "a6-line";
+    w.plaidTx("BEEHIVE-CHK", lineId, "2026-10-27", 33.1, "WINCO FOODS", "WinCo");
     await w.job("plaid-sync");
     await w.job("matching");
-    const t = await txByKey(idempotencyKey.plaid("plaid-beehive-chk", "a6-line"));
+    const t = await txByKey(idempotencyKey.plaid("plaid-beehive-chk", lineId));
     await answer(w.hh.members.vanessa, `tx:${t.id}`, "category:groceries");
     await w.job("outbox-relay");
-    await w.side.postAsCade("FEEDS");
+    await w.side.postAsCade("FEEDS", [(await tx(t.id)).bc_external_doc_no!]);
     expect((await tx(t.id)).state).toBe("bc_draft_created"); // no webhook arrived
     await w.job("nightly-poll");
     expect((await tx(t.id)).state).toBe("posted");
@@ -334,7 +356,15 @@ d("A1–A9", () => {
     const bills = (await w.app.inject({ method: "GET", url: "/v1/bills", headers: as(w.hh.members.vanessa) })).json();
     const before = bills.bills.filter((b: { beforePayday: boolean; paid: boolean }) => b.beforePayday && !b.paid).reduce((a: number, b: { amountCents: number }) => a + b.amountCents, 0);
     expect(s.cashCents).toBe(510000); // the restricted account is not cash to spend
-    expect(s.setAsideCents).toBe(75000);
+    // Set aside: BC's FUND_GOAL balances other than OPERATING on the cash accounts. The mock holds only A7's deposit;
+    // the sandbox may hold other earmarks too, so the expectation is read from BC's entries there.
+    const byGoal = new Map<string, number>();
+    for (const e of await w.side.ledger.readGlEntriesByExternalDocNo({ accountNoPrefix: "10" })) {
+      const g = e.dimensions.find((x) => x.code === "FUND_GOAL")?.valueCode;
+      if (g && g !== "OPERATING") byGoal.set(g, (byGoal.get(g) ?? 0) + e.amountCents);
+    }
+    expect(byGoal.get("EMERG-1M") ?? 0).toBeGreaterThanOrEqual(75000);
+    expect(s.setAsideCents).toBe(side.kind === "mock" ? 75000 : [...byGoal.values()].reduce((a, v) => a + Math.max(0, v), 0));
     expect(s.billsBeforePaydayCents).toBe(before);
     expect(s.nextPaydayIso).toBe(bills.nextPayday);
     expect(s.safeCents).toBe(510000 - 75000 - before - s.givingDueCents - s.liquidityFloorCents);
@@ -388,10 +418,20 @@ d("A1–A9", () => {
     dt(ask.dataThrough);
     expect(ask.used[0].fn).toBe("get_safe_to_spend");
     // The nightly poll finds no difference on the test household.
+    const pollStart = await w.db(async (db) => (await db.query<{ n: Date }>("select clock_timestamp() as n")).rows[0]!.n);
     const poll = (await w.job("nightly-poll")) as { counts: Record<string, Record<string, number>> };
     const c = poll.counts[w.hh.householdId]!;
-    recorder.nightlyPoll = { ranAt: new Date().toISOString(), differences: (c["differences"] ?? 0) + (c["batchDateDifferences"] ?? 0) };
+    // A batch-and-date group can differ in the shared sandbox only by documents this household does not hold (earlier
+    // runs, the pilot); each of its own documents was compared one by one above (differences). Anything else counts.
+    const unexplained =
+      side.kind === "mock"
+        ? (c["batchDateDifferences"] ?? 0)
+        : await w.db(async (db) => {
+            const r = await db.query<{ after: { onlyInApp: string[]; onlyInBc: string[] } }>("select after from audit_log where household_id = $1 and action = 'bc.poll_batch_date_difference' and at >= $2", [w.hh.householdId, pollStart]);
+            return r.rows.filter((x) => x.after.onlyInApp.length > 0 || x.after.onlyInBc.length === 0).length;
+          });
+    recorder.nightlyPoll = { ranAt: new Date().toISOString(), differences: (c["differences"] ?? 0) + unexplained };
     expect(c["differences"]).toBe(0);
-    expect(c["batchDateDifferences"]).toBe(0);
+    expect(unexplained).toBe(0);
   });
 });
