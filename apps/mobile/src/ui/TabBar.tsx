@@ -12,7 +12,7 @@ import { ActivityIcon, BudgetIcon, CameraIcon, GoalsIcon, HouseIcon } from "./Ic
 const ORDER = ["index", "activity", "budget", "goals"] as const;
 const LABEL: Record<(typeof ORDER)[number], string> = { index: "Home", activity: "Activity", budget: "Budget", goals: "Goals" };
 
-export function TabBar({ state, navigation, insets }: BottomTabBarProps): React.JSX.Element {
+export function TabBar({ state, navigateToTab, insets }: BottomTabBarProps): React.JSX.Element {
   const { p } = useTheme();
   const router = useRouter();
   const current = state.routes[state.index]?.name;
@@ -22,9 +22,7 @@ export function TabBar({ state, navigation, insets }: BottomTabBarProps): React.
     const color = on ? p.accent : p.muted;
     const route = state.routes.find((r) => r.name === name);
     const go = () => {
-      if (!route) return;
-      const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
-      if (!on && !event.defaultPrevented) navigation.navigate(route.name, route.params);
+      if (route) navigateToTab(route.key);
     };
     const Icon = name === "index" ? HouseIcon : name === "activity" ? ActivityIcon : name === "budget" ? BudgetIcon : GoalsIcon;
     return (

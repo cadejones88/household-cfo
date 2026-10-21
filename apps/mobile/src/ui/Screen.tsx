@@ -12,7 +12,7 @@ import { BrandMark } from "./Icons";
 import { GUTTER } from "./theme";
 import { SyncBar } from "./SyncBar";
 
-export function TopBar({ initial, badge }: { initial: string; badge?: number }): React.JSX.Element {
+export function TopBar({ initial, badge }: { initial: string; badge?: number | undefined }): React.JSX.Element {
   const { p, display } = useTheme();
   const router = useRouter();
   return (
@@ -35,7 +35,7 @@ export function Screen({
   onRefresh,
   testID,
   contentStyle,
-}: PropsWithChildren<{ initial?: string; badge?: number; refreshing?: boolean; onRefresh?: () => void; testID?: string; contentStyle?: StyleProp<ViewStyle> }>): React.JSX.Element {
+}: PropsWithChildren<{ initial?: string | undefined; badge?: number | undefined; refreshing?: boolean | undefined; onRefresh?: (() => void) | undefined; testID?: string | undefined; contentStyle?: StyleProp<ViewStyle> | undefined }>): React.JSX.Element {
   const { p } = useTheme();
   const insets = useSafeAreaInsets();
   return (
@@ -62,7 +62,7 @@ export function SheetScreen({
   testID,
   footer,
   closeLabel = "Close",
-}: PropsWithChildren<{ title: string; eyebrow?: string; onClose?: () => void; testID?: string; footer?: ReactNode; closeLabel?: string }>): React.JSX.Element {
+}: PropsWithChildren<{ title: string; eyebrow?: string | undefined; onClose?: (() => void) | undefined; testID?: string | undefined; footer?: ReactNode; closeLabel?: string | undefined }>): React.JSX.Element {
   const { p } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -88,7 +88,7 @@ export function SheetScreen({
 }
 
 /** "Needs your answer  (3)" style section head with an optional right-hand action. */
-export function SectionHead({ title, count, action, onAction }: { title: string; count?: number; action?: string; onAction?: () => void }): React.JSX.Element {
+export function SectionHead({ title, count, action, onAction }: { title: string; count?: number | undefined; action?: string | undefined; onAction?: (() => void) | undefined }): React.JSX.Element {
   const { p } = useTheme();
   return (
     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 4 }}>
