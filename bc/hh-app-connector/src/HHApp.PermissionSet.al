@@ -107,7 +107,9 @@ permissionset 72100 "HH-APP"
         tabledata "Change Log Setup (Field)" = r,
         tabledata "Field Monitoring Setup" = r,
         tabledata "CDS Connection Setup" = r,
-        tabledata "API Webhook Subscription" = r,
+        // "API Webhook Subscription" (read by codeunit 6153 on table writes) is OnPrem-scoped for a cloud extension
+        // (AL0296); Microsoft grants it only inside the assignable "System App - Basic". Left out unless a sandbox run
+        // shows BC needs it, in which case that Microsoft set is assigned on the application card instead.
 
         // Webhook subscriptions: not listed. "Webhook Subscription" and "Webhook Notification" are OnPrem-scoped and a
         // cloud extension cannot name them (AL0296, found by the first compile on 10/21/2026); in the online service

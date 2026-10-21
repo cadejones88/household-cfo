@@ -7,7 +7,7 @@
 ///
 ///   POST .../api/cadejonescpa/homestead/v1.0/companies({id})/hhJournalLines   (one JSON $batch per document,
 ///        header Isolation: snapshot, so the whole document lands or nothing does)
-///   { "journalId": "<HHAPP batch SystemId>", "accountType": "G/L Account", "accountNumber": "603101",
+///   { "journalId": "(the SystemId of an HHAPP batch)", "accountType": "G/L Account", "accountNumber": "603101",
 ///     "postingDate": "2026-10-19", "externalDocumentNumber": "HHAPP-RCP-20261019-1a2b3c4d", "amount": 42.17,
 ///     "description": "Broulim's", "comment": "plaid:…",
 ///     "dimensions": "SPEND_CLASS=ESSENTIAL|FAMILY_AREA=JOINT|TAX_TREATMENT=NONDEDUCT" }
