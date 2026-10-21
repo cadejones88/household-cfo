@@ -71,8 +71,8 @@ permissionset 50100 "HH-APP"
         // Companies and the user's own session
         tabledata Company = R,
         tabledata "Company Information" = R,
-        tabledata User = R,
-        tabledata "User Property" = R;
+        tabledata User = R;
+        // "User Property" is OnPrem-scoped (AL0296, second compile 10/21/2026) and not needed online.
 
     // VERIFY on the sandbox with the HH-APP set alone assigned to the Entra application: GET companies, GET accounts,
     // POST journalLines in a $batch, POST subscriptions, GET hhJournalLineChecks. If the runtime refuses a call with a
