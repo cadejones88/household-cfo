@@ -176,6 +176,11 @@ export interface MockOptions {
    * move, rule or settings approval without one, approve or decline alike; the mock does the same.
    */
   stepUpFresh?: () => boolean;
+  /**
+   * Tests: hold receipt reads until `finishPendingReads()` instead of finishing them on a timer, so a test can see
+   * "queued" and then "read" without depending on how fast the machine is.
+   */
+  manualReads?: boolean;
 }
 
 /** Approval kinds the API decides only with a fresh step-up (services/api/src/services/approvals.ts). */
@@ -198,11 +203,14 @@ export class MockApi implements HomesteadApi {
   private receiptSeq = 0;
   private readonly fast: boolean;
   private readonly stepUpFresh: () => boolean;
+  private readonly manualReads: boolean;
+  private readonly pendingReads: (() => void)[] = [];
 
   constructor(private readonly memberId: () => string, opts: MockOptions = {}) {
     const now = opts.now ?? new Date();
     this.fast = opts.fast ?? false;
     this.stepUpFresh = opts.stepUpFresh ?? (() => true);
+    this.manualReads = opts.manualReads ?? false;
     this.today = todayIso(now);
     // The next Friday at least 3 days out, like the prototype, so "before payday" always holds a few bills.
     this.payday = nextFriday(this.today, 3);
@@ -573,8 +581,14 @@ export class MockApi implements HomesteadApi {
     this.receipts.set(id, detail);
     this.receiptByHash.set(input.sha256, id);
     // "Reading…" for a moment, then the Broulim's sample read, like the prototype.
-    setTimeout(() => this.finishRead(id, input), this.fast ? 5 : 1800);
+    if (this.manualReads) this.pendingReads.push(() => this.finishRead(id, input));
+    else setTimeout(() => this.finishRead(id, input), this.fast ? 5 : 1800);
     return { receipt: summaryOf(detail), alreadyHeld: false };
+  }
+
+  /** Tests with `manualReads`: finish every receipt read that is waiting. */
+  finishPendingReads(): void {
+    for (const f of this.pendingReads.splice(0)) f();
   }
 
   private finishRead(id: string, input: UploadReceiptInput): void {

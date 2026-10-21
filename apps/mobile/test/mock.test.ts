@@ -12,7 +12,7 @@ const NOW = new Date("2026-10-20T16:00:00.000Z"); // Tue Oct 20, 10 am in Boise
 function api(member = "dev-vanessa", stepUp = true) {
   let who = member;
   let fresh = stepUp;
-  const m = new MockApi(() => who, { now: NOW, fast: true, stepUpFresh: () => fresh });
+  const m = new MockApi(() => who, { now: NOW, fast: true, manualReads: true, stepUpFresh: () => fresh });
   return { m, as: (id: string) => (who = id), stepUp: (v: boolean) => (fresh = v) };
 }
 
@@ -80,7 +80,7 @@ describe("MockApi behaviour", () => {
     expect(first.alreadyHeld).toBe(false);
     expect(again).toMatchObject({ alreadyHeld: true, receipt: { id: first.receipt.id } });
     expect((await m.receipt(first.receipt.id)).ocrStatus).toBe("queued");
-    await new Promise((r) => setTimeout(r, 20));
+    m.finishPendingReads();
     const read = await m.receipt(first.receipt.id);
     expect(read).toMatchObject({ ocrStatus: "read", merchant: "Broulim's", totalCents: 3186 });
     expect(read.split?.lines.map((l) => l.categoryId)).toEqual(["groceries", "household-supplies"]);
