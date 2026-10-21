@@ -3,21 +3,25 @@
  *
  * Endpoints (spec section "Business Central API mapping"; verified against the BC 27 base-app source where noted):
  *   api/v2.0/companies({id})/accounts | dimensions?$expand=dimensionValues | bankAccounts
- *   api/v2.0/companies({id})/journals?$filter=templateDisplayName eq '<template>'   (page 30048 "APIV2 - Journals":
+ *   api/v2.0/companies({id})/journals?$filter=templateDisplayName eq '<template>'   (page 30016 "APIV2 - Journals":
  *       without the template filter BC lists the batches of the first GENERAL template, not HHAPP)
  *   api/v2.0/companies({id})/journals({id})/journalLines   (page 30049; `externalDocumentNumber` is filterable; the
  *       `dimensionSetLines` part accepts a deep insert on POST; Document No. comes from the batch No. Series and is
  *       shared by consecutive lines with the same External Document No. — codeunit 5469 "Library API - General Journal")
- *   api/v2.0/companies({id})/journals({id})/Microsoft.NAV.post   -> 204 (page 30048 `post` action, result code Deleted)
+ *   api/v2.0/companies({id})/journals({id})/Microsoft.NAV.post   -> 204 (page 30016 `post` action, result code Deleted)
  *   api/v2.0/companies({id})/generalLedgerEntries?$filter=documentNumber eq '…' and postingDate eq …&$expand=dimensionSetLines
  *       (page 30018 "APIV2 - G/L Entries" has NO externalDocumentNumber field and is not extensible, so the External
  *        Document No. lookup goes through the HH App Connector and the standard entity supplies the dimensions)
  *   api/v2.0/subscriptions   (https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/api-reference/v2.0/dynamics-subscriptions)
  *   api/microsoft/runtime/beta/companies({id})/webhookSupportedResources
- *   api/microsoft/analytics/v1.0/companies({id})/generalLedgerBudgets | generalLedgerBudgetEntries  (read-only;
- *       https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/api-analytics/api-analytics-overview)
  *   api/cadejonescpa/homestead/v1.0/companies({id})/hhJournalLineChecks | hhBankLedgerEntries | hhBudgetEntries
- *       (the HH App Connector in bc/hh-app-connector)
+ *       (the HH App Connector in bc/hh-app-connector; budgets are written and read back through hhBudgetEntries)
+ *   api/v2.0/$batch and api/cadejonescpa/homestead/v1.0/$batch: JSON, no atomicity group, header Isolation: snapshot
+ *
+ * Page numbers are the API v2 app's (_Exclude_APIV2_, 10cb69d9-bc8a-4d27-970a-9e110e9db2a5): 30014 Accounts,
+ * 30016 Journals, 30018 G/L Entries, 30021 Dimensions, 30022 Dimension Set Lines, 30040 Dimension Values,
+ * 30049 JournalLines, 30051 Bank Accounts. The application needs Execute on each (HH-APP lists them); without it BC
+ * answers 403 "Sorry, the current permissions prevented the action. (Page 30016 APIV2 - Journals Execute: …)".
  */
 import { DIMENSION_CODES, EXTERNAL_DOC_MAX_LENGTH, EXTERNAL_DOC_RE, centsToNumber, parseCents, type BcDimensionSetLine, type DimensionCode, type DimensionSet } from "@homestead/shared";
 import { LedgerAdapterError } from "./errors.js";
@@ -231,10 +235,6 @@ export class BusinessCentralAdapter implements LedgerAdapter {
 
   private connector(path: string, query?: Record<string, string | number | boolean | undefined>): string {
     return this.http.url(API_CONNECTOR, `companies(${this.companyId})/${path}`, query);
-  }
-
-  private analytics(path: string, query?: Record<string, string | number | boolean | undefined>): string {
-    return this.http.url(API_ANALYTICS, `companies(${this.companyId})/${path}`, query);
   }
 
   // ---- Master data --------------------------------------------------------------------------------------------
@@ -491,22 +491,23 @@ export class BusinessCentralAdapter implements LedgerAdapter {
     };
   }
 
-  /** Read-only through the Analytics API. Field names follow the base tables in camelCase; VERIFY against $metadata. */
+  /**
+   * Read through the HH App Connector's hhBudgetEntries page, the route the writes use. Microsoft's Analytics API
+   * (the Power BI app's queries 36960/36961) publishes budget entries without Description or the dimension codes, and
+   * the app needs both: Description carries the revision number, the codes carry the category. An empty budget and a
+   * budget that does not exist read the same (no lines); writes to a missing budget are refused by the page.
+   */
   async readBudget(budgetName: string, opts: BudgetReadOptions = {}): Promise<BudgetRead> {
     const name = budgetName.trim();
-    const budgets = await this.http.getAll<{ name: string; description?: string; blocked?: boolean }>(this.analytics("generalLedgerBudgets", { $filter: `name eq ${odataString(name)}` }));
-    const b = budgets[0];
-    if (!b) throw new LedgerAdapterError(`Budget ${name} does not exist`);
+    this.requireConnector("hhBudgetEntries");
     const terms = [`budgetName eq ${odataString(name)}`];
     if (opts.dateFrom) terms.push(`date ge ${odataDate(opts.dateFrom)}`);
     if (opts.dateTo) terms.push(`date le ${odataDate(opts.dateTo)}`);
     if (opts.glAccount) terms.push(`glAccountNo eq ${odataString(opts.glAccount)}`);
-    const rows = await this.http.getAll<ConnectorBudgetEntry>(this.analytics("generalLedgerBudgetEntries", { $filter: terms.join(" and ") }));
+    const rows = await this.http.getAll<ConnectorBudgetEntry>(this.connector("hhBudgetEntries", { $filter: terms.join(" and ") }));
     const L = this.budgetLayout;
     return {
       budgetName: name,
-      description: b.description ?? "",
-      blocked: Boolean(b.blocked),
       lines: rows.map((r) => {
         const dims: DimensionSet = {};
         const put = (code: DimensionCode | undefined, value: string | undefined): void => {

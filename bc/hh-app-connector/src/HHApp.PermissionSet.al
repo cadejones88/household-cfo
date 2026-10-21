@@ -29,6 +29,20 @@ permissionset 72100 "HH-APP"
         codeunit "HH Budget Name Check" = X,
         codeunit "HH AutoPost Defaults" = X,
 
+        // The standard API v2.0 pages the app calls (Microsoft's _Exclude_APIV2_ app). The entitlement for an
+        // application holding API.ReadWrite.All allows these pages, but BC still requires Execute on each from the
+        // application's own permission sets: without it every call answered 403 "Sorry, the current permissions
+        // prevented the action. (Page 30016 APIV2 - Journals Execute: _Exclude_APIV2_)" (sandbox run, 10/21/2026).
+        // Execute on a page grants no data; the table rights below still decide what each page can read or write.
+        page "APIV2 - Accounts" = X,
+        page "APIV2 - Bank Accounts" = X,
+        page "APIV2 - Dimensions" = X,
+        page "APIV2 Dimension Values Entity" = X,
+        page "APIV2 - Dimension Set Lines" = X,
+        page "APIV2 - Journals" = X,
+        page "APIV2 - JournalLines" = X,
+        page "APIV2 - G/L Entries" = X,
+
         // Chart, dimensions, bank cards (API v2.0 accounts, dimensions, dimensionValues, bankAccounts)
         tabledata "G/L Account" = R,
         tabledata "G/L Account Category" = R,

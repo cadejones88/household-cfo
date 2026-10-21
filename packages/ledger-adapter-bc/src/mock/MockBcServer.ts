@@ -919,12 +919,15 @@ export class MockBcServer {
     if (company?.name !== "companies" || company.key !== this.companyId) return odataError(404, "BadRequest_NotFound", "Company not found");
     const e = parseKeyed(rest[1] ?? "");
     const terms = parseFilter(ctx.query.get("$filter"));
+    // Field names as Microsoft's Power BI app queries publish them (queries 36961 "G/L Budgets" and 36960 "G/L Budget
+    // Entries - PBI API", api/microsoft/analytics/v1.0): no description or dimension codes on the entries.
     if (e?.name === "generalLedgerBudgets") {
-      const rows = [...this.budgets.values()].map((b) => ({ id: stableId("bud", b.name), name: b.name, description: b.description, blocked: b.blocked }));
-      return ok({ value: rows.filter((r) => matchesFilter(r, terms, ["id", "name", "description", "blocked"])) });
+      const rows = [...this.budgets.values()].map((b) => ({ budgetName: b.name, budgetDescription: b.description }));
+      return ok({ value: rows.filter((r) => matchesFilter(r, terms, ["budgetName", "budgetDescription"])) });
     }
     if (e?.name === "generalLedgerBudgetEntries") {
-      return ok({ value: this.state.budgetEntries.filter((r) => matchesFilter(r as unknown as Record<string, unknown>, terms, budgetFields())) });
+      const rows = this.state.budgetEntries.map((r) => ({ budgetName: r.budgetName, glAccountNo: r.glAccountNo, budgetDate: r.date, budgetAmount: r.amount, dimensionSetID: 0, entryNo: r.entryNo }));
+      return ok({ value: rows.filter((r) => matchesFilter(r, terms, ["budgetName", "glAccountNo", "budgetDate", "budgetAmount", "entryNo"])) });
     }
     return odataError(404, "BadRequest_NotFound", "No HTTP resource was found that matches the request URI.");
   }
@@ -962,6 +965,9 @@ export class MockBcServer {
     const groups = new Map<string | undefined, InnerRequest[]>();
     for (const r of inner) groups.set(r.group, [...(groups.get(r.group) ?? []), r]);
     for (const [group, reqs] of groups) {
+      // Business Central refuses a change set (multipart) or atomicity group (JSON) with more than one request; the
+      // whole $batch answers 400 (seen on the sandbox 10/21/2026). Atomicity comes from `Isolation: snapshot` instead.
+      if (group !== undefined && reqs.length > 1) return odataError(400, "BadRequest_NotSupported", "Multiple requests within the same change set are not supported by Dynamics 365 Business Central OData web services.");
       const atomic = group !== undefined || snapshotIsolation;
       const snapshot = atomic ? structuredClone(this.state) : undefined;
       const groupResponses: InnerResponse[] = [];

@@ -15,6 +15,7 @@ export interface BcHttpConfig {
   fetch?: typeof fetch;
   /** Per-request timeout; a timeout is retryable because every write reruns the pre-write check. */
   timeoutMs?: number;
+  /** "json" (default): BC's documented transactional batch. "multipart" puts the requests in one change set, which BC refuses for more than one request. */
   batchFormat?: BatchFormat;
 }
 
@@ -36,7 +37,7 @@ export class BcHttp {
     this.tokens = cfg.tokenProvider;
     this.fetchImpl = cfg.fetch ?? fetch;
     this.timeoutMs = cfg.timeoutMs ?? 60_000;
-    this.batchFormat = cfg.batchFormat ?? "multipart";
+    this.batchFormat = cfg.batchFormat ?? "json";
   }
 
   /** `${baseUrl}/api/v2.0`, `${baseUrl}/api/cadejonescpa/homestead/v1.0`, … */

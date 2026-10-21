@@ -194,8 +194,6 @@ export interface BudgetReadLine {
 
 export interface BudgetRead {
   budgetName: string;
-  description: string;
-  blocked: boolean;
   lines: BudgetReadLine[];
 }
 

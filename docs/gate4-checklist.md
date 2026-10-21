@@ -2,14 +2,14 @@
 
 Gate 4 is the nine acceptance tests passing against the real BC sandbox. Everything below happens in `CADE_Sandbox_vs25` and the firm's Microsoft tenant. Nothing touches production, a bank, or money. About 45 minutes in all.
 
-**Progress:** steps 1 and 2 done October 21, 2026 (connector 1.0.0.1 installed by Cade; master data entered by Claude in the built-in browser). Steps 3–5 are next.
+**Progress:** steps 1–5 done October 21, 2026 (connector 1.0.0.1 installed by Cade; master data entered by Claude in the built-in browser; app registration, certificate and BC application card by Cade). The first sandbox runs found that HH-APP needs Execute on the standard API pages: connector **1.0.0.2** adds it and must replace 1.0.0.1 (same upload as step 1, once Cade approves the change).
 
 ## 1. Install the HH App Connector in the sandbox (5 minutes) — done
 
-1. Download `HH-App-Connector.zip` (version 1.0.0.1 or later) from https://github.com/cadejones88/household-cfo/releases/latest/download/HH-App-Connector.zip and unzip it. Version 1.0.0.0 cannot install in this sandbox: its object numbers collided with the Risky Cards Connector.
+1. Download `HH-App-Connector.zip` (version 1.0.0.2 or later) from https://github.com/cadejones88/household-cfo/releases/latest/download/HH-App-Connector.zip and unzip it. Version 1.0.0.0 cannot install in this sandbox: its object numbers collided with the Risky Cards Connector.
 2. In the sandbox: search **Extension Management** → **Manage** → **Upload Extension**.
 3. Choose `HH-App-Connector.app`, Deploy to **Current version**, accept, **Deploy**.
-4. **Deployment Status** shows *Completed* within a couple of minutes. Extension Management then lists "HH App Connector" by Cade T. Jones CPA, P.C., version 1.0.0.1.
+4. **Deployment Status** shows *Completed* within a couple of minutes. Extension Management then lists "HH App Connector" by Cade T. Jones CPA, P.C., at the version you uploaded.
 
 ## 2. The BC master data (changes 3–6) — done by Claude
 

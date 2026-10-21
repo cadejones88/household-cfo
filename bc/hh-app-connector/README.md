@@ -11,13 +11,13 @@ The per-tenant extension the Homestead app needs beyond API v2.0 (Phase 3 spec, 
 | enum `HH Doc Source` | 72100 | `Journal` or `Ledger` |
 | codeunit `HH Budget Name Check` | 72100 | The whitelist, callable from a test |
 | codeunit `HH AutoPost Defaults` | 72101 | BC change 6: stamps Source Code HHAUTO and Reason Code AUTOPOST on every line inserted into HHAPP/AUTOPOST |
-| permissionset `HH-APP` | 72100 | The one set assigned to the Entra application. No posting codeunit until auto-post is approved |
+| permissionset `HH-APP` | 72100 | The one set assigned to the Entra application: Execute on the eight standard API v2.0 pages the app calls (from 1.0.0.2) and the table rights behind them. No posting codeunit until auto-post is approved |
 
 The TypeScript side of each page is in `packages/ledger-adapter-bc/src/bcAdapter.ts`; the in-process fake of these routes is `packages/ledger-adapter-bc/src/mock/MockBcServer.ts` (section "HH App Connector"). Keep field names in the three places in step.
 
 ## Installing in the sandbox (no tools needed)
 
-GitHub Actions compiles this folder against Microsoft's BC 27 symbols on every change and publishes the result as the release `hh-app-connector-v<version>` (asset `HH-App-Connector.zip`; GitHub does not accept `.app` attachments). Download, unzip, then in BC: **Extension Management → Manage → Upload Extension** → `HH-App-Connector.app` → Deploy to **Current version** → **Deploy**, and watch **Deployment Status**. The first compile (10/21/2026, AL compiler 18.1) found and fixed two OnPrem-only tables in `HH-APP`; it now builds with no errors.
+GitHub Actions compiles this folder against Microsoft's BC 27 symbols on every change and publishes the result as the release `hh-app-connector-v<version>` (asset `HH-App-Connector.zip`; GitHub does not accept `.app` attachments). Download, unzip, then in BC: **Extension Management → Manage → Upload Extension** → `HH-App-Connector.app` → Deploy to **Current version** → **Deploy**, and watch **Deployment Status**. The first compile (10/21/2026, AL compiler 18.1) found and fixed two OnPrem-only tables in `HH-APP`; it now builds with no errors. Since 1.0.0.2 the extension depends on Microsoft's API v2.0 app (`_Exclude_APIV2_`, 10cb69d9-bc8a-4d27-970a-9e110e9db2a5), which every BC environment has, so `HH-APP` can name its pages: the first sandbox run showed BC requires Execute on each API page from the application's own permission sets (403 "Sorry, the current permissions prevented the action. (Page 30016 APIV2 - Journals Execute: _Exclude_APIV2_)"). Upgrading: upload the new .app the same way; BC replaces the installed version and keeps the HH-APP assignment.
 
 ## Publishing to the sandbox from VS Code (alternative)
 
@@ -30,7 +30,7 @@ Nothing here is compiled or published from the build environment; this is the by
 5. If the download reports a platform or application mismatch, open `app.json` and lower `application` and `runtime` to what the sandbox runs (see "Version assumption" below), then download again.
 6. Run **AL: Package** (Ctrl+Shift+B) once to see the compiler output in the Problems panel. Fix anything it flags; every spot that could not be verified from here is marked `// VERIFY:` in the source, so start there.
 7. Run **AL: Publish** (Ctrl+F5). The extension installs in the sandbox and BC opens in the browser. The first publish of a new per-tenant extension on a sandbox takes a minute.
-8. In BC, open **Extension Management** and confirm "HH App Connector" by "Cade T. Jones CPA, P.C." is installed, version 1.0.0.0.
+8. In BC, open **Extension Management** and confirm "HH App Connector" by "Cade T. Jones CPA, P.C." is installed, at the version in `app.json`.
 9. Smoke test with the firm account's own token before touching the app registration (Postman, Insomnia or curl all work):
    - `GET https://api.businesscentral.dynamics.com/v2.0/{tenant}/CADE_Sandbox_vs25/api/cadejonescpa/homestead/v1.0/companies` → the household company
    - `GET .../companies({id})/hhJournalLineChecks?$filter=externalDocumentNo eq 'HHAPP-MAN-20261020-00000000'` → `{"value":[]}` (an empty answer, not an error)

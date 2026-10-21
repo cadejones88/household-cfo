@@ -47,7 +47,10 @@ export interface BuiltBatch {
 
 const CRLF = "\r\n";
 
-/** One change set holding every request, so the whole set lands or nothing does. */
+/**
+ * One multipart change set holding every request. Kept for OData services that support change sets; Business Central
+ * refuses a change set with more than one request, so the adapter's default is the JSON batch (`buildJsonBatch`).
+ */
 export function buildMultipartChangeset(requests: readonly BatchRequest[]): BuiltBatch {
   const batchBoundary = `batch_${randomUUID()}`;
   const changesetBoundary = `changeset_${randomUUID()}`;
@@ -88,13 +91,17 @@ export function buildMultipartChangeset(requests: readonly BatchRequest[]): Buil
   return { contentType: `multipart/mixed; boundary=${batchBoundary}`, body, contentIds };
 }
 
-/** The JSON batch body BC's own documentation shows; every request shares one atomicity group. */
+/**
+ * The JSON batch body BC's own documentation shows (use-odata-batch): no atomicity group. BC refuses a change set or
+ * atomicity group with more than one request ("Multiple requests within the same change set are not supported by
+ * Dynamics 365 Business Central OData web services", seen on the sandbox 10/21/2026); the all-or-nothing behaviour
+ * comes from the `Isolation: snapshot` header on the $batch request instead (BcHttp.batchChangeset sends it).
+ */
 export function buildJsonBatch(requests: readonly BatchRequest[]): BuiltBatch {
   const contentIds = requests.map((_, i) => String(i + 1));
   const body = {
     requests: requests.map((r, i) => ({
       id: contentIds[i],
-      atomicityGroup: "homestead",
       method: r.method,
       url: r.url,
       headers: { "Content-Type": "application/json", Accept: "application/json", ...(r.headers ?? {}) },

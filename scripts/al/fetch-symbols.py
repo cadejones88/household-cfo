@@ -27,6 +27,8 @@ WANTED = [
     ("Microsoft.BaseApplication", "437dbf0e-84ff-417a-965d-ed2bb9650972"),
     ("Microsoft.SystemApplication", "63ca2fa4-4f03-4f2b-a480-172fef340d3f"),
     ("Microsoft.BusinessFoundation", "f3552374-a1f2-4356-848e-196002525837"),
+    # The standard API v2.0 pages (HH-APP grants Execute on the ones the app calls).
+    ("Microsoft._Exclude_APIV2_", "10cb69d9-bc8a-4d27-970a-9e110e9db2a5"),
 ]
 COUNTRY = os.environ.get("BC_COUNTRY", "US")
 

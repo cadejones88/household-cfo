@@ -53,11 +53,11 @@ describe("$batch multipart/mixed (OData 4 §11.7)", () => {
     expect(fparts[0]?.status).toBe(400);
   });
 
-  it("builds the JSON batch BC documents, with one atomicity group", () => {
+  it("builds the JSON batch BC documents, with no atomicity group (BC refuses a group of more than one request)", () => {
     const built = buildJsonBatch(requests);
-    const body = JSON.parse(built.body) as { requests: { id: string; atomicityGroup: string; method: string; url: string }[] };
+    const body = JSON.parse(built.body) as { requests: { id: string; atomicityGroup?: string; method: string; url: string }[] };
     expect(body.requests.map((r) => r.id)).toEqual(["1", "2"]);
-    expect(new Set(body.requests.map((r) => r.atomicityGroup)).size).toBe(1);
+    expect(body.requests.every((r) => r.atomicityGroup === undefined)).toBe(true);
     const parsed = parseJsonBatch(body);
     expect(parsed[1]?.url).toBe(requests[1]?.url);
     const responses = parseJsonBatchResponse({ responses: [{ id: "1", status: 201, headers: {}, body: { id: "x" } }] });

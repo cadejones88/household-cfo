@@ -45,7 +45,7 @@ describe("createJournalLines: one change set, all or nothing", () => {
     const batchCalls = server.log.filter((l) => l.url.endsWith("/$batch"));
     expect(batchCalls).toHaveLength(1);
     expect(batchCalls[0]?.headers.isolation).toBe("snapshot");
-    expect(batchCalls[0]?.headers["content-type"]).toMatch(/^multipart\/mixed; boundary=/);
+    expect(batchCalls[0]?.headers["content-type"]).toMatch(/^application\/json/);
     const drafts = server.draftLines("RECEIPTS");
     expect(drafts).toHaveLength(3);
     const dimsOnGroceries = Object.fromEntries(drafts[0]!.dimensionSetLines.map((d) => [d.code, d.valueCode]));
@@ -65,7 +65,13 @@ describe("createJournalLines: one change set, all or nothing", () => {
     expect(server.draftLines("RECEIPTS")).toHaveLength(0);
   });
 
-  it("the same proof holds with the JSON batch format", async () => {
+  it("a multipart change set of more than one request is refused, as Business Central refuses it", async () => {
+    const { adapter, server } = makeAdapter({ batchFormat: "multipart" });
+    await expect(adapter.createJournalLines({ journalCode: "FEEDS", lines: walmartSplit() })).rejects.toThrow(/Multiple requests within the same change set/);
+    expect(server.draftLines("FEEDS")).toHaveLength(0);
+  });
+
+  it("the same proof holds with the JSON batch format named explicitly", async () => {
     const { adapter, server } = makeAdapter({ batchFormat: "json" });
     const lines = walmartSplit();
     lines[0] = { ...lines[0]!, accountNumber: "000000" };
