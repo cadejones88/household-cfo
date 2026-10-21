@@ -928,9 +928,9 @@ export class MockBcServer {
     const dimFields: [keyof MockBudgetEntry, DimensionCode][] = [
       ["globalDimension1Code", "SPEND_CLASS"],
       ["globalDimension2Code", "FUND_GOAL"],
+      // The sandbox's G/L Budget Name cards: Budget Dimension 1 FAMILY_AREA, 2 PROJECT, 3-4 blank.
       ["budgetDimension1Code", "FAMILY_AREA"],
-      ["budgetDimension2Code", "TAX_TREATMENT"],
-      ["budgetDimension3Code", "PROJECT"],
+      ["budgetDimension2Code", "PROJECT"],
     ];
     const entry: MockBudgetEntry = {
       entryNo: this.state.nextBudgetEntryNo,
@@ -943,9 +943,11 @@ export class MockBcServer {
       globalDimension2Code: "",
       budgetDimension1Code: "",
       budgetDimension2Code: "",
-      budgetDimension3Code: "",
+      budgetDimension3Code: String(b.budgetDimension3Code ?? ""),
       budgetDimension4Code: String(b.budgetDimension4Code ?? ""),
     };
+    // A code in a slot the budget has no dimension for is refused, as BC refuses it.
+    for (const slot of ["budgetDimension3Code", "budgetDimension4Code"] as const) if (entry[slot]) return odataError(400, "Application_DialogException", `Budget ${budgetName} has no ${slot.replace("budgetDimension", "Budget Dimension ").replace("Code", "")} dimension.`);
     for (const [field, code] of dimFields) {
       const v = String(b[field] ?? "");
       if (v) {

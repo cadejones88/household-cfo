@@ -376,7 +376,13 @@ d("A1–A9", () => {
     // Goals: the emergency fund's balance is BC's FUND_GOAL entries
     const goals = await get("/v1/goals");
     dt(goals.dataThrough);
-    expect(goals.goals.find((g: { fundGoal: string }) => g.fundGoal === "EMERG-1M").currentCents).toBe(75000);
+    // Mock: A7's deposit. Sandbox: whatever BC's FUND_GOAL entries on the cash accounts add up to (A7's deposit is
+    // Cade's manual step there), read straight from BC, so the screen ties to the ledger either way.
+    const emergencyInBc =
+      side.kind === "mock"
+        ? 75000
+        : (await w.side.ledger.readGlEntriesByExternalDocNo({ accountNoPrefix: "10" })).filter((e) => e.dimensions.some((d) => d.code === "FUND_GOAL" && d.valueCode === "EMERG-1M")).reduce((s, e) => s + e.amountCents, 0);
+    expect(goals.goals.find((g: { fundGoal: string }) => g.fundGoal === "EMERG-1M")?.currentCents ?? 0).toBe(Math.max(0, emergencyInBc));
     // Ask: every number from the rows, with the data-through
     const ask = (await w.app.inject({ method: "POST", url: "/v1/ask", headers: as(w.hh.members.vanessa), payload: { question: "How much is safe to spend?" } })).json();
     dt(ask.dataThrough);

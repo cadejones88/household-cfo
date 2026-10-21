@@ -75,12 +75,17 @@ export interface BudgetDimensionLayout {
   budgetDimension4?: DimensionCode;
 }
 
+/**
+ * As the household's G/L Budget Name cards have it (BUD26-ORIG/-REV, BUD27-*, FCST2026/2027 in the sandbox, read
+ * 10/21/2026): Budget Dimension 1 FAMILY_AREA, 2 PROJECT, 3-4 blank. TAX_TREATMENT is not a budget dimension, so it
+ * is not written to budget entries. The first sandbox write with the old layout put NONDEDUCT in the PROJECT slot
+ * ("Dimension Value PROJECT - NONDEDUCT is missing").
+ */
 export const DEFAULT_BUDGET_DIMENSION_LAYOUT: BudgetDimensionLayout = {
   globalDimension1: "SPEND_CLASS",
   globalDimension2: "FUND_GOAL",
   budgetDimension1: "FAMILY_AREA",
-  budgetDimension2: "TAX_TREATMENT",
-  budgetDimension3: "PROJECT",
+  budgetDimension2: "PROJECT",
 };
 
 export interface BcAdapterConfig {
