@@ -22,7 +22,8 @@ FEED = "https://dynamicssmb2.pkgs.visualstudio.com/DynamicsBCPublicFeeds/_packag
 # base application (the household sandbox is US).
 WANTED = [
     ("Microsoft.Platform.symbols", None),
-    ("Microsoft.Application", "c1335042-3002-4257-bf8a-75c898ccb1b8"),
+    # The Application package id carries the country but no app id: Microsoft.Application.US.symbols.
+    ("Microsoft.Application", ""),
     ("Microsoft.BaseApplication", "437dbf0e-84ff-417a-965d-ed2bb9650972"),
     ("Microsoft.SystemApplication", "63ca2fa4-4f03-4f2b-a480-172fef340d3f"),
     ("Microsoft.BusinessFoundation", "f3552374-a1f2-4356-848e-196002525837"),
@@ -66,6 +67,8 @@ def main(project):
         ids = []
         if app_id:
             ids += [f"{prefix}.{COUNTRY}.symbols.{app_id}", f"{prefix}.symbols.{app_id}"]
+        elif app_id == "":
+            ids += [f"{prefix}.{COUNTRY}.symbols", f"{prefix}.symbols"]
         else:
             ids += [prefix]
         # Search as a fallback, to learn the real ids if the guesses miss.
@@ -73,7 +76,8 @@ def main(project):
             q = urllib.parse.urlencode({"q": prefix, "take": 50, "prerelease": "false"})
             found = [d["id"] for d in get_json(f"{search}?{q}").get("data", [])]
             note(f"search '{prefix}': {', '.join(found[:12]) or 'nothing'}")
-            ids += [i for i in found if i not in ids and ("symbols" in i.lower())]
+            # Fallback ids from search only when they are country-neutral or this country's (never another country's).
+            ids += [i for i in found if i not in ids and "symbols" in i.lower() and (f".{COUNTRY}." in i or not re.search(r"\.[A-Z]{2}\.symbols", i))]
         except Exception as e:  # search is optional
             note(f"search '{prefix}' failed: {e}")
         return ids

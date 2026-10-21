@@ -63,9 +63,10 @@ permissionset 50100 "HH-APP"
         tabledata "G/L Budget Name" = R,
         tabledata "G/L Budget Entry" = RI,
 
-        // Webhook subscriptions (API v2.0 subscriptions; the runtime stores them in these system tables)
-        tabledata "Webhook Subscription" = RIMD,
-        tabledata "Webhook Notification" = RIMD,
+        // Webhook subscriptions: not listed. "Webhook Subscription" and "Webhook Notification" are OnPrem-scoped and a
+        // cloud extension cannot name them (AL0296, found by the first compile on 10/21/2026); in the online service
+        // the API runtime manages subscriptions for the calling application itself. If POST subscriptions is refused
+        // on the sandbox, the fix is a Microsoft permission set for the application, not this extension.
 
         // Companies and the user's own session
         tabledata Company = R,
