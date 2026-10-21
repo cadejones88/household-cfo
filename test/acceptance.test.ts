@@ -104,13 +104,25 @@ d("A1–A9", () => {
         const ex = await db.query<{ exception_reason: string }>("select exception_reason from transactions where household_id = $1 and exception_reason is not null order by updated_at desc limit 3", hh);
         const ob = await db.query<{ aggregate: string; operation: string; attempts: number; last_error: string }>("select aggregate, operation, attempts, last_error from outbox where household_id = $1 and last_error is not null order by created_at desc limit 3", hh);
         const sr = await db.query<{ kind: string; error: string }>("select kind, error from sync_runs where household_id = $1 and status = 'failed' order by started_at desc limit 3", hh);
+        // The reads the app makes of BC, tried directly, so a failure in a read path (safe to spend, goals, the budget
+        // matrix, the chart) shows BC's own reason rather than the API's generic 500.
+        const probe = async (label: string, f: () => Promise<string>) => `${label}: ${await f().catch((e: unknown) => `FAILED ${(e as Error).message}`)}`;
+        const reads = [
+          await probe("accounts", async () => {
+            const a = await w.side.ledger.listAccounts();
+            return `${a.length} read; 401102 ${a.some((x) => x.number === "401102") ? "present" : "missing"}, 401202 ${a.some((x) => x.number === "401202") ? "present" : "missing"}`;
+          }),
+          await probe("G/L entries 10xxxx with dimensions", async () => `${(await w.side.ledger.readGlEntriesByExternalDocNo({ accountNoPrefix: "10" })).length} read`),
+          await probe("budget BUD26-REV", async () => `${(await w.side.ledger.readBudget("BUD26-REV")).length} read`),
+        ];
         return [
-          ...ex.rows.map((r) => `exception: ${r.exception_reason}`),
           ...ob.rows.map((r) => `outbox ${r.aggregate}/${r.operation} after ${r.attempts} attempt(s): ${r.last_error}`),
+          ...reads,
           ...sr.rows.map((r) => `job ${r.kind}: ${r.error}`),
+          ...ex.rows.slice(0, 1).map((r) => `exception: ${r.exception_reason}`),
         ]
           .join(" || ")
-          .slice(0, 2000);
+          .slice(0, 3000);
       });
     // Webhook subscriptions first, so BC's notifications reach the app during the run.
     await w.job("webhook-renewal");

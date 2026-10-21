@@ -97,6 +97,17 @@ export interface WorkerCounts {
 }
 
 /** Process the published, due rows of one household. */
+/**
+ * The outbox's last_error, shown on the Console's work queue: error class, HTTP status and BC's error code, then BC's
+ * own sentence (the adapter has already redacted it), shortened. The code alone ("403 Internal_ServerError") does not
+ * say which table or field BC refused; the sentence does.
+ */
+export function describeOutboxError(err: Error): string {
+  const head = `${err.name}${err instanceof LedgerError && err.status ? ` ${err.status}` : ""}${err instanceof LedgerError && err.code ? ` ${err.code}` : ""}`;
+  const detail = err instanceof LedgerError ? err.message.replace(/\s+/g, " ").trim().slice(0, 400) : "";
+  return detail ? `${head}: ${detail}` : head;
+}
+
 export async function workOutbox(db: Queryable, householdId: string, deps: Deps, now: Date, actor = "bc-worker"): Promise<WorkerCounts & { acknowledged: number }> {
   const counts: WorkerCounts & { acknowledged: number } = { processed: 0, retried: 0, deadLettered: 0, skipped: 0, acknowledged: 0 };
   // Queue messages are pointers ({ outboxId, householdId, operation }); the outbox rows below are the truth. Take
@@ -120,11 +131,11 @@ export async function workOutbox(db: Queryable, householdId: string, deps: Deps,
       if (scheduled !== undefined) {
         // A longer Retry-After from BC (429) wins over the schedule.
         const delayMs = Math.max(scheduled * 60_000, err instanceof LedgerError && err.retryAfterMs ? err.retryAfterMs : 0);
-        await db.query("update outbox set attempts = $2, next_attempt_at = $3, last_error = $4, published_at = null where id = $1", [row.id, attempts, new Date(now.getTime() + delayMs).toISOString(), `${err.name}${err instanceof LedgerError && err.status ? ` ${err.status}` : ""}`]);
+        await db.query("update outbox set attempts = $2, next_attempt_at = $3, last_error = $4, published_at = null where id = $1", [row.id, attempts, new Date(now.getTime() + delayMs).toISOString(), describeOutboxError(err)]);
         counts.retried += 1;
         continue;
       }
-      await db.query("update outbox set attempts = $2, dead_lettered = true, last_error = $3 where id = $1", [row.id, attempts, `${err.name}${err instanceof LedgerError && err.status ? ` ${err.status}` : ""}${err instanceof LedgerError && err.code ? ` ${err.code}` : ""}`]);
+      await db.query("update outbox set attempts = $2, dead_lettered = true, last_error = $3 where id = $1", [row.id, attempts, describeOutboxError(err)]);
       const msg = byOutboxId.get(row.id) ?? { id: row.id, topic: OUTBOX_TOPIC, body: { outboxId: row.id }, enqueuedAt: row.created_at };
       await deps.queue.deadLetter(msg, err.name);
       byOutboxId.delete(row.id);

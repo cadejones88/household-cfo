@@ -57,7 +57,7 @@ describeDb("outbox relay, BC worker, read-back and nightly poll", () => {
     const row = await inHh(hh, async (db) => (await db.query<{ attempts: number; next_attempt_at: Date; last_error: string }>("select attempts, next_attempt_at, last_error from outbox where aggregate_id = $1", [id])).rows[0]!);
     expect(row.attempts).toBe(1);
     expect(row.next_attempt_at.toISOString()).toBe(later(1).toISOString());
-    expect(row.last_error).toBe("LedgerError 503");
+    expect(row.last_error).toBe("LedgerError 503 ServiceUnavailable: BC 503 ServiceUnavailable: busy");
     expect((await inHh(hh, (db) => loadTx(db, id))).state).toBe("sent_to_bc");
     // Second try: BC does the write but the connection drops before the reply.
     clock = later(2);
