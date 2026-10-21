@@ -84,18 +84,19 @@ Modes come from `VITE_*` variables at build time (`src/config.ts`): `VITE_API_MO
 
 Step-up: in dev the client sends `x-step-up: true`; with Entra it sends a token issued just now (`forceRefresh`), which the API accepts when `iat` is inside two minutes and `amr` carries MFA or a passkey.
 
-Gaps, for the API builder (the screen says "not available yet" or "—" instead of a zero):
+Console needs and where they stand (a screen says "not available yet" or "—" rather than show a zero):
 
-| Console need | Today | Suggested API change |
-| --- | --- | --- |
-| Mapping change by proposal | Refused in the client with `501 not_in_api`. A `settings` approval would merge the proposal into household settings on approval and change no mapping. | `POST /v1/console/mappings/propose { categoryId, glAccount, dims, reason }` → an approval of a new kind that, when the other spouse approves with step-up, writes the next category version effective from a date |
-| Loan rollforwards (Frontier ×2, PennyMac) | Empty, page says so | `loans[]` (`LoanRollforward`) on `GET /v1/console/reconciliation` |
-| Per-card open sum, last statement, reconciled-through, difference lines | Counts only; "—" for the rest | Extend `reconciliation.accounts[]` with `openSumCents`, `lastStatementNo`, `lastStatementDate`, `reconciledThrough`, `differences[]` |
-| BC-side draft count and sum per batch, journal id, last posted | Not shown ("not reported"); the "differs" tag cannot fire | Extend `GET /v1/console/posting.batches[]` with `bcDraftCount`, `bcDraftSumCents`, `journalId`, `lastPostedAt` from the nightly poll |
-| Who captured a receipt | "—" | `memberName` (or `capturedBy`) on `ReceiptSummary` |
-| Audit filter by actor | Filtered in the client | `actor` query parameter on `GET /v1/console/audit` |
-| Whether BC answers right now | Shows the last poll instead | `ledger.apiReachable` and `checkedAt` on `GET /v1/console/connections` |
-| Classify a `needs_classification` line by hand | "This is wrong" sets the category; the line stays in Needs classification until the rule engine runs (there is no question for that state) | Let `/correct` (or a `tx:` answer) move a person-classified line to `ready_for_review`/`approved` |
+| Console need | Status |
+| --- | --- |
+| Mapping change by proposal | Wired: `POST /v1/console/mappings/proposals` creates an approval the other spouse decides; on approval the API versions the category |
+| Per-card open count and sum, last statement, reconciled-through | Wired from BC's bank ledger entries (HH App Connector) when the API can read them; counts from the app otherwise |
+| BC-side draft count and sum per batch | Wired (`bcDraftCount`, `bcDraftSumCents`, read live by the API); journal id and last-posted time still not reported |
+| Who captured a receipt | Wired (`memberName` on the queue's receipts) |
+| Audit filter by actor | Wired (`actor` query parameter) |
+| Whether BC answers right now | Wired (`ledger.apiReachable`, `checkedAt`) |
+| Classify a `needs_classification` line by hand | Done in the API |
+| Loan rollforwards (Frontier ×2, PennyMac) | Open: `loans[]` waits on confirming which BC accounts the recurring journals post interest, escrow and fees to |
+| Individual difference lines per card | Open: the page shows the count and points to the Exceptions queue |
 
 Shapes live in `packages/shared/src/types.ts` under "Console DTOs (E7)"; add fields there, never change existing ones.
 

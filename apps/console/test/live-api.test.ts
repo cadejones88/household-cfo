@@ -108,12 +108,13 @@ describe.skipIf(!live)("Console HTTP client against a running API", () => {
     expect(recon.bankCards).toHaveLength(BANK_CARD_LIST.length);
     expect(recon.missing).toContain("loans");
 
-    // 4. Mappings (employer templates come from the API now); proposals are refused in the client
+    // 4. Mappings (employer templates come from the API now); a proposal becomes an approval for the other spouse
     const maps = await api.mappings();
     expect(maps.categories.length).toBeGreaterThan(10);
     expect(maps.dimensions.map((d) => d.code)).toEqual(expect.arrayContaining(["SPEND_CLASS", "FUND_GOAL", "FAMILY_AREA", "TAX_TREATMENT", "PROJECT"]));
     expect(maps.employers.map((e) => e.code).sort()).toEqual(["CTJ", "HFH"]);
-    await expect(api.proposeMapping({ categoryId: groceries.id, glAccount: groceries.glAccount, dims: {}, reason: "x" })).rejects.toMatchObject({ code: "not_in_api" });
+    const proposal = await api.proposeMapping({ categoryId: groceries.id, glAccount: groceries.glAccount, dims: {}, reason: "CONSOLE LIVE mapping check" });
+    expect(proposal.approvalId).toMatch(/^[0-9a-f-]{36}$/);
 
     // 11. Authority matrix
     const auth = await api.authority();

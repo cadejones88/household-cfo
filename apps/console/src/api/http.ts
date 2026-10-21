@@ -75,11 +75,14 @@ interface QueuesResponse {
   dataThrough?: DataThrough;
 }
 interface PostingResponse {
-  batches?: { batch: BcBatch; approved?: number; sentToBc?: number; draftCreated?: number; posted?: number; exceptions?: number; deadLettered?: number; draftSumCents?: number }[];
+  batches?: { batch: BcBatch; approved?: number; sentToBc?: number; draftCreated?: number; posted?: number; exceptions?: number; deadLettered?: number; draftSumCents?: number; bcDraftCount?: number; bcDraftLines?: number; bcDraftSumCents?: number }[];
   autoPostEnabled?: boolean;
   outboxDue?: number;
   lastPollAt?: string;
   lastWebhookAt?: string;
+  /** When the API read the BC batches live; `bcUnavailable` when BC did not answer. */
+  bcCheckedAt?: string;
+  bcUnavailable?: boolean;
 }
 interface PostBatchResponse {
   batch?: BcBatch;
@@ -92,7 +95,7 @@ interface PostBatchResponse {
 }
 interface ConnectionsResponse {
   feeds?: { id: string; provider: "plaid" | "file" | "simplefin"; institutionName?: string; ownerMemberId?: string; ownerName?: string; status?: FeedConnectionSummary["status"]; needsRelink?: boolean; lastSyncedAt?: string; staleHours?: number; accountCount?: number; cursorPresent?: boolean }[];
-  ledger?: { environment?: string; companyId?: string; autoPostEnabled?: boolean; lastPollAt?: string; lastWebhookAt?: string };
+  ledger?: { environment?: string; companyId?: string; autoPostEnabled?: boolean; lastPollAt?: string; lastWebhookAt?: string; apiReachable?: boolean; checkedAt?: string };
   webhooks?: { resource: string; subscriptionId?: string; expiresAt?: string; lastRenewedAt?: string; needsRenewal?: boolean }[];
   outbox?: { due?: number; deadLettered?: number; oldestPendingAt?: string };
 }
@@ -116,7 +119,26 @@ interface MatrixResponse {
   autoPostRules?: { ruleNo: string; name: string; state: RuleSummary["state"]; mayAutoPost: boolean; testPassedAt?: string }[];
 }
 interface ReconResponse {
-  accounts?: { accountId: string; displayName?: string; bcBankAccountCode?: string; glAccount?: string; mask?: string; institution?: string; posted?: number; reconciled?: number; bcNative?: number; differences?: number; lastPollAt?: string }[];
+  accounts?: {
+    accountId: string;
+    displayName?: string;
+    bcBankAccountCode?: string;
+    glAccount?: string;
+    mask?: string;
+    institution?: string;
+    posted?: number;
+    reconciled?: number;
+    bcNative?: number;
+    differences?: number;
+    lastPollAt?: string;
+    /** From BC's bank ledger entries (HH App Connector), last 120 days; absent when BC was not read. */
+    openCount?: number;
+    openSumCents?: number;
+    bcReconciledCount?: number;
+    lastStatementNo?: string;
+    reconciledThrough?: string;
+    bankLedger?: "unavailable";
+  }[];
 }
 interface MappingsResponse {
   catalogVersion?: number;
@@ -360,8 +382,7 @@ export function createHttpApi(opts: HttpApiOptions): ConsoleApi {
       const queueTx = [...(r.transactions ?? []), ...(r.exceptions ?? [])];
       const items = await Promise.all(
         s.items.map(async (rec): Promise<ConsoleReceiptRow> => {
-          // Capturer names are not in ReceiptSummary yet (README "API routes").
-          const row: ConsoleReceiptRow = { ...rec, memberName: "—" };
+          const row: ConsoleReceiptRow = { ...rec, memberName: (rec as ReceiptSummary & { memberName?: string }).memberName || "—" };
           if (status !== "unmatched") return row;
           const detail = await get<ReceiptDetailResponse>(`/v1/receipts/${encodeURIComponent(rec.id)}`).catch(() => undefined);
           const cands = detail?.candidates ?? [];
@@ -403,8 +424,8 @@ export function createHttpApi(opts: HttpApiOptions): ConsoleApi {
         get<SyncResponse>(`/v1/console/sync${qs({ limit: 100 })}`).catch(() => ({ runs: [] }) as SyncResponse),
         get<{ entries?: AuditEntry[] }>(`/v1/console/audit${qs({ entity: "batch", limit: 50 })}`).catch(() => ({ entries: [] })),
       ]);
-      // BC-side draft counts and sums (bcDraftCount/bcDraftSumCents) come from the nightly poll and are not
-      // exposed yet; the API's `exceptions` per batch is the difference count the poll raised.
+      // BC-side draft counts and sums are read live by the API from the batch (bcDraftCount/bcDraftSumCents); the
+      // API's `exceptions` per batch is the difference count the poll raised.
       const lastRequest = (batch: BcBatch) => (postAudit.entries ?? []).filter((e) => e.entityId === batch && (e.action === "post.requested" || e.action === "post.enqueued")).map((e) => e.at).sort().at(-1);
       const batches = (["FEEDS", "RECEIPTS", "AUTOPOST"] as BcBatch[]).map((batch) => {
         const b = posting.batches?.find((x) => x.batch === batch);
@@ -415,6 +436,8 @@ export function createHttpApi(opts: HttpApiOptions): ConsoleApi {
           appDraftSumCents: b?.draftSumCents ?? 0,
           inFlightCount: (b?.approved ?? 0) + (b?.sentToBc ?? 0),
           differenceCount: b?.exceptions ?? 0,
+          ...(b?.bcDraftCount !== undefined ? { bcDraftCount: b.bcDraftCount } : {}),
+          ...(b?.bcDraftSumCents !== undefined ? { bcDraftSumCents: b.bcDraftSumCents } : {}),
           ...(lastPostRequestedAt ? { lastPostRequestedAt } : {}),
         };
       });
@@ -452,28 +475,32 @@ export function createHttpApi(opts: HttpApiOptions): ConsoleApi {
         const a = r.accounts?.find((x) => x.bcBankAccountCode === card.code);
         const summary = accts.find((x) => x.bcBankAccountCode === card.code || (a && x.id === a.accountId));
         const differences = a?.differences ?? 0;
+        const fromBc = a !== undefined && a.bankLedger !== "unavailable" && a.openCount !== undefined;
         return {
           code: card.code,
           name: card.name,
           glAccount: card.glAccount,
           institution: card.institution,
           mask: card.mask,
-          // "Open" here is posted in BC but not yet matched to a reconciled bank ledger entry.
-          openCount: Math.max(0, a?.posted ?? 0),
-          reconciledCount: a?.reconciled ?? 0,
-          openSumCents: 0, // not exposed by the API yet
+          // From BC's bank ledger when the API could read it; otherwise the app's posted-not-reconciled count.
+          openCount: fromBc ? (a.openCount ?? 0) : Math.max(0, a?.posted ?? 0),
+          reconciledCount: fromBc ? (a.bcReconciledCount ?? a.reconciled ?? 0) : (a?.reconciled ?? 0),
+          openSumCents: fromBc ? (a.openSumCents ?? 0) : 0,
+          ...(a?.lastStatementNo ? { lastStatementNo: a.lastStatementNo } : {}),
+          ...(a?.reconciledThrough ? { reconciledThrough: a.reconciledThrough, lastStatementDate: a.reconciledThrough } : {}),
           differences: differences > 0 ? [{ postedDate: (a?.lastPollAt ?? new Date().toISOString()).slice(0, 10), amountCents: 0, note: `${differences} line${differences === 1 ? "" : "s"} differ (see the Exceptions queue)` }] : [],
           feedStatus: summary?.feedStatus ?? "none",
         };
       });
       const latest = r.accounts?.map((a) => a.lastPollAt).filter((x): x is string => Boolean(x)).sort().at(-1);
-      // Loan rollforwards (the two Frontier loans and PennyMac) are not in the API yet: `loans` stays empty and the
-      // page says so.
+      // Loan rollforwards (the two Frontier loans and PennyMac) wait on the recurring-journal account confirmation:
+      // `loans` stays empty and the page says so. Open sums and statements are missing only where BC was not read.
+      const bcRead = (r.accounts ?? []).some((a) => a.openCount !== undefined && a.bankLedger !== "unavailable");
       return {
         bankCards,
         loans: [],
         dataThrough: latest ? { at: latest, quality: "posted_unreconciled", pendingCount: 0 } : nowThrough("missing"),
-        missing: ["openSum", "statements", "differenceLines", "loans"],
+        missing: bcRead ? ["differenceLines", "loans"] : ["openSum", "statements", "differenceLines", "loans"],
       };
     },
 
@@ -495,10 +522,12 @@ export function createHttpApi(opts: HttpApiOptions): ConsoleApi {
       };
     },
 
-    // Not sent: the API has no route that applies a category mapping change. A `settings` approval would merge the
-    // proposal into household settings on approval and change no mapping, so the client refuses rather than guess.
-    async proposeMapping() {
-      throw new ApiError(501, "not_in_api", "Mapping changes need an API route that versions the category and applies it on approval. Nothing was sent.");
+    // POST /v1/console/mappings/proposals: an approval the other spouse decides; on approval the API versions the
+    // category and applies the new account and dimensions.
+    async proposeMapping(input) {
+      const r = await post<{ id: string }>("/v1/console/mappings/proposals", { categoryId: input.categoryId, glAccount: input.glAccount, dims: input.dims, reason: input.reason });
+      bust();
+      return { approvalId: r.id };
     },
 
     async authority(): Promise<AuthorityMatrix> {
@@ -539,8 +568,13 @@ export function createHttpApi(opts: HttpApiOptions): ConsoleApi {
       return {
         feeds,
         subscriptions: toSubscriptions(conn.webhooks),
-        // Whether BC itself answers is known to the jobs, not to this read; the page shows the last poll instead.
-        ledger: { lastPollAt: conn.ledger?.lastPollAt, lastWebhookAt: conn.ledger?.lastWebhookAt, checkedAt: new Date().toISOString() },
+        // The API makes one short read-only call to BC (the dimension list) to say whether it answers right now.
+        ledger: {
+          lastPollAt: conn.ledger?.lastPollAt,
+          lastWebhookAt: conn.ledger?.lastWebhookAt,
+          ...(conn.ledger?.apiReachable !== undefined ? { apiReachable: conn.ledger.apiReachable } : {}),
+          checkedAt: conn.ledger?.checkedAt ?? new Date().toISOString(),
+        },
         dataThrough: newestSync ? { at: newestSync, quality: "imported_pending", pendingCount: conn.outbox?.due ?? 0 } : nowThrough("missing", conn.outbox?.due ?? 0),
       };
     },
@@ -569,12 +603,12 @@ export function createHttpApi(opts: HttpApiOptions): ConsoleApi {
     },
 
     // The API pages by a `before` cursor and filters by entity and entity id; the Console asks for page × pageSize
-    // rows (at most 500) and slices, which is fine at household scale. Actor is filtered here (no API parameter).
+    // rows (at most 500) and slices, which is fine at household scale. The API filters by actor too.
     async audit(q) {
       const pageSize = q?.pageSize ?? 25;
       const pageNo = q?.page ?? 1;
-      const r = await get<{ entries?: AuditEntry[]; next?: string }>(`/v1/console/audit${qs({ limit: Math.min(500, pageSize * pageNo), entity: q?.entity, entityId: q?.entityId })}`);
-      const entries = (r.entries ?? []).filter((e) => !q?.actor || e.actor === q.actor);
+      const r = await get<{ entries?: AuditEntry[]; next?: string }>(`/v1/console/audit${qs({ limit: Math.min(500, pageSize * pageNo), entity: q?.entity, entityId: q?.entityId, actor: q?.actor })}`);
+      const entries = r.entries ?? [];
       const items = entries.slice((pageNo - 1) * pageSize, pageNo * pageSize);
       return { items, total: entries.length + (r.next ? 1 : 0), page: pageNo, pageSize, dataThrough: nowThrough("posted_unreconciled") };
     },

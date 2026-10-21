@@ -117,10 +117,27 @@ describe("HTTP ConsoleApi", () => {
     expect(post.message).toMatch(/own BC sign-in/);
   });
 
-  it("refuses a mapping proposal instead of sending one the API would apply as a settings change", async () => {
-    const { api, calls } = fakeApi(() => undefined);
-    await expect(api.proposeMapping({ categoryId: "groceries", glAccount: "501101", dims: {}, reason: "x" })).rejects.toMatchObject({ status: 501, code: "not_in_api" });
-    expect(calls).toHaveLength(0);
+  it("sends a mapping proposal to the console proposals route and returns the approval id", async () => {
+    const { api, calls } = fakeApi((c) => (c.method === "POST" && c.path === "/v1/console/mappings/proposals" ? { status: 201, json: { id: "appr-1", kind: "settings" } } : undefined));
+    const r = await api.proposeMapping({ categoryId: "groceries", glAccount: "603101", dims: { SPEND_CLASS: "ESSENTIAL" }, reason: "Costco food split" });
+    expect(r).toEqual({ approvalId: "appr-1" });
+    const sent = calls.find((c) => c.path === "/v1/console/mappings/proposals");
+    expect(sent?.body).toEqual({ categoryId: "groceries", glAccount: "603101", dims: { SPEND_CLASS: "ESSENTIAL" }, reason: "Costco food split" });
+  });
+
+  it("uses BC's bank ledger figures on reconciliation when the API read them", async () => {
+    const chk = accounts.find((a) => a.bcBankAccountCode === "BEEHIVE-CHK")!;
+    const { api } = fakeApi(
+      queuesHandler((c) =>
+        c.path === "/v1/console/reconciliation"
+          ? { json: { accounts: [{ accountId: chk.id, bcBankAccountCode: "BEEHIVE-CHK", posted: 9, reconciled: 212, differences: 0, openCount: 4, openSumCents: -41833, bcReconciledCount: 215, lastStatementNo: "2026-09", reconciledThrough: "2026-10-01" }] } }
+          : undefined,
+      ),
+    );
+    const r = await api.reconciliation();
+    const card = r.bankCards.find((b) => b.code === "BEEHIVE-CHK")!;
+    expect(card).toMatchObject({ openCount: 4, openSumCents: -41833, reconciledCount: 215, lastStatementNo: "2026-09", reconciledThrough: "2026-10-01" });
+    expect(r.missing).toEqual(["differenceLines", "loans"]);
   });
 
   it("builds the 14 bank cards from the reconciliation route and says what the API does not report", async () => {
