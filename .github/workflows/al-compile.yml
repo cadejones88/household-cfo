@@ -62,9 +62,15 @@ jobs:
         if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
+          APP: ${{ steps.compile.outputs.app }}
+          VERSION: ${{ steps.compile.outputs.version }}
         run: |
-          TAG="hh-app-connector-v${{ steps.compile.outputs.version }}"
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "HH App Connector ${{ steps.compile.outputs.version }}" \
-            --notes "Compiled from bc/hh-app-connector at ${GITHUB_SHA::7} against BC 27 symbols. Upload in Business Central (sandbox CADE_Sandbox_vs25): Extension Management > Manage > Upload Extension."
-          cp "${{ steps.compile.outputs.app }}" "$RUNNER_TEMP/HH-App-Connector.app"
-          gh release upload "$TAG" "$RUNNER_TEMP/HH-App-Connector.app" --clobber
+          TAG="hh-app-connector-v$VERSION"
+          cp "$APP" "$RUNNER_TEMP/HH-App-Connector.app"
+          report() { if ! out=$("$@" 2>&1); then echo "::error::$1 $2 failed: $(echo "$out" | tr '\n' ' ' | cut -c1-400)"; return 1; fi; }
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            report gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "HH App Connector $VERSION" \
+              --notes "Compiled from bc/hh-app-connector at ${GITHUB_SHA::7} against BC 27 symbols. Upload in Business Central (sandbox CADE_Sandbox_vs25): Extension Management > Manage > Upload Extension."
+          fi
+          report gh release upload "$TAG" "$RUNNER_TEMP/HH-App-Connector.app" --repo "$GITHUB_REPOSITORY" --clobber
+          echo "::notice::Release $TAG has HH-App-Connector.app"
