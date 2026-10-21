@@ -9,8 +9,11 @@ import { badRequest } from "../lib/errors.js";
 import { idParam, inHousehold, parse, readMultipart, requireStepUp } from "../lib/http.js";
 import { listAlerts, toAlertDto } from "../services/alerts.js";
 import { importFile, listImportProfiles } from "../services/bankData/fileImport.js";
-import { auditPage, connectionHealth, listOutbox, mappings, postingStatus, queues, reconciliationStatus, requestPostBatch, retryOutbox, settingsView, toOutboxItem } from "../services/console.js";
-import { getHousehold } from "../services/households.js";
+import { auditPage, connectionHealth, listOutbox, mappings, postingStatus, proposeMapping, queues, reconciliationStatus, requestPostBatch, retryOutbox, settingsView, toOutboxItem } from "../services/console.js";
+import { getHousehold, listMembers } from "../services/households.js";
+import { toApprovalDto } from "../services/approvals.js";
+import { dateIsoInTz } from "../lib/dates.js";
+import type { DimensionSet } from "@homestead/shared";
 import { listReceipts, toReceiptSummary } from "../services/receipts/upload.js";
 import { listRules } from "../services/rules.js";
 import { resolveException } from "../services/transactions.js";
@@ -21,7 +24,22 @@ export default async function consoleRoutes(app: FastifyInstance): Promise<void>
   app.get("/console/queues", async (req) =>
     inHousehold(req, async (db, p) => {
       const q = await queues(db, p.householdId, app.deps.now());
-      const receipts = (await listReceipts(db, p.householdId, { limit: 100 })).filter((r) => r.kind === "receipt" && (r.ocr_status === "needs_review" || r.ocr_status === "failed" || (r.ocr_status === "read" && !r.matched_transaction_id))).map(toReceiptSummary);
+      const names = new Map((await listMembers(db, p.householdId)).map((m) => [m.id, m.display_name]));
+      const receipts = [];
+      for (const r of (await listReceipts(db, p.householdId, { limit: 100 })).filter((x) => x.kind === "receipt" && (x.ocr_status === "needs_review" || x.ocr_status === "failed" || (x.ocr_status === "read" && !x.matched_transaction_id)))) {
+        const row: Record<string, unknown> = { ...toReceiptSummary(r), memberName: names.get(r.member_id) ?? "" };
+        // The bank lines the matcher could not decide between, with what Cade needs to pick one.
+        const cands = (r.ocr_result as { candidates?: { transactionId: string; score: number }[] } | null)?.candidates ?? [];
+        if (cands.length) {
+          const list = [];
+          for (const c of cands) {
+            const t = await db.query<{ posted_date: string; amount_cents: number; merchant_raw: string }>("select to_char(posted_date,'YYYY-MM-DD') as posted_date, amount_cents::bigint::int as amount_cents, merchant_raw from transactions where id = $1", [c.transactionId]);
+            if (t.rows[0]) list.push({ transactionId: c.transactionId, postedDate: t.rows[0].posted_date, amountCents: t.rows[0].amount_cents, merchant: t.rows[0].merchant_raw, confidence: c.score });
+          }
+          row["candidates"] = list;
+        }
+        receipts.push(row);
+      }
       const rules = [];
       for (const r of await listRules(db, p.householdId, "proposed")) rules.push(await toRuleSummary(db, p.householdId, r));
       return { ...q, receipts, rules };
@@ -40,7 +58,7 @@ export default async function consoleRoutes(app: FastifyInstance): Promise<void>
     });
   });
 
-  app.get("/console/posting", async (req) => inHousehold(req, (db, p) => postingStatus(db, p.householdId)));
+  app.get("/console/posting", async (req) => inHousehold(req, (db, p) => postingStatus(db, p.householdId, app.deps.ledger)));
 
   app.post("/console/posting/post-batch", async (req, reply) => {
     requireStepUp(req);
@@ -49,9 +67,20 @@ export default async function consoleRoutes(app: FastifyInstance): Promise<void>
     return reply.code(202).send({ ...r, draftCount: r.lineCount });
   });
 
-  app.get("/console/reconciliation", async (req) => inHousehold(req, (db, p) => reconciliationStatus(db, p.householdId)));
+  app.get("/console/reconciliation", async (req) =>
+    inHousehold(req, async (db, p) => {
+      const hh = await getHousehold(db, p.householdId);
+      return reconciliationStatus(db, p.householdId, app.deps.ledger, dateIsoInTz(app.deps.now(), hh.timezone));
+    }),
+  );
 
   app.get("/console/mappings", async (req) => inHousehold(req, (db, p) => mappings(db, p.householdId)));
+
+  app.post("/console/mappings/proposals", async (req, reply) => {
+    const body = parse(z.object({ categoryId: z.string().min(1).max(64), glAccount: z.string().regex(/^\d{6}$/), dims: z.record(z.string()).default({}), reason: z.string().min(1).max(500) }), req.body);
+    const dto = await inHousehold(req, async (db, p) => toApprovalDto(db, p.householdId, await proposeMapping(db, p.householdId, { categoryId: body.categoryId, glAccount: body.glAccount, dims: body.dims as DimensionSet, reason: body.reason }, p.memberId)));
+    return reply.code(201).send(dto);
+  });
 
   app.get("/console/authority-matrix", async (req) =>
     inHousehold(req, async (db, p) => {
@@ -68,11 +97,11 @@ export default async function consoleRoutes(app: FastifyInstance): Promise<void>
     }),
   );
 
-  app.get("/console/connections", async (req) => inHousehold(req, (db, p) => connectionHealth(db, p.householdId, app.deps.now())));
+  app.get("/console/connections", async (req) => inHousehold(req, (db, p) => connectionHealth(db, p.householdId, app.deps.now(), app.deps.ledger)));
 
   app.get("/console/audit", async (req) => {
-    const q = parse(z.object({ limit: z.coerce.number().int().min(1).max(500).default(100), before: z.string().datetime({ offset: true }).optional(), entity: z.string().max(60).optional(), entityId: z.string().max(100).optional() }), req.query);
-    return inHousehold(req, (db, p) => auditPage(db, p.householdId, { limit: q.limit, ...(q.before ? { before: q.before } : {}), ...(q.entity ? { entity: q.entity } : {}), ...(q.entityId ? { entityId: q.entityId } : {}) }));
+    const q = parse(z.object({ limit: z.coerce.number().int().min(1).max(500).default(100), before: z.string().datetime({ offset: true }).optional(), entity: z.string().max(60).optional(), entityId: z.string().max(100).optional(), actor: z.string().max(100).optional() }), req.query);
+    return inHousehold(req, (db, p) => auditPage(db, p.householdId, { limit: q.limit, ...(q.before ? { before: q.before } : {}), ...(q.entity ? { entity: q.entity } : {}), ...(q.entityId ? { entityId: q.entityId } : {}), ...(q.actor ? { actor: q.actor } : {}) }));
   });
 
   app.post("/console/exceptions/:id/resolve", async (req) => {

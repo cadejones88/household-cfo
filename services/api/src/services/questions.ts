@@ -248,6 +248,14 @@ async function answerTransaction(db: Queryable, householdId: string, memberId: s
       await applyEstimatedSplit(db, householdId, tx, memberId);
       return done();
     }
+    case "needs_classification": {
+      // Not a household question (the rule engine has not run yet), but Cade may classify it by hand in the Console.
+      if (!chosenCategory && !input.splits?.length) throw badRequest("option", "Answer with category:<id> or splits");
+      await transition(db, householdId, txId, "ready_for_review", "rule_engine", { actorId: memberId, reason: "classified by hand" });
+      if (input.splits?.length) await setSplits(db, householdId, txId, input.splits, memberId);
+      await approveTransaction(db, householdId, txId, "member", { ...(chosenCategory && !input.splits?.length ? { categoryId: chosenCategory } : {}), actorId: memberId, reason: "classified by hand" });
+      return done();
+    }
     case "ready_for_review": {
       if (input.optionId === "edit" || input.splits) {
         if (!input.splits?.length) throw badRequest("splits", "Send the corrected lines with edit");

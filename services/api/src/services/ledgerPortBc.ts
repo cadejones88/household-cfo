@@ -66,6 +66,7 @@ import {
   type LedgerBankAccount,
   type LedgerDimension,
   type LedgerPort,
+  type ListedWebhookSubscription,
   type WebhookSubscription,
 } from "./ledgerPort.js";
 
@@ -314,6 +315,10 @@ export class BcLedgerPort implements LedgerPort {
 
   deleteWebhookSubscription(subscriptionId: string): Promise<void> {
     return wrap(() => this.adapter.subscriptions.delete(subscriptionId));
+  }
+
+  listWebhookSubscriptions(): Promise<ListedWebhookSubscription[]> {
+    return wrap(async () => (await this.adapter.subscriptions.list()).map((s) => ({ subscriptionId: s.id, resource: s.resource, expiresAt: s.expirationDateTime })));
   }
 
   listAppDocuments(q: AppDocumentQuery): Promise<AppDocumentRow[]> {

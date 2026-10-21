@@ -360,7 +360,8 @@ paths:
         `categoryId`). `confirm_split`: `confirm` or `edit` with `splits`. `possible_duplicate`: `not_repeat` or
         `same_thing`. `needs_receipt`: `no_receipt` (estimated split now; for a paycheck, the last stub's breakdown) or
         `later`. `approve_budget_move`, `approve_rule`: `approve` or `decline` (step-up). `paycheck_component`:
-        `kind:<component kind>`. Only approved answers are learned from.
+        `kind:<component kind>`. Only approved answers are learned from. The Console may also answer `tx:<id>` for a
+        line still in needs_classification (`category:<id>` or `splits`): it is classified by hand and approved.
       requestBody:
         required: true
         content:
@@ -953,7 +954,7 @@ paths:
                   counts: { type: object, additionalProperties: { type: integer } }
                   transactions: { type: array, items: { $ref: "#/components/schemas/Transaction" } }
                   exceptions: { type: array, items: { $ref: "#/components/schemas/Transaction" } }
-                  receipts: { type: array, items: { $ref: "#/components/schemas/ReceiptSummary" } }
+                  receipts: { type: array, items: { $ref: "#/components/schemas/ConsoleReceipt" } }
                   rules: { type: array, items: { $ref: "#/components/schemas/Rule" } }
                   dataThrough: { $ref: "#/components/schemas/DataThrough" }
 
@@ -1002,10 +1003,15 @@ paths:
                         exceptions: { type: integer }
                         deadLettered: { type: integer }
                         draftSumCents: { type: integer, description: Sum of the absolute amounts of the drafts in the batch }
+                        bcDraftCount: { type: integer, description: "BC's side, read live: draft documents in the batch" }
+                        bcDraftLines: { type: integer, description: "BC's side: draft lines in the batch" }
+                        bcDraftSumCents: { type: integer, description: "BC's side: debit sum of the drafts (comparable to draftSumCents)" }
                   autoPostEnabled: { type: boolean }
                   outboxDue: { type: integer }
                   lastPollAt: { type: string, format: date-time }
                   lastWebhookAt: { type: string, format: date-time }
+                  bcCheckedAt: { type: string, format: date-time, description: When BC's drafts were read }
+                  bcUnavailable: { type: boolean, description: True when BC could not be read just now (the bc* fields are absent) }
 
   /v1/console/posting/post-batch:
     post:
@@ -1072,6 +1078,12 @@ paths:
                         bcNative: { type: integer }
                         differences: { type: integer }
                         lastPollAt: { type: string, format: date-time }
+                        openCount: { type: integer, description: "BC's bank ledger entries of the last 120 days still open" }
+                        openSumCents: { type: integer }
+                        bcReconciledCount: { type: integer, description: Bank ledger entries closed by BC's bank reconciliation in the window }
+                        lastStatementNo: { type: string }
+                        reconciledThrough: { type: string, format: date, description: The latest Closed at Date }
+                        bankLedger: { type: string, enum: [unavailable], description: Present when BC's bank ledger could not be read just now }
 
   /v1/console/mappings:
     get:
@@ -1084,7 +1096,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [catalogVersion, categories, accounts, dimensions, catalogCategories, employers]
+                required: [catalogVersion, categories, accounts, dimensions, catalogCategories, employers, pendingProposals]
                 properties:
                   catalogVersion: { type: integer }
                   categories: { type: array, items: { $ref: "#/components/schemas/Category" } }
@@ -1109,6 +1121,40 @@ paths:
                     additionalProperties: { type: array, items: { type: string } }
                   catalogCategories: { type: integer, description: Categories in the shared catalog (v1 seed) }
                   employers: { type: array, items: { $ref: "#/components/schemas/EmployerMapping" } }
+                  pendingProposals:
+                    type: array
+                    description: Mapping proposals waiting for the other spouse
+                    items:
+                      type: object
+                      required: [approvalId, categoryId, glAccount, requestedBy, requestedAt]
+                      properties:
+                        approvalId: { type: string, format: uuid }
+                        categoryId: { type: string }
+                        glAccount: { type: string }
+                        requestedBy: { type: string, format: uuid }
+                        requestedByName: { type: string }
+                        requestedAt: { type: string, format: date-time }
+
+  /v1/console/mappings/proposals:
+    post:
+      tags: [console]
+      summary: Propose a category's G/L account and dimension defaults (the other spouse approves; a new category version)
+      description: Opens an approval of kind `settings` with `payload.kind = mapping`. The account must be a posting account of the household chart and never a bank card's; the dimensions must be valid values.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [categoryId, glAccount, reason]
+              properties:
+                categoryId: { type: string }
+                glAccount: { type: string, pattern: "^\\d{6}$" }
+                dims: { $ref: "#/components/schemas/DimensionSet" }
+                reason: { type: string, maxLength: 500 }
+      responses:
+        "201": { description: Proposal opened, content: { application/json: { schema: { $ref: "#/components/schemas/Approval" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
 
   /v1/console/authority-matrix:
     get:
@@ -1174,6 +1220,8 @@ paths:
                       autoPostEnabled: { type: boolean }
                       lastPollAt: { type: string, format: date-time }
                       lastWebhookAt: { type: string, format: date-time }
+                      apiReachable: { type: boolean, description: A live read-only call to BC answered within 3 seconds }
+                      checkedAt: { type: string, format: date-time }
                   webhooks:
                     type: array
                     items:
@@ -1202,6 +1250,7 @@ paths:
         - { name: before, in: query, schema: { type: string, format: date-time }, description: The `next` value of the previous page }
         - { name: entity, in: query, schema: { type: string } }
         - { name: entityId, in: query, schema: { type: string } }
+        - { name: actor, in: query, schema: { type: string }, description: "A member id or a job name, e.g. bc-worker" }
       responses:
         "200":
           description: Audit entries
@@ -1660,6 +1709,25 @@ components:
         matchedTransactionId: { type: string, format: uuid }
         matchConfidence: { type: number }
         syncState: { type: string, enum: [not_synced, uploading, synced] }
+    ConsoleReceipt:
+      allOf:
+        - $ref: "#/components/schemas/ReceiptSummary"
+        - type: object
+          required: [memberName]
+          properties:
+            memberName: { type: string, description: Who captured it }
+            candidates:
+              type: array
+              description: Bank lines the matcher could not decide between
+              items:
+                type: object
+                required: [transactionId, postedDate, amountCents, merchant, confidence]
+                properties:
+                  transactionId: { type: string, format: uuid }
+                  postedDate: { type: string, format: date }
+                  amountCents: { type: integer }
+                  merchant: { type: string }
+                  confidence: { type: number }
     ReceiptUploadResult:
       allOf:
         - $ref: "#/components/schemas/ReceiptSummary"

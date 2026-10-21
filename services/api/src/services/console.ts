@@ -2,16 +2,35 @@
  * The CFO Console's read models (Console functions 1–3, 4, 11, 12) and its two write actions: "post batch"
  * (which only enqueues; the API never posts to BC itself) and retrying a dead-lettered outbox row.
  */
-import { BANK_CARD_LIST, CATEGORIES, DIMENSION_CODES, FAMILY_AREA, FUND_GOAL, PROJECT, SPEND_CLASS, TAX_TREATMENT, type AuditEntry, type DataThrough, type EmployerMapping, type OutboxItem, type PaycheckComponentKind } from "@homestead/shared";
+import { BANK_CARD_LIST, CATEGORIES, DIMENSION_CODES, FAMILY_AREA, FUND_GOAL, PROJECT, SPEND_CLASS, TAX_TREATMENT, assertDimensionSet, isPostingAccount, mustPostThroughBankCard, type AuditEntry, type DataThrough, type DimensionSet, type EmployerMapping, type OutboxItem, type PaycheckComponentKind } from "@homestead/shared";
+import { addDays } from "../lib/dates.js";
+import { requestApproval } from "./approvals.js";
 import { listEmployers } from "./paychecks/index.js";
 import { applyTemplate, linesForPaycheck } from "./paychecks/template.js";
 import { audit, enqueueOutbox, type Queryable } from "../db/index.js";
-import { conflict, notFound } from "../lib/errors.js";
+import { badRequest, conflict, notFound } from "../lib/errors.js";
 import { hoursBetween } from "../lib/dates.js";
 import { listFeeds } from "./bankData/plaid.js";
 import { loadCategories } from "./categories.js";
 import { getHousehold, ledgerConnection } from "./households.js";
-import type { BcBatch } from "./ledgerPort.js";
+import type { BcBatch, LedgerPort } from "./ledgerPort.js";
+
+/** Reject after `ms` so a slow ledger never holds a Console page. */
+export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("timeout")), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e: unknown) => {
+        clearTimeout(t);
+        reject(e instanceof Error ? e : new Error(String(e)));
+      },
+    );
+  });
+}
 import { listAccounts, listTransactions, loadSplitsFor, loadTx, toTransactionDto } from "./transactions.js";
 
 const QUEUE_STATES = ["possible_duplicate", "needs_receipt", "needs_classification", "ready_for_review", "exception"] as const;
@@ -44,6 +63,10 @@ export async function queues(db: Queryable, householdId: string, now: Date) {
 
 export interface BatchCounts {
   batch: BcBatch;
+  /** BC's side, read live: draft documents, lines and debit sum in the batch. */
+  bcDraftCount?: number;
+  bcDraftLines?: number;
+  bcDraftSumCents?: number;
   approved: number;
   sentToBc: number;
   draftCreated: number;
@@ -53,7 +76,7 @@ export interface BatchCounts {
   draftSumCents: number;
 }
 
-export async function postingStatus(db: Queryable, householdId: string): Promise<{ batches: BatchCounts[]; autoPostEnabled: boolean; outboxDue: number; lastPollAt?: string; lastWebhookAt?: string }> {
+export async function postingStatus(db: Queryable, householdId: string, ledger?: LedgerPort): Promise<{ batches: BatchCounts[]; autoPostEnabled: boolean; outboxDue: number; lastPollAt?: string; lastWebhookAt?: string; bcCheckedAt?: string; bcUnavailable?: boolean }> {
   const r = await db.query<{ bc_batch: BcBatch; state: string; n: number; s: number }>(
     "select bc_batch, state, count(*)::int as n, coalesce(sum(abs(amount_cents)),0)::bigint::int as s from transactions where household_id = $1 and bc_batch is not null and state in ('approved','sent_to_bc','bc_draft_created','posted','exception') group by bc_batch, state",
     [householdId],
@@ -70,7 +93,22 @@ export async function postingStatus(db: Queryable, householdId: string): Promise
   });
   const conn = await ledgerConnection(db, householdId);
   const due = await db.query<{ n: number }>("select count(*)::int as n from outbox where household_id = $1 and completed_at is null and not dead_lettered", [householdId]);
-  const out: { batches: BatchCounts[]; autoPostEnabled: boolean; outboxDue: number; lastPollAt?: string; lastWebhookAt?: string } = { batches, autoPostEnabled: conn?.auto_post_enabled ?? false, outboxDue: due.rows[0]?.n ?? 0 };
+  const out: { batches: BatchCounts[]; autoPostEnabled: boolean; outboxDue: number; lastPollAt?: string; lastWebhookAt?: string; bcCheckedAt?: string; bcUnavailable?: boolean } = { batches, autoPostEnabled: conn?.auto_post_enabled ?? false, outboxDue: due.rows[0]?.n ?? 0 };
+  // What BC itself holds as drafts in each HHAPP batch (documents, lines, debit sum), read live when the ledger can list them.
+  if (ledger?.listAppDocuments) {
+    try {
+      const rows = await withTimeout(ledger.listAppDocuments({ externalDocumentNoStartsWith: "HHAPP-", source: "journal" }), 5000);
+      for (const b of batches) {
+        const mine = rows.filter((r) => r.batch === b.batch);
+        b.bcDraftCount = new Set(mine.map((r) => r.externalDocumentNo)).size;
+        b.bcDraftLines = mine.length;
+        b.bcDraftSumCents = mine.reduce((s2, r) => s2 + Math.max(0, r.amountCents), 0);
+      }
+      out.bcCheckedAt = new Date().toISOString();
+    } catch {
+      out.bcUnavailable = true;
+    }
+  }
   if (conn?.last_poll_at) out.lastPollAt = new Date(conn.last_poll_at).toISOString();
   if (conn?.last_webhook_at) out.lastWebhookAt = new Date(conn.last_webhook_at).toISOString();
   return out;
@@ -96,9 +134,29 @@ export async function requestPostBatch(db: Queryable, householdId: string, batch
   return { batch, outboxId, queuedAt: new Date().toISOString(), lineCount, enqueued, message };
 }
 
-export async function reconciliationStatus(db: Queryable, householdId: string) {
+export async function reconciliationStatus(db: Queryable, householdId: string, ledger?: LedgerPort, todayIso?: string) {
   const accounts = await listAccounts(db, householdId);
   const conn = await ledgerConnection(db, householdId);
+  // Per bank card, BC's bank ledger entries of the last 120 days: what is still open and the last statement closed.
+  const bank = new Map<string, { openCount: number; openSumCents: number; bcReconciledCount: number; lastStatementNo?: string; reconciledThrough?: string } | "unavailable">();
+  if (ledger) {
+    const from = addDays(todayIso ?? new Date().toISOString().slice(0, 10), -120);
+    for (const a of accounts) {
+      if (!a.bc_bank_account_code) continue;
+      try {
+        const entries = await withTimeout(ledger.readBankLedgerEntries({ bankAccountCode: a.bc_bank_account_code, postingDateFrom: from }), 5000);
+        const open = entries.filter((e) => e.open && !e.reversed);
+        const closed = entries.filter((e) => !e.open && e.closedAtDate).sort((x, y) => (x.closedAtDate! < y.closedAtDate! ? -1 : 1));
+        const last = closed[closed.length - 1];
+        const v: { openCount: number; openSumCents: number; bcReconciledCount: number; lastStatementNo?: string; reconciledThrough?: string } = { openCount: open.length, openSumCents: open.reduce((s2, e) => s2 + e.amountCents, 0), bcReconciledCount: closed.length };
+        if (last?.statementNo) v.lastStatementNo = last.statementNo;
+        if (last?.closedAtDate) v.reconciledThrough = last.closedAtDate;
+        bank.set(a.id, v);
+      } catch {
+        bank.set(a.id, "unavailable");
+      }
+    }
+  }
   const r = await db.query<{ account_id: string; posted: number; reconciled: number; bc_native: number; differences: number }>(
     `select account_id,
             count(*) filter (where state = 'posted')::int as posted,
@@ -116,6 +174,9 @@ export async function reconciliationStatus(db: Queryable, householdId: string) {
       if (a.bc_bank_account_code) row["bcBankAccountCode"] = a.bc_bank_account_code;
       if (a.bc_gl_account) row["glAccount"] = a.bc_gl_account;
       if (conn?.last_poll_at) row["lastPollAt"] = new Date(conn.last_poll_at).toISOString();
+      const b = bank.get(a.id);
+      if (b === "unavailable") row["bankLedger"] = "unavailable";
+      else if (b) Object.assign(row, b);
       return row;
     }),
   };
@@ -145,6 +206,28 @@ export async function employerMappings(db: Queryable, householdId: string): Prom
   });
 }
 
+export interface MappingProposalInput {
+  categoryId: string;
+  glAccount: string;
+  dims: DimensionSet;
+  reason: string;
+}
+
+/** A category -> G/L account (and dimension defaults) change, proposed for the other spouse's approval. */
+export async function proposeMapping(db: Queryable, householdId: string, input: MappingProposalInput, memberId: string) {
+  const cats = await loadCategories(db, householdId);
+  const c = cats.get(input.categoryId);
+  if (!c) throw badRequest("category", `Unknown category ${input.categoryId}`);
+  if (!isPostingAccount(input.glAccount)) throw badRequest("gl_account", `${input.glAccount} is not a posting account in the household chart`);
+  if (mustPostThroughBankCard(input.glAccount)) throw badRequest("gl_account", `${input.glAccount} belongs to a bank card; categories never post there`);
+  try {
+    assertDimensionSet(input.dims);
+  } catch (e) {
+    throw badRequest("dims", (e as Error).message);
+  }
+  return requestApproval(db, householdId, "settings", { kind: "mapping", categoryId: c.id, categoryName: c.name, fromGlAccount: c.gl_account, glAccount: input.glAccount, dims: input.dims, reason: input.reason }, memberId);
+}
+
 export async function mappings(db: Queryable, householdId: string) {
   const cats = await loadCategories(db, householdId);
   const accounts = await listAccounts(db, householdId);
@@ -156,10 +239,19 @@ export async function mappings(db: Queryable, householdId: string) {
     dimensions: { [DIMENSION_CODES.SPEND_CLASS]: [...SPEND_CLASS], [DIMENSION_CODES.FUND_GOAL]: [...FUND_GOAL], [DIMENSION_CODES.FAMILY_AREA]: [...FAMILY_AREA], [DIMENSION_CODES.TAX_TREATMENT]: [...TAX_TREATMENT], [DIMENSION_CODES.PROJECT]: [...PROJECT] },
     catalogCategories: CATEGORIES.length,
     employers: await employerMappings(db, householdId),
+    pendingProposals: await pendingMappingProposals(db, householdId),
   };
 }
 
-export async function connectionHealth(db: Queryable, householdId: string, now: Date) {
+async function pendingMappingProposals(db: Queryable, householdId: string): Promise<{ approvalId: string; categoryId: string; glAccount: string; requestedBy: string; requestedByName?: string; requestedAt: string }[]> {
+  const r = await db.query<{ id: string; payload: Record<string, unknown>; requested_by: string; requested_at: string; name: string | null }>(
+    "select a.id, a.payload, a.requested_by, a.requested_at, m.display_name as name from approvals a left join members m on m.id = a.requested_by where a.household_id = $1 and a.kind = 'settings' and a.decided_by is null and a.payload->>'kind' = 'mapping' order by a.requested_at",
+    [householdId],
+  );
+  return r.rows.map((x) => ({ approvalId: x.id, categoryId: String(x.payload["categoryId"]), glAccount: String(x.payload["glAccount"]), requestedBy: x.requested_by, ...(x.name ? { requestedByName: x.name } : {}), requestedAt: new Date(x.requested_at).toISOString() }));
+}
+
+export async function connectionHealth(db: Queryable, householdId: string, now: Date, ledger?: LedgerPort) {
   const feeds = await listFeeds(db, householdId);
   const conn = await ledgerConnection(db, householdId);
   const accountCounts = await db.query<{ feed_connection_id: string; n: number }>("select feed_connection_id, count(*)::int as n from accounts where household_id = $1 and feed_connection_id is not null group by feed_connection_id", [householdId]);
@@ -177,13 +269,21 @@ export async function connectionHealth(db: Queryable, householdId: string, now: 
       if (stale !== undefined) row["staleHours"] = Math.round(stale * 10) / 10;
       return row;
     }),
-    ledger: { environment: conn?.bc_environment ?? "", companyId: conn?.bc_company_id ?? "", autoPostEnabled: conn?.auto_post_enabled ?? false, ...(conn?.last_poll_at ? { lastPollAt: new Date(conn.last_poll_at).toISOString() } : {}), ...(conn?.last_webhook_at ? { lastWebhookAt: new Date(conn.last_webhook_at).toISOString() } : {}) },
+    ledger: {
+      environment: conn?.bc_environment ?? "",
+      companyId: conn?.bc_company_id ?? "",
+      autoPostEnabled: conn?.auto_post_enabled ?? false,
+      ...(conn?.last_poll_at ? { lastPollAt: new Date(conn.last_poll_at).toISOString() } : {}),
+      ...(conn?.last_webhook_at ? { lastWebhookAt: new Date(conn.last_webhook_at).toISOString() } : {}),
+      // A live, read-only call (the dimension list) with a short timeout: can the API reach BC right now?
+      ...(ledger ? { apiReachable: await withTimeout(ledger.listDimensions(), 3000).then(() => true, () => false), checkedAt: new Date().toISOString() } : {}),
+    },
     webhooks: subs.rows.map((s) => ({ resource: s.resource, subscriptionId: s.subscription_id, expiresAt: new Date(s.expires_at).toISOString(), ...(s.last_renewed_at ? { lastRenewedAt: new Date(s.last_renewed_at).toISOString() } : {}), needsRenewal: new Date(s.expires_at).getTime() - now.getTime() < 24 * 3_600_000 })),
     outbox: { due: o?.due ?? 0, deadLettered: o?.dead ?? 0, ...(o?.oldest ? { oldestPendingAt: new Date(o.oldest).toISOString() } : {}) },
   };
 }
 
-export async function auditPage(db: Queryable, householdId: string, q: { limit: number; before?: string; entity?: string; entityId?: string }): Promise<{ entries: AuditEntry[]; next?: string }> {
+export async function auditPage(db: Queryable, householdId: string, q: { limit: number; before?: string; entity?: string; entityId?: string; actor?: string }): Promise<{ entries: AuditEntry[]; next?: string }> {
   const where = ["household_id = $1"];
   const params: unknown[] = [householdId];
   if (q.before) {
@@ -197,6 +297,10 @@ export async function auditPage(db: Queryable, householdId: string, q: { limit: 
   if (q.entityId) {
     params.push(q.entityId);
     where.push(`entity_id = $${params.length}`);
+  }
+  if (q.actor) {
+    params.push(q.actor);
+    where.push(`actor = $${params.length}`);
   }
   params.push(q.limit + 1);
   const r = await db.query<{ id: string; actor: string; action: string; entity: string; entity_id: string; before: unknown; after: unknown; at: string }>(`select id, actor, action, entity, entity_id, before, after, at from audit_log where ${where.join(" and ")} order by at desc limit $${params.length}`, params);

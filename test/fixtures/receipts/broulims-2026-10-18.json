@@ -1,0 +1,20 @@
+{
+  "note": "Synthetic Broulim's receipt for A1 (all groceries), as prebuilt-receipt would return it; amounts in cents.",
+  "imageText": "synthetic receipt image broulims 2026-10-18",
+  "bank": { "plaidAccountId": "plaid-beehive-chk", "transactionId": "txn-broulims-1018", "date": "2026-10-19", "amount": 48.27, "name": "BROULIMS REXBURG ID", "merchant_name": "Broulim's" },
+  "read": {
+    "merchant": "Broulim's Fresh Foods",
+    "date": "2026-10-18",
+    "totalCents": 4827,
+    "subtotalCents": 4554,
+    "taxCents": 273,
+    "items": [
+      { "description": "WHOLE MILK GAL", "amountCents": 389, "confidence": 0.93 },
+      { "description": "BREAD WHEAT", "amountCents": 349, "confidence": 0.92 },
+      { "description": "GROUND BEEF 2LB", "amountCents": 1198, "confidence": 0.94 },
+      { "description": "APPLES HONEYCRISP", "amountCents": 618, "confidence": 0.9 },
+      { "description": "PASTA SAUCE", "amountCents": 2000, "confidence": 0.91 }
+    ],
+    "fieldConfidence": { "MerchantName": 0.97, "Total": 0.99 }
+  }
+}

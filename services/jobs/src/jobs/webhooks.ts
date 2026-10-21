@@ -1,7 +1,7 @@
 /**
  * BC webhook subscription renewal (spec: "Webhooks and polling"): subscriptions to generalLedgerEntries and
  * journals expire after three days, so this runs daily, renews anything expiring inside 24 hours and recreates
- * anything missing. The clientState is a random secret stored by name; the receiver checks every notification.
+ * anything missing (from the app's table, or from BC's own list when the ledger port can read it). The clientState is a random secret stored by name; the receiver checks every notification.
  */
 import { randomBytes } from "node:crypto";
 import { LedgerError, audit, ledgerConnection, type Deps, type Queryable } from "@homestead/api";
@@ -14,9 +14,15 @@ export async function renewWebhooks(db: Queryable, householdId: string, deps: De
   if (!conn) return counts;
   const existing = await db.query<{ id: string; resource: string; subscription_id: string; client_state_ref: string; expires_at: string }>("select id, resource, subscription_id, client_state_ref, expires_at from bc_webhook_subscriptions where household_id = $1", [householdId]);
   const byResource = new Map(existing.rows.map((s) => [s.resource, s]));
+  // What BC holds now, when the ledger can say: a subscription BC dropped is recreated today, not when it would expire.
+  const inBc = deps.ledger.listWebhookSubscriptions ? new Set((await deps.ledger.listWebhookSubscriptions()).map((s) => s.subscriptionId)) : undefined;
   for (const resource of WEBHOOK_RESOURCES) {
     const sub = byResource.get(resource);
-    if (sub) {
+    if (sub && inBc && !inBc.has(sub.subscription_id)) {
+      await db.query("delete from bc_webhook_subscriptions where id = $1", [sub.id]);
+      await deps.secrets.delete(sub.client_state_ref);
+      counts.recreated += 1;
+    } else if (sub) {
       const msLeft = new Date(sub.expires_at).getTime() - now.getTime();
       if (msLeft > 24 * 3_600_000) {
         counts.kept += 1;

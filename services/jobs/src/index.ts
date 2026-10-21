@@ -21,7 +21,7 @@ import { buildDepsFromEnv, closePool, type Deps } from "@homestead/api";
 import { log, runForHouseholds, type JobRunResult } from "./runner.js";
 import { alertsHousehold, matchingHousehold, ocrHousehold, paycheckFallbackHousehold, receiptFallbackHousehold, ruleProposalsHousehold } from "./jobs/household.js";
 import { plaidSyncHousehold } from "./jobs/feeds.js";
-import { relayOutbox, workOutbox } from "./jobs/outbox.js";
+import { acknowledgeSignals, relayOutbox, workOutbox } from "./jobs/outbox.js";
 import { nightlyPoll, readBackHousehold } from "./jobs/readback.js";
 import { renewWebhooks } from "./jobs/webhooks.js";
 import { enqueueOutbox, ledgerConnection } from "@homestead/api";
@@ -29,8 +29,17 @@ import { enqueueOutbox, ledgerConnection } from "@homestead/api";
 export const JOB_NAMES = ["plaid-sync", "ocr", "matching", "outbox-relay", "bc-worker", "autopost-post", "bc-readback", "nightly-poll", "webhook-renewal", "alerts", "paycheck-template-fallback", "receipt-fallback", "rule-proposals", "all"] as const;
 export type JobName = (typeof JOB_NAMES)[number];
 
-export async function runJob(name: JobName, deps: Deps, householdIds?: readonly string[]): Promise<JobRunResult | JobRunResult[]> {
+/** Jobs that run event-triggered on their own outbox subscription (infra: container-apps.bicep eventJobs). */
+const SIGNAL_JOBS: ReadonlySet<string> = new Set(["ocr", "matching", "alerts"]);
+
+export async function runJob(name: JobName, deps: Deps, householdIds?: readonly string[], env: NodeJS.ProcessEnv = process.env): Promise<JobRunResult | JobRunResult[]> {
   const now = deps.now();
+  // Started by KEDA for messages on its own subscription: complete them, then sweep the tables as usual. (bc-worker
+  // completes its messages inside workOutbox, after the rows they point at are handled.)
+  if (SIGNAL_JOBS.has(name) && env["OUTBOX_SUBSCRIPTION"] === name) {
+    const acknowledged = await acknowledgeSignals(deps);
+    if (acknowledged) log.info({ acknowledged }, `${name} completed its queue messages`);
+  }
   switch (name) {
     case "plaid-sync":
       return runForHouseholds("plaid", "plaid-sync", deps, (db, hh) => plaidSyncHousehold(db, hh, deps, now), householdIds);

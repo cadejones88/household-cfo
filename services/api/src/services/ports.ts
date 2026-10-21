@@ -63,19 +63,8 @@ export class KeyVaultSecretStore implements SecretStore {
   }
 }
 
-/** Managed-identity token for Container Apps (IDENTITY_ENDPOINT + IDENTITY_HEADER). */
-export function managedIdentityTokenProvider(resource: string, fetchImpl: typeof fetch = fetch): () => Promise<string> {
-  return async () => {
-    const endpoint = process.env["IDENTITY_ENDPOINT"];
-    const header = process.env["IDENTITY_HEADER"];
-    if (!endpoint || !header) throw new Error("Managed identity endpoint is not available");
-    const url = `${endpoint}?resource=${encodeURIComponent(resource)}&api-version=2019-08-01`;
-    const r = await fetchImpl(url, { headers: { "X-IDENTITY-HEADER": header } });
-    if (!r.ok) throw new Error(`Managed identity token request failed with ${r.status}`);
-    const j = (await r.json()) as { access_token: string };
-    return j.access_token;
-  };
-}
+/** Managed-identity tokens (cached, user-assigned identity via AZURE_CLIENT_ID): see lib/managedIdentity.ts. */
+export { managedIdentityTokenProvider } from "../lib/managedIdentity.js";
 
 // Blobs ----------------------------------------------------------------------------------------
 
@@ -144,9 +133,11 @@ export interface QueueMessage {
   topic: string;
   body: Record<string, unknown>;
   enqueuedAt: string;
+  /** Service Bus peek-lock: the lock's URL, used to complete the message. Absent in memory. */
+  lockLocation?: string;
 }
 
-/** Service Bus later; in-process now. The outbox table is the source of truth, the queue only carries pointers. */
+/** In memory for dev and tests, Service Bus in Azure. The outbox table is the source of truth; the queue only carries pointers. */
 export interface QueuePort {
   publish(topic: string, body: Record<string, unknown>): Promise<string>;
   /** Pull up to `max` messages for a consumer; the caller completes them. */
@@ -182,5 +173,74 @@ export class InMemoryQueue implements QueuePort {
   }
   depth(topic: string): number {
     return (this.topics.get(topic) ?? []).length;
+  }
+}
+
+/**
+ * Azure Service Bus over REST with a managed-identity token (resource https://servicebus.azure.net). One topic
+ * (`homestead-outbox`), one subscription per consumer (`bc-worker`, `ocr`, `matching`, `alerts`; infra's
+ * service-bus.bicep filters each with `target = '<name>'`). The receiving subscription is OUTBOX_SUBSCRIPTION (set on
+ * each event-triggered job), else SERVICE_BUS_SUBSCRIPTION, else `bc-worker`. The outbox table stays the source of
+ * truth: a message is only a pointer `{ outboxId, householdId, operation, target }`, so a consumer completes every
+ * message it received once the rows are handled (done, rescheduled or dead-lettered in the table).
+ *
+ * Assumptions (docs):
+ *  - Send: POST https://{namespace}.servicebus.windows.net/{topic}/messages, Authorization: Bearer <token>,
+ *    body = the message, 201. MessageId (in BrokerProperties) is the outbox row id, so the topic's duplicate
+ *    detection drops a re-publish. Custom properties travel as plain HTTP headers (`target: bc-worker`), which the
+ *    subscriptions' SQL filters read. VERIFY on the dev namespace that an unquoted header value arrives as a string.
+ *    https://learn.microsoft.com/en-us/rest/api/servicebus/send-message-to-queue
+ *    https://learn.microsoft.com/en-us/rest/api/servicebus/message-headers-and-properties
+ *  - Peek-lock: POST https://{namespace}.servicebus.windows.net/{topic}/subscriptions/{subscription}/messages/head?timeout=N
+ *    -> 201 with the body, a BrokerProperties header (MessageId, LockToken, EnqueuedTimeUtc) and a Location header
+ *    naming the lock; 204 when empty. https://learn.microsoft.com/en-us/rest/api/servicebus/peek-lock-message-non-destructive-read
+ *  - Complete: DELETE {Location}. https://learn.microsoft.com/en-us/rest/api/servicebus/delete-message
+ *  - The REST API cannot move a message to the dead-letter sub-queue, so `deadLetter` completes it; the outbox row
+ *    carries `dead_lettered` and the Console shows it.
+ */
+export class ServiceBusQueue implements QueuePort {
+  constructor(
+    private readonly namespace: string,
+    private readonly subscription: string,
+    private readonly getToken: () => Promise<string>,
+    private readonly fetchImpl: typeof fetch = fetch,
+  ) {}
+  private base(): string {
+    const ns = this.namespace.replace(/^https?:\/\//, "").replace(/\/$/, "");
+    return `https://${ns.includes(".") ? ns : `${ns}.servicebus.windows.net`}`;
+  }
+  async publish(topic: string, body: Record<string, unknown>): Promise<string> {
+    const id = typeof body["outboxId"] === "string" ? body["outboxId"] : randomUUID();
+    const target = typeof body["target"] === "string" ? body["target"] : "bc-worker";
+    const r = await this.fetchImpl(`${this.base()}/${encodeURIComponent(topic)}/messages`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${await this.getToken()}`, "content-type": "application/json", BrokerProperties: JSON.stringify({ MessageId: id }), target },
+      body: JSON.stringify(body),
+    });
+    if (r.status !== 201) throw new Error(`Service Bus send failed with ${r.status}`);
+    return id;
+  }
+  async receive(topic: string, max: number): Promise<QueueMessage[]> {
+    const out: QueueMessage[] = [];
+    for (let i = 0; i < max; i += 1) {
+      const r = await this.fetchImpl(`${this.base()}/${encodeURIComponent(topic)}/subscriptions/${encodeURIComponent(this.subscription)}/messages/head?timeout=1`, { method: "POST", headers: { authorization: `Bearer ${await this.getToken()}` } });
+      if (r.status === 204) break;
+      if (r.status !== 201) throw new Error(`Service Bus receive failed with ${r.status}`);
+      const props = JSON.parse(r.headers.get("brokerproperties") ?? "{}") as { MessageId?: string; EnqueuedTimeUtc?: string };
+      const m: QueueMessage = { id: props.MessageId ?? randomUUID(), topic, body: (await r.json()) as Record<string, unknown>, enqueuedAt: props.EnqueuedTimeUtc ? new Date(props.EnqueuedTimeUtc).toISOString() : new Date().toISOString() };
+      const lock = r.headers.get("location");
+      if (lock) m.lockLocation = lock;
+      out.push(m);
+    }
+    return out;
+  }
+  async complete(message: QueueMessage): Promise<void> {
+    if (!message.lockLocation) return;
+    const r = await this.fetchImpl(message.lockLocation, { method: "DELETE", headers: { authorization: `Bearer ${await this.getToken()}` } });
+    // 404/410: the lock expired (PT1M) or the message is gone; it is redelivered and its rows are already handled.
+    if (!r.ok && r.status !== 404 && r.status !== 410) throw new Error(`Service Bus complete failed with ${r.status}`);
+  }
+  async deadLetter(message: QueueMessage): Promise<void> {
+    await this.complete(message);
   }
 }

@@ -69,9 +69,9 @@ interface PlaidWebhookBody {
   error?: { error_code?: string };
 }
 
-/** Find the household and feed for a Plaid item id (no household context yet, so the pool is used directly). */
+/** Find the household and feed for a Plaid item id (no household yet: migration 0006's security-definer lookup). */
 async function feedForItem(itemId: string): Promise<{ householdId: string; feedId: string; ownerMemberId: string; institutionName: string | null } | undefined> {
-  const r = await getPool().query<{ household_id: string; id: string; owner_member_id: string; institution_name: string | null }>("select household_id, id, owner_member_id, institution_name from feed_connections where plaid_item_id = $1", [itemId]);
+  const r = await getPool().query<{ household_id: string; id: string; owner_member_id: string; institution_name: string | null }>("select household_id, id, owner_member_id, institution_name from plaid_feed_lookup_fn($1)", [itemId]);
   const row = r.rows[0];
   return row ? { householdId: row.household_id, feedId: row.id, ownerMemberId: row.owner_member_id, institutionName: row.institution_name } : undefined;
 }
@@ -118,7 +118,7 @@ export async function handleBcNotifications(notifications: BcNotification[], sec
       rejected += 1;
       continue;
     }
-    const r = await getPool().query<{ household_id: string; id: string; client_state_ref: string; resource: string }>("select household_id, id, client_state_ref, resource from bc_webhook_subscriptions where subscription_id = $1", [n.subscriptionId]);
+    const r = await getPool().query<{ household_id: string; id: string; client_state_ref: string; resource: string }>("select household_id, id, client_state_ref, resource from bc_subscription_lookup_fn($1)", [n.subscriptionId]);
     const sub = r.rows[0];
     if (!sub) {
       rejected += 1;
@@ -127,7 +127,7 @@ export async function handleBcNotifications(notifications: BcNotification[], sec
     const expected = await secrets.get(sub.client_state_ref);
     if (!expected || expected !== n.clientState) {
       rejected += 1;
-      await getPool().query("insert into audit_log (household_id, actor, action, entity, entity_id, after) values ($1,'bc-webhook','webhook.client_state_rejected','bc_webhook_subscription',$2,$3)", [sub.household_id, sub.id, JSON.stringify({ resource: sub.resource })]);
+      await withHousehold(sub.household_id, (db) => db.query("insert into audit_log (household_id, actor, action, entity, entity_id, after) values ($1,'bc-webhook','webhook.client_state_rejected','bc_webhook_subscription',$2,$3)", [sub.household_id, sub.id, JSON.stringify({ resource: sub.resource })]));
       continue;
     }
     await withHousehold(sub.household_id, async (db) => {

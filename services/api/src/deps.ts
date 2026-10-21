@@ -12,7 +12,7 @@ import { FoundryAskModel, TemplateAskModel, type AskModelPort } from "./services
 import { FakePlaid, PlaidClient, type PlaidPort } from "./services/bankData/plaid.js";
 import { InMemoryLedger, type LedgerPort } from "./services/ledgerPort.js";
 import { createBcLedgerPort } from "./services/ledgerPortBc.js";
-import { AzureBlobStore, InMemoryBlobStore, InMemoryQueue, InMemorySecretStore, KeyVaultSecretStore, managedIdentityTokenProvider, type BlobStore, type QueuePort, type SecretStore } from "./services/ports.js";
+import { AzureBlobStore, InMemoryBlobStore, InMemoryQueue, InMemorySecretStore, KeyVaultSecretStore, ServiceBusQueue, managedIdentityTokenProvider, type BlobStore, type QueuePort, type SecretStore } from "./services/ports.js";
 import { FakeClaudeMapper, FoundryClaudeMapper, type ClaudeMapperPort } from "./services/receipts/claudeMapper.js";
 import { AzureDocumentIntelligence, FakeDocumentIntelligence, type DocumentIntelligencePort } from "./services/receipts/documentIntelligence.js";
 import { sha256Hex } from "@homestead/shared";
@@ -68,6 +68,11 @@ export async function buildDepsFromEnv(): Promise<Deps> {
   if (storage) {
     deps.blobs = new AzureBlobStore(storage, env["BLOB_CONTAINER"] ?? "receipts", managedIdentityTokenProvider("https://storage.azure.com"));
     fakes.delete("blobs");
+  }
+  const serviceBus = env["SERVICE_BUS_NAMESPACE"];
+  if (serviceBus) {
+    deps.queue = new ServiceBusQueue(serviceBus, env["OUTBOX_SUBSCRIPTION"] ?? env["SERVICE_BUS_SUBSCRIPTION"] ?? "bc-worker", managedIdentityTokenProvider("https://servicebus.azure.net"));
+    fakes.delete("queue");
   }
   const bcTenant = env["BC_TENANT_ID"];
   const bcCompany = env["BC_COMPANY_ID"];

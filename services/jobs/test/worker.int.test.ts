@@ -40,6 +40,7 @@ describeDb("outbox relay, BC worker, read-back and nightly poll", () => {
     const drafts = server.draftLines("FEEDS");
     expect(drafts.map((l) => [l.accountNumber, l.amount, l.externalDocumentNumber])).toEqual([["CAPONE-CC", -62.33, t.bc_external_doc_no], ["603101", 62.33, t.bc_external_doc_no]]);
     expect([...(t.bc_line_ids ?? [])].sort()).toEqual(drafts.map((d) => d.id).sort());
+    expect((deps.queue as InMemoryQueue).depth("homestead-outbox")).toBe(0); // every message acknowledged
     expect(Object.fromEntries(drafts[1]!.dimensionSetLines.map((d) => [d.code, d.valueCode]))).toMatchObject({ SPEND_CLASS: "ESSENTIAL", FAMILY_AREA: "JOINT" });
     await inHh(hh, async (db) => {
       const split = await db.query<{ bc_line_id: string }>("select bc_line_id from transaction_splits where transaction_id = $1", [id]);
@@ -163,5 +164,10 @@ describeDb("outbox relay, BC worker, read-back and nightly poll", () => {
     server.advanceTime(2.5 * 86_400_000);
     clock = new Date(server.now());
     expect(await run("webhook-renewal")).toMatchObject({ counts: { [hh.householdId]: { renewed: 2 } } });
+    // BC drops one (a non-2xx reply, an environment update): the next run recreates it although it is not near expiry.
+    const dropped = server.listSubscriptions().find((s) => s.resource.endsWith("journals"))!;
+    await deps.ledger.deleteWebhookSubscription(dropped.id);
+    expect(await run("webhook-renewal")).toMatchObject({ counts: { [hh.householdId]: { kept: 1, recreated: 1, created: 1 } } });
+    expect(server.listSubscriptions()).toHaveLength(2);
   });
 });

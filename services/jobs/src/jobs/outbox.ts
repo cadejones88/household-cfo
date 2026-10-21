@@ -31,6 +31,23 @@ import { readBackHousehold } from "./readback.js";
 
 export const OUTBOX_TOPIC = "homestead-outbox";
 
+/**
+ * The event-triggered sweeps (ocr, matching, alerts) treat their subscription's messages as wake-up calls: the job
+ * reads its own tables, so every message is completed up front. Without this, KEDA would keep starting the job while
+ * the messages sit there. Call it only when the queue reads that job's own subscription (OUTBOX_SUBSCRIPTION).
+ */
+export async function acknowledgeSignals(deps: Deps, batch = 100): Promise<number> {
+  let n = 0;
+  for (;;) {
+    const got = await deps.queue.receive(OUTBOX_TOPIC, batch);
+    for (const m of got) {
+      await deps.queue.complete(m);
+      n += 1;
+    }
+    if (got.length < batch) return n;
+  }
+}
+
 /** Minutes until the next attempt after `attempts` failures; undefined = dead-letter. */
 export function retryDelayMinutes(attempts: number): number | undefined {
   const schedule = [1, 2, 4, 8, 16];
@@ -64,7 +81,8 @@ export async function relayOutbox(db: Queryable, householdId: string, deps: Deps
         continue;
       }
     }
-    await deps.queue.publish(OUTBOX_TOPIC, { outboxId: row.id, householdId, operation: row.operation });
+    // Every outbox operation today is BC-side, so every message goes to the bc-worker subscription.
+    await deps.queue.publish(OUTBOX_TOPIC, { outboxId: row.id, householdId, operation: row.operation, target: "bc-worker" });
     await db.query("update outbox set published_at = now() where id = $1", [row.id]);
     published += 1;
   }
@@ -79,8 +97,14 @@ export interface WorkerCounts {
 }
 
 /** Process the published, due rows of one household. */
-export async function workOutbox(db: Queryable, householdId: string, deps: Deps, now: Date, actor = "bc-worker"): Promise<WorkerCounts> {
-  const counts: WorkerCounts = { processed: 0, retried: 0, deadLettered: 0, skipped: 0 };
+export async function workOutbox(db: Queryable, householdId: string, deps: Deps, now: Date, actor = "bc-worker"): Promise<WorkerCounts & { acknowledged: number }> {
+  const counts: WorkerCounts & { acknowledged: number } = { processed: 0, retried: 0, deadLettered: 0, skipped: 0, acknowledged: 0 };
+  // Queue messages are pointers ({ outboxId, householdId, operation }); the outbox rows below are the truth. Take
+  // what the queue holds now and acknowledge it once the rows are handled, so a real broker (Service Bus) never
+  // redelivers a message whose row is done, rescheduled (the relay publishes it again when due) or dead-lettered.
+  // Messages of other households are acknowledged too: their rows are worked in their own pass of this same job.
+  const received = await deps.queue.receive(OUTBOX_TOPIC, 500);
+  const byOutboxId = new Map(received.map((m) => [String(m.body["outboxId"] ?? ""), m]));
   for (const row of await dueOutboxRows(db, householdId, now, true)) {
     try {
       const outcome = await processOutboxRow(db, householdId, row, deps, now, actor);
@@ -101,7 +125,9 @@ export async function workOutbox(db: Queryable, householdId: string, deps: Deps,
         continue;
       }
       await db.query("update outbox set attempts = $2, dead_lettered = true, last_error = $3 where id = $1", [row.id, attempts, `${err.name}${err instanceof LedgerError && err.status ? ` ${err.status}` : ""}${err instanceof LedgerError && err.code ? ` ${err.code}` : ""}`]);
-      await deps.queue.deadLetter({ id: row.id, topic: OUTBOX_TOPIC, body: { outboxId: row.id }, enqueuedAt: row.created_at }, err.name);
+      const msg = byOutboxId.get(row.id) ?? { id: row.id, topic: OUTBOX_TOPIC, body: { outboxId: row.id }, enqueuedAt: row.created_at };
+      await deps.queue.deadLetter(msg, err.name);
+      byOutboxId.delete(row.id);
       counts.deadLettered += 1;
       if (row.operation === "send_to_bc") {
         const reason = `Business Central refused the write${err instanceof LedgerError && err.code ? ` (${err.code})` : ""}; it will not clear by retrying.`;
@@ -110,6 +136,10 @@ export async function workOutbox(db: Queryable, householdId: string, deps: Deps,
         await audit(db, householdId, { actor, action: "outbox.dead_lettered", entity: "outbox", entityId: row.id, after: { operation: row.operation, error: err.name } });
       }
     }
+  }
+  for (const m of byOutboxId.values()) {
+    await deps.queue.complete(m);
+    counts.acknowledged += 1;
   }
   return counts;
 }

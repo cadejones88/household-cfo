@@ -5,9 +5,11 @@
  *
  * Needs DATABASE_URL (migrator/owner connection). Skipped when it is not set.
  */
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { migrate } from "../src/db/migrate.js";
+import { listHouseholdIds } from "../src/db/index.js";
 
 const url = process.env["DATABASE_URL"];
 const d = url ? describe : describe.skip;
@@ -115,6 +117,42 @@ d("row-level security and invariants", () => {
 
   it("refuses an ORIG budget name on a revision", async () => {
     await expect(asHousehold(hhA, () => appClient.query("insert into budget_revisions (household_id, bc_budget_name, revision_no, lines) values ($1,'BUD26-ORIG',1,'[]')", [hhA]))).rejects.toThrow(/no_original_budget/);
+  });
+
+  it("lets the jobs list household ids without a household set (security-definer), but not read households", async () => {
+    const direct = await appClient.query("select count(*)::int as n from households");
+    expect(direct.rows[0]!.n).toBe(0);
+    const ids = await listHouseholdIds(appClient);
+    expect(ids).toEqual(expect.arrayContaining([hhA, hhB]));
+  });
+
+  it("owns the lookups by a role that is neither superuser nor BYPASSRLS, as in Azure, and they still answer", async () => {
+    // Locally the migrator is a superuser and would mask the problem (FORCE row-level security filters any other
+    // owner); migration 0007 gives the functions to homestead_lookup and its read policy.
+    const owners = await owner.query<{ proname: string; rolname: string; rolsuper: boolean; rolbypassrls: boolean }>(
+      "select p.proname, r.rolname, r.rolsuper, r.rolbypassrls from pg_proc p join pg_roles r on r.oid = p.proowner where p.proname in ('members_lookup_fn','household_ids_fn','plaid_feed_lookup_fn','bc_subscription_lookup_fn') order by p.proname",
+    );
+    expect(owners.rows).toEqual(
+      ["bc_subscription_lookup_fn", "household_ids_fn", "members_lookup_fn", "plaid_feed_lookup_fn"].map((proname) => ({ proname, rolname: "homestead_lookup", rolsuper: false, rolbypassrls: false })),
+    );
+    expect((await appClient.query("select count(*)::int as n from household_ids_fn()")).rows[0]!.n).toBeGreaterThanOrEqual(2);
+    expect((await appClient.query("select household_id from members_lookup_fn($1, null)", [memberA])).rows).toEqual([{ household_id: hhA }]);
+    // The app role cannot take the owner's role to read around RLS.
+    await expect(appClient.query("set role homestead_lookup")).rejects.toThrow(/permission denied/);
+  });
+
+  it("answers the webhook lookups (Plaid item, BC subscription) without a household set, ids only", async () => {
+    // Ids unique per run: the database keeps earlier runs' rows.
+    const item = `item-rls-${randomUUID().slice(0, 8)}`;
+    const subId = `sub-rls-${randomUUID().slice(0, 8)}`;
+    await owner.query("insert into feed_connections (household_id, owner_member_id, provider, plaid_item_ref, plaid_item_id, institution_name) values ($1,$2,'plaid','plaid-x',$3,'Beehive FCU')", [hhA, memberA, item]);
+    await owner.query("insert into bc_webhook_subscriptions (household_id, resource, subscription_id, client_state_ref, expires_at) values ($1,'journals',$2,'bc-webhook-ref',now() + interval '3 days')", [hhB, subId]);
+    expect((await appClient.query("select count(*)::int as n from feed_connections")).rows[0]!.n).toBe(0);
+    const feed = await appClient.query("select household_id, owner_member_id, institution_name from plaid_feed_lookup_fn($1)", [item]);
+    expect(feed.rows).toEqual([{ household_id: hhA, owner_member_id: memberA, institution_name: "Beehive FCU" }]);
+    const sub = await appClient.query("select household_id, client_state_ref, resource from bc_subscription_lookup_fn($1)", [subId]);
+    expect(sub.rows).toEqual([{ household_id: hhB, client_state_ref: "bc-webhook-ref", resource: "journals" }]);
+    expect((await appClient.query("select * from plaid_feed_lookup_fn('nope')")).rows).toEqual([]);
   });
 
   it("finds a member for sign-in without a household set", async () => {

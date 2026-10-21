@@ -3,21 +3,35 @@
  * transaction and sets `app.household_id` for its duration, so a query can only ever see one household.
  */
 import pg from "pg";
+import { managedIdentityTokenProvider, POSTGRES_AAD_RESOURCE } from "../lib/managedIdentity.js";
 
 export type Queryable = Pick<pg.PoolClient, "query">;
 
 let pool: pg.Pool | undefined;
 
-export function getPool(): pg.Pool {
-  if (!pool) {
-    const connectionString = process.env["DATABASE_URL"];
-    if (!connectionString) throw new Error("DATABASE_URL is not set");
-    pool = new pg.Pool({
-      connectionString,
-      max: 10,
-      ssl: process.env["PGSSLMODE"] === "disable" ? false : { rejectUnauthorized: true },
-    });
+/**
+ * The pool, from the environment:
+ *  - DATABASE_URL (local development, CI, the migrator): a connection string.
+ *  - otherwise PGHOST, PGUSER, PGDATABASE (and PGPORT) on Azure: Entra sign-in with the app's managed identity. The
+ *    password is an access token for https://ossrdbms-aad.database.windows.net, fetched per new connection from a
+ *    cache that refreshes five minutes before expiry (pg accepts an async password function). TLS is required.
+ *    https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/how-to-connect-with-managed-identity
+ */
+export function poolConfigFromEnv(env: NodeJS.ProcessEnv = process.env, tokenFor: (resource: string) => () => Promise<string> = managedIdentityTokenProvider): pg.PoolConfig {
+  const ssl = env["PGSSLMODE"] === "disable" ? false : { rejectUnauthorized: true };
+  const connectionString = env["DATABASE_URL"];
+  if (connectionString) return { connectionString, max: 10, ssl };
+  const host = env["PGHOST"];
+  const user = env["PGUSER"];
+  const database = env["PGDATABASE"];
+  if (host && user && database) {
+    return { host, user, database, port: Number(env["PGPORT"] ?? 5432), max: 10, ssl, password: tokenFor(POSTGRES_AAD_RESOURCE) };
   }
+  throw new Error("Set DATABASE_URL, or PGHOST, PGUSER and PGDATABASE for managed-identity sign-in");
+}
+
+export function getPool(): pg.Pool {
+  pool ??= new pg.Pool(poolConfigFromEnv());
   return pool;
 }
 
@@ -43,9 +57,12 @@ export async function withHousehold<T>(householdId: string, fn: (db: Queryable) 
   }
 }
 
-/** For jobs that iterate households: lists ids without RLS (requires the migrator/admin connection). */
+/**
+ * For jobs that iterate households. No household is set yet, so RLS would hide every row from the app role;
+ * migration 0006's security-definer function returns the ids (ids only, never household data).
+ */
 export async function listHouseholdIds(db: Queryable): Promise<string[]> {
-  const r = await db.query<{ id: string }>("select id from households order by created_at");
+  const r = await db.query<{ id: string }>("select id from household_ids_fn()");
   return r.rows.map((x) => x.id);
 }
 

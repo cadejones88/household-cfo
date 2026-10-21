@@ -1,7 +1,8 @@
 /** The jobs' pure parts: the retry schedule (1, 2, 4, 8, 16 minutes, then hourly for a day), job names, scrubbing. */
+import { InMemoryQueue, buildFakeDeps } from "@homestead/api";
 import { describe, expect, it } from "vitest";
-import { JOB_NAMES, isJobName } from "../src/index.js";
-import { retryDelayMinutes } from "../src/jobs/outbox.js";
+import { JOB_NAMES, isJobName, runJob } from "../src/index.js";
+import { OUTBOX_TOPIC, retryDelayMinutes } from "../src/jobs/outbox.js";
 import { scrubMessage } from "../src/runner.js";
 
 describe("retry schedule", () => {
@@ -23,5 +24,19 @@ describe("job names and logs", () => {
   });
   it("keeps amounts out of the sync_runs error text", () => {
     expect(scrubMessage("Split 4517 does not equal -12999.00 for $45.17")).toBe("Split # does not equal -# for #");
+  });
+});
+
+describe("queue acknowledgement", () => {
+  it("an event-triggered sweep completes the messages on its own subscription; a scheduled run leaves them", async () => {
+    const queue = new InMemoryQueue();
+    const deps = buildFakeDeps({ queue });
+    for (let i = 0; i < 150; i += 1) await queue.publish(OUTBOX_TOPIC, { outboxId: `o${i}`, target: "ocr" });
+    await runJob("ocr", deps, [], {}); // the ocr-sweep schedule: not started by the queue
+    expect(queue.depth(OUTBOX_TOPIC)).toBe(150);
+    await runJob("matching", deps, [], { OUTBOX_SUBSCRIPTION: "ocr" }); // another job's subscription: not its messages
+    expect(queue.depth(OUTBOX_TOPIC)).toBe(150);
+    await runJob("ocr", deps, [], { OUTBOX_SUBSCRIPTION: "ocr" });
+    expect(queue.depth(OUTBOX_TOPIC)).toBe(0);
   });
 });

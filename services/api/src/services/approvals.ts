@@ -82,6 +82,7 @@ export function effectOf(row: Pick<ApprovalRow, "kind" | "payload">): string {
     case "business_flag":
       return `Marks this item as ${String(p["businessFlag"] ?? "business")} so it stays out of household spending.`;
     case "settings":
+      if (p["kind"] === "mapping") return `Maps ${catName(p["categoryId"])} to account ${String(p["glAccount"] ?? "?")} from now on (a new version of the category). Past items keep their account.`;
       return "Changes household settings; both of you must agree. A new settings version is recorded.";
     case "correction":
       return "Asks Cade to reverse and repost this item in Business Central with the corrected category.";
@@ -164,6 +165,11 @@ async function applyApproval(db: Queryable, householdId: string, row: ApprovalRo
       return;
     }
     case "settings": {
+      if (p["kind"] === "mapping") {
+        // A Console mapping proposal: the category's next version, not a household settings change.
+        await applyMappingProposal(db, householdId, p, deciderId);
+        return;
+      }
       const hh = await getHousehold(db, householdId);
       const patch = (p["settings"] ?? p) as Partial<HouseholdSettings>;
       const next: HouseholdSettings = { ...hh.settings, ...patch };
@@ -176,6 +182,15 @@ async function applyApproval(db: Queryable, householdId: string, row: ApprovalRo
       return;
     }
   }
+}
+
+/** Applied when the other spouse approves a mapping proposal: the category's next version, audited before/after. */
+export async function applyMappingProposal(db: Queryable, householdId: string, payload: Record<string, unknown>, actor: string): Promise<void> {
+  const categoryId = String(payload["categoryId"] ?? "");
+  const before = (await loadCategories(db, householdId)).get(categoryId);
+  if (!before) throw badRequest("category", `Unknown category ${categoryId}`);
+  await db.query("update categories set gl_account = $3, dimension_defaults = $4, version = version + 1 where household_id = $1 and id = $2", [householdId, categoryId, String(payload["glAccount"]), JSON.stringify(payload["dims"] ?? {})]);
+  await audit(db, householdId, { actor, action: "category.remapped", entity: "category", entityId: categoryId, before: { glAccount: before.gl_account, dims: before.dimension_defaults, version: before.version }, after: { glAccount: payload["glAccount"], dims: payload["dims"], version: before.version + 1 } });
 }
 
 /** The next revision of the household's revision budget, written to BC by the worker (A8). ORIG is refused here and in BC. */

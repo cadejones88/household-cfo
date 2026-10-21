@@ -169,6 +169,12 @@ export interface WebhookSubscription {
   expiresAt: string;
 }
 
+export interface ListedWebhookSubscription {
+  subscriptionId: string;
+  resource: string;
+  expiresAt: string;
+}
+
 export class LedgerError extends Error {
   constructor(
     message: string,
@@ -205,6 +211,11 @@ export interface LedgerPort {
   /** BC repeats the handshake on renewal; `clientState` is resent so a rotated secret takes effect. */
   renewWebhookSubscription(subscriptionId: string, clientState?: string): Promise<WebhookSubscription>;
   deleteWebhookSubscription(subscriptionId: string): Promise<void>;
+  /**
+   * The subscriptions BC holds right now (no clientState: BC does not return it). Optional: the renewal job uses it to
+   * recreate a subscription BC dropped (after a non-2xx reply or an environment update) before it would expire.
+   */
+  listWebhookSubscriptions?(): Promise<ListedWebhookSubscription[]>;
   /**
    * Every draft line and posted entry the app owns in a window (the nightly poll's per-batch, per-date count and
    * sum). Optional: a ledger without it is compared document by document only.
@@ -430,6 +441,10 @@ export class InMemoryLedger implements LedgerPort {
   async deleteWebhookSubscription(subscriptionId: string): Promise<void> {
     this.calls.push(`unsub:${subscriptionId}`);
     this.subscriptions.delete(subscriptionId);
+  }
+  async listWebhookSubscriptions(): Promise<ListedWebhookSubscription[]> {
+    this.calls.push("listSubs");
+    return [...this.subscriptions.values()].map((s) => ({ subscriptionId: s.subscriptionId, resource: s.resource, expiresAt: s.expiresAt }));
   }
 
   async listAppDocuments(q: AppDocumentQuery): Promise<AppDocumentRow[]> {

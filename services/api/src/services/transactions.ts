@@ -601,7 +601,9 @@ export async function correctTransaction(db: Queryable, householdId: string, txI
     if (input.splits) await setSplits(db, householdId, txId, input.splits, memberId);
     else if (input.categoryId) await setSplits(db, householdId, txId, [{ amountCents: row.amount_cents, categoryId: input.categoryId }], memberId);
     await audit(db, householdId, { actor: memberId, action: "transaction.correction", entity: "transaction", entityId: txId, before: { categoryId: row.category_id, businessFlag: row.business_flag }, after: { categoryId: input.categoryId, businessFlag: input.businessFlag, reason: input.reason } });
-    if (row.state === "ready_for_review" && (input.categoryId || input.splits)) {
+    if ((row.state === "ready_for_review" || row.state === "needs_classification") && (input.categoryId || input.splits)) {
+      // A person classified it by hand (the Console can do this before the rule engine runs): through review to approved.
+      if (row.state === "needs_classification") await transition(db, householdId, txId, "ready_for_review", "rule_engine", { actorId: memberId, reason: "classified by hand" });
       const approved = await approveTransaction(db, householdId, txId, "member", { actorId: memberId, reason: "corrected and approved" });
       return { transaction: approved };
     }
