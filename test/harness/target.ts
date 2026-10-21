@@ -30,9 +30,13 @@ export interface BcSide {
   nativePayment(bankCode: string, date: string, amountCents: number, documentNo: string, liabilityGl?: string): Promise<void>;
   /** Money set aside under a FUND_GOAL on a savings card, posted by BC's own journal (goals and A7). */
   goalDeposit(bankCode: string, date: string, amountCents: number, fundGoal: string): Promise<void>;
-  /** Delete every webhook subscription (A6's outage). */
-  dropSubscriptions(): Promise<void>;
-  subscriptionCount(): Promise<number>;
+  /**
+   * Delete the given webhook subscriptions (A6's outage). Only the ones this run's household registered: in the
+   * sandbox the same app registration may also serve the pilot, whose live subscriptions must survive the test.
+   */
+  dropSubscriptions(ids: readonly string[]): Promise<void>;
+  /** How many of the given subscriptions BC still holds (all of them when `ids` is omitted, mock only). */
+  subscriptionCount(ids?: readonly string[]): Promise<number>;
   /** Route BC's webhook calls (handshake and notifications) to a receiver. */
   setReceiver(deliver: (url: string, init: RequestInit) => Promise<Response>): void;
   server?: MockBcServer;
@@ -62,10 +66,13 @@ export function bcSide(env: NodeJS.ProcessEnv = process.env): BcSide {
       goalDeposit: async () => {
         throw new ManualStep("a FUND_GOAL deposit posted in BC");
       },
-      dropSubscriptions: async () => {
-        for (const s of (await ledger.listWebhookSubscriptions?.()) ?? []) await ledger.deleteWebhookSubscription(s.subscriptionId);
+      dropSubscriptions: async (ids) => {
+        for (const id of ids) await ledger.deleteWebhookSubscription(id);
       },
-      subscriptionCount: async () => ((await ledger.listWebhookSubscriptions?.()) ?? []).length,
+      subscriptionCount: async (ids) => {
+        const listed = (await ledger.listWebhookSubscriptions?.()) ?? [];
+        return ids ? listed.filter((s) => ids.includes(s.subscriptionId)).length : listed.length;
+      },
       setReceiver: () => undefined,
     };
   }
@@ -109,10 +116,10 @@ export function bcSide(env: NodeJS.ProcessEnv = process.env): BcSide {
       const p = await call("POST", `journals(${jid})/Microsoft.NAV.post`);
       if (p.status !== 204) throw new Error(`goal post answered ${p.status}`);
     },
-    dropSubscriptions: async () => {
-      for (const s of server.listSubscriptions()) await server.fetch(`${server.baseUrl}/api/v2.0/subscriptions('${s.id}')`, { method: "DELETE", headers: { authorization: "Bearer cade", "if-match": "*" } });
+    dropSubscriptions: async (ids) => {
+      for (const id of ids) await server.fetch(`${server.baseUrl}/api/v2.0/subscriptions('${id}')`, { method: "DELETE", headers: { authorization: "Bearer cade", "if-match": "*" } });
     },
-    subscriptionCount: async () => server.listSubscriptions().length,
+    subscriptionCount: async (ids) => server.listSubscriptions().filter((s) => !ids || ids.includes(s.id)).length,
     setReceiver: (d) => {
       receiver = d;
     },

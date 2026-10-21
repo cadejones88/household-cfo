@@ -263,8 +263,12 @@ d("A1–A9", () => {
   });
 
   acceptance("A6", async () => {
-    await w.side.dropSubscriptions();
-    expect(await w.side.subscriptionCount()).toBe(0);
+    // Only this run's subscriptions: in the sandbox the pilot's live ones (same app registration) must survive.
+    const mine = async () => w.db(async (db) => (await db.query<{ subscription_id: string }>("select subscription_id from bc_webhook_subscriptions where household_id = $1", [w.hh.householdId])).rows.map((r) => r.subscription_id));
+    const before = await mine();
+    expect(before.length).toBe(2);
+    await w.side.dropSubscriptions(before);
+    expect(await w.side.subscriptionCount(before)).toBe(0);
     w.plaidTx("BEEHIVE-CHK", "a6-line", "2026-10-27", 33.1, "WINCO FOODS", "WinCo");
     await w.job("plaid-sync");
     await w.job("matching");
@@ -276,7 +280,7 @@ d("A1–A9", () => {
     await w.job("nightly-poll");
     expect((await tx(t.id)).state).toBe("posted");
     await w.job("webhook-renewal");
-    expect(await w.side.subscriptionCount()).toBe(2);
+    expect(await w.side.subscriptionCount(await mine())).toBe(2);
   });
 
   acceptance("A7", async () => {
