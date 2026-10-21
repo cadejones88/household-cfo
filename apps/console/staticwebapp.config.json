@@ -1,16 +1,27 @@
 {
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/assets/*", "/health.json", "/favicon.svg"]
+    "exclude": [
+      "/assets/*",
+      "/health.json",
+      "/favicon.svg"
+    ]
   },
   "responseOverrides": {
-    "404": { "rewrite": "/index.html", "statusCode": 200 }
+    "404": {
+      "rewrite": "/index.html",
+      "statusCode": 200
+    }
   },
   "globalHeaders": {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "strict-origin-when-cross-origin",
-    "Permissions-Policy": "camera=(), microphone=(), geolocation=()"
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.azurecontainerapps.io https://*.ciamlogin.com https://homestead.cadejonescpa.com; frame-src https://*.ciamlogin.com https://homestead.cadejonescpa.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'",
+    "Strict-Transport-Security": "max-age=31536000"
   },
-  "mimeTypes": { ".json": "application/json" }
+  "mimeTypes": {
+    ".json": "application/json"
+  }
 }
