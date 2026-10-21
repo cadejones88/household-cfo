@@ -2,7 +2,7 @@
 
 Household finance app for the Jones family: a phone-first app for both spouses, a desktop console for the CFO, and a backend that keeps Business Central as the single ledger. Built for the family first; structured so a client version is configuration, not a rewrite.
 
-**Status (Oct 21, 2026):** Gates 1–3 approved. Phase 4 MVP code is complete for all seven epics and green against in-process fakes (Business Central, Plaid, Document Intelligence, Claude): about 400 tests across the packages, including the A1–A9 acceptance suite against `MockBcServer`. Gate 4 needs the same suite to pass against the real BC sandbox, which waits on the hands-on setup in GitHub issues #2, #3, #5, #7 and #11. Auto-posting is off. No real accounts connected, nothing in Business Central production.
+**Status (Oct 21, 2026):** Gates 1–3 approved. Phase 4 MVP code is complete for all seven epics and green against in-process fakes (Business Central, Plaid, Document Intelligence, Claude): about 420 tests across the packages, including the A1–A9 acceptance suite against `MockBcServer`. See `docs/phase4-build-report.md`. Gate 4 needs the same suite to pass against the real BC sandbox, which waits on the hands-on setup in GitHub issues #2, #3, #5, #7 and #11. Auto-posting is off. No real accounts connected, nothing in Business Central production.
 
 Run it: `pnpm install && pnpm build && pnpm test`. Database-backed tests run when `DATABASE_URL` points at a Postgres 16 (see `docs/dev-setup.md`).
 
@@ -13,6 +13,7 @@ Run it: `pnpm install && pnpm build && pnpm test`. Database-backed tests run whe
 | `docs/phase1-product-spec.md` | The approved product spec: journeys, screens, decisions, Gate 1 outcome |
 | `docs/phase2-prototype-guide.md` | How to try the prototype and what to watch for at Gate 2 |
 | `docs/phase3-architecture-spec.md` | The architecture and integration spec: stack, data model, state machine, BC mapping, HH App Connector, auto-post rules, security, cost, DR, tests, backlog (approved at Gate 3) |
+| `docs/phase4-build-report.md` | What Phase 4 built, test counts, what is faked, the hands-on steps for Gate 4, and the open decisions with their defaults |
 | `prototype/homestead.html` | The Phase 2 clickable prototype (single file, sample data, works offline once loaded). Published as a private artifact for phone testing |
 | `apps/mobile/` | Homestead, the phone app for both spouses (Expo SDK 58, Expo Router, development builds): safe to spend, Needs your answer, receipt snap with an offline queue, Activity, Budget and Move money with Face ID approvals, Goals, Bills, Ask Homestead, Settings, push. Mock mode runs with no API; `apps/mobile/docs/vanessa-guide.md` is the how-to |
 | `apps/console/` | Homestead Console, the desktop CFO view (React + Vite): work queues, BC sync and posting, reconciliation, mappings, authority matrix, health/logs/audit, plus six "after the pilot" tiles. Mock mode runs with no API; see its README for the API-route gaps |
