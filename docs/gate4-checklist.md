@@ -67,7 +67,7 @@ In the sandbox:
 1. Search **Microsoft Entra Applications** → **New**.
 2. **Client ID** = the Application (client) ID; **Description** `Homestead BC Sandbox`; **State** Enabled.
 3. **User Permission Sets**: Permission Set **HH-APP**, Company **Cade & Vanessa Jones Family**. Nothing else.
-4. **Grant Consent** → sign in → Accept.
+4. Do **not** use **Grant Consent**. The admin consent from step 3 already covers it, and BC's button needs a redirect URI that this registration deliberately doesn't have (it fails with AADSTS900561, "The endpoint only accepts POST requests").
 
 ## 6. Tell Claude "done"
 
