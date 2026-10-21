@@ -5,6 +5,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { createServer, type Server } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildApp } from "@homestead/api/app";
@@ -77,7 +78,11 @@ export async function makeWorld(side: BcSide, label: string): Promise<World> {
   const deps = buildFakeDeps({ ledger: side.ledger, plaid, docIntel: di, mapper });
   const app = await buildApp({ logger: false, deps });
   await app.ready();
-  // BC's handshakes and notifications land in the app's own receiver (mock); the sandbox needs a public URL.
+  // BC's handshakes and notifications land in the app's own receiver (mock); the sandbox needs a public URL, which a
+  // guided A6 run provides: CI's temporary tunnel forwards to HH_RECEIVER_PORT, where startReceiver passes BC's
+  // webhook route (and nothing else) into the app.
+  const port = Number(process.env["HH_RECEIVER_PORT"] ?? "0");
+  const receiver = side.kind === "sandbox" && port > 0 ? await startReceiver(app, port) : undefined;
   side.setReceiver(async (url, init) => {
     const u = new URL(url);
     const r = await app.inject({ method: (init.method ?? "POST") as "POST", url: `${u.pathname}${u.search}`, headers: { "content-type": String((init.headers as Record<string, string> | undefined)?.["content-type"] ?? "application/json") }, ...(init.body ? { payload: String(init.body) } : {}) });
@@ -107,9 +112,52 @@ export async function makeWorld(side: BcSide, label: string): Promise<World> {
       plaid.queue(accessToken, { added: [{ transaction_id: id, account_id: PLAID_ACCOUNTS[code]!, amount, date, name, merchant_name: merchant ?? null, pending: false }], next_cursor: `c-${id}`, has_more: false });
     },
     close: async () => {
+      if (receiver) await new Promise<void>((resolve) => receiver.close(() => resolve()));
       await app.close();
     },
   };
+}
+
+/** The only path the run's public receiver serves: the app's BC webhook route (handshake and notifications). */
+export const WEBHOOK_PATH = "/v1/webhooks/bc";
+
+/**
+ * The run's public webhook receiver (A6 in the sandbox, behind CI's temporary tunnel). It answers BC's webhook route
+ * only, by passing the request into the app, which checks the clientState of every notification as the deployed
+ * receiver does. Every other path or method gets 404, so the test API (dev sign-in) is never reachable from outside.
+ * Bodies over 1 MB are refused. It listens on 127.0.0.1 only; the tunnel is the one way in.
+ */
+export async function startReceiver(app: World["app"], port: number): Promise<Server> {
+  const server = createServer((req, res) => {
+    const url = new URL(req.url ?? "/", "http://receiver.invalid");
+    if (url.pathname !== WEBHOOK_PATH || (req.method !== "GET" && req.method !== "POST")) {
+      res.writeHead(404).end();
+      return;
+    }
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on("data", (c: Buffer) => {
+      size += c.length;
+      if (size > 1_000_000) {
+        res.writeHead(413).end();
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on("end", () => {
+      if (res.writableEnded) return;
+      app
+        .inject({ method: req.method as "GET" | "POST", url: `${url.pathname}${url.search}`, headers: { "content-type": String(req.headers["content-type"] ?? "application/json") }, ...(chunks.length ? { payload: Buffer.concat(chunks) } : {}) })
+        .then((r) => res.writeHead(r.statusCode, { "content-type": String(r.headers["content-type"] ?? "text/plain") }).end(r.body))
+        .catch(() => res.writeHead(500).end());
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", () => resolve());
+  });
+  return server;
 }
 
 /** Dev sign-in headers for app.inject. */

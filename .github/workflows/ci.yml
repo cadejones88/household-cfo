@@ -9,6 +9,11 @@ on:
         description: "Sandbox run: minutes to wait at each step Cade does in BC (0 = report the step and move on)"
         required: false
         default: "0"
+      a6_receiver:
+        description: "Sandbox run: open a temporary public webhook receiver for A6 (Cloudflare quick tunnel, this run only). Use with wait_minutes."
+        required: false
+        type: boolean
+        default: false
 permissions:
   contents: read
   id-token: write
@@ -89,6 +94,35 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      # A6 only, on a guided run that asks for it (approved by Cade 10/21/2026). A Cloudflare quick tunnel (no account)
+      # gives this run a random public https address that ends with the run. It forwards to the test run's receiver
+      # (test/harness/world.ts startReceiver), which answers BC's webhook route only and 404s everything else. The
+      # binary is a pinned release checked against Cloudflare's published SHA-256.
+      - name: "A6: temporary public webhook receiver (this run only)"
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.a6_receiver == 'true' && env.BC_SANDBOX_CLIENT_ID != ''
+        run: |
+          set -euo pipefail
+          v=2026.7.3
+          sum=9d71c677db00134c1bd4144b7783486b654ad281b1ea62b4972098d19f770f17
+          curl -fsSL -o "$RUNNER_TEMP/cloudflared" "https://github.com/cloudflare/cloudflared/releases/download/$v/cloudflared-linux-amd64"
+          echo "$sum  $RUNNER_TEMP/cloudflared" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/cloudflared"
+          nohup "$RUNNER_TEMP/cloudflared" tunnel --no-autoupdate --url http://127.0.0.1:8787 > "$RUNNER_TEMP/tunnel.log" 2>&1 &
+          url=""
+          for i in $(seq 1 60); do
+            url=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' "$RUNNER_TEMP/tunnel.log" | head -1 || true)
+            [ -n "$url" ] && break
+            sleep 2
+          done
+          if [ -z "$url" ]; then echo "::error title=A6 receiver::The tunnel did not start"; tail -20 "$RUNNER_TEMP/tunnel.log"; exit 1; fi
+          # Wait until Cloudflare routes the new hostname (502 is expected until the receiver starts in the test run).
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$url/v1/webhooks/bc" || true)
+            case "$code" in 000|530) sleep 2 ;; *) break ;; esac
+          done
+          echo "WEBHOOK_BASE_URL=$url" >> "$GITHUB_ENV"
+          echo "HH_RECEIVER_PORT=8787" >> "$GITHUB_ENV"
+          echo "::notice title=A6 receiver::Open for this run only, answering BC's webhook route only"
       - name: Acceptance tests A1–A9 against the BC sandbox
         run: |
           if [ -z "$BC_SANDBOX_CLIENT_ID" ]; then echo "No sandbox secrets configured yet; A1–A9 ran against MockBcServer in build-test"; exit 0; fi

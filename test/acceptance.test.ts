@@ -15,7 +15,7 @@ import { LedgerError, closePool, listRules, loadTx, type GlEntry, type InMemoryQ
 import { afterAll, beforeAll, describe, expect, it, type TestContext } from "vitest";
 import { Recorder } from "./harness/report.js";
 import { ManualStep, bcSide, prepareSandboxEnv, sandboxConfigured } from "./harness/target.js";
-import { as, makeWorld, multipart, readFixture, type ReceiptFixture, type World } from "./harness/world.js";
+import { as, makeWorld, multipart, readFixture, startReceiver, WEBHOOK_PATH, type ReceiptFixture, type World } from "./harness/world.js";
 
 const hasDb = Boolean(process.env["DATABASE_URL"]);
 await prepareSandboxEnv();
@@ -135,6 +135,11 @@ d("A1–A9", () => {
     await w.job("webhook-renewal");
   });
   afterAll(async () => {
+    // A guided A6 run's tunnel ends with the run: drop this household's subscriptions so BC stops calling a dead address.
+    if (w && side.kind === "sandbox" && process.env["WEBHOOK_BASE_URL"]) {
+      const ids = await w.db(async (db) => (await db.query<{ subscription_id: string }>("select subscription_id from bc_webhook_subscriptions where household_id = $1", [w.hh.householdId])).rows.map((r) => r.subscription_id));
+      await w.side.dropSubscriptions(ids).catch(() => undefined);
+    }
     await w?.close();
     await closePool();
   });
@@ -153,6 +158,22 @@ d("A1–A9", () => {
     const m = multipart({ sha256: sha256Hex(bytes), capturedAt, offlineId }, { name: `${offlineId}.jpg`, contentType: "image/jpeg", bytes });
     return w.app.inject({ method: "POST", url: "/v1/receipts", headers: { ...as(memberId), ...m.headers }, payload: m.body });
   };
+
+  it("the run's public receiver (guided A6 runs) serves BC's webhook route and nothing else", async () => {
+    const server = await startReceiver(w.app, 0);
+    try {
+      const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+      const hs = await fetch(`${base}${WEBHOOK_PATH}?validationToken=tok-123`, { method: "POST" });
+      expect([hs.status, await hs.text()]).toEqual([200, "tok-123"]);
+      const note = await fetch(`${base}${WEBHOOK_PATH}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ value: [{ subscriptionId: "not-ours", clientState: "x" }] }) });
+      expect([note.status, await note.json()]).toEqual([202, { accepted: 0, rejected: 1 }]);
+      for (const [method, path] of [["GET", "/v1/accounts"], ["POST", "/v1/receipts"], ["GET", "/v1/webhooks/plaid"], ["DELETE", WEBHOOK_PATH], ["GET", "/health"]] as const) {
+        expect((await fetch(`${base}${path}`, { method, headers: as(w.hh.members.cade) })).status, `${method} ${path}`).toBe(404);
+      }
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
 
   acceptance("A1", async () => {
     const f = readFixture<ReceiptFixture & { bank: { plaidAccountId: string; transactionId: string; date: string; amount: number; name: string; merchant_name: string } }>("../fixtures/receipts/broulims-2026-10-18.json");
@@ -319,8 +340,10 @@ d("A1–A9", () => {
 
   acceptance("A6", async () => {
     // BC handshakes every new subscription with the notification URL before creating it, so the sandbox run needs a
-    // public receiver (the dev deployment's WEBHOOK_BASE_URL). Without one, BC creates none and A6 waits for it.
-    if (side.kind === "sandbox" && !process.env["WEBHOOK_BASE_URL"]) throw new ManualStep("A6 needs a public webhook receiver (WEBHOOK_BASE_URL of the dev deployment); BC creates no subscription it cannot handshake");
+    // public receiver, and A6 needs a posting while the run waits. Both come with a guided run: Run workflow with
+    // a6_receiver (CI's temporary tunnel, WEBHOOK_BASE_URL) and wait_minutes above 0.
+    if (side.kind === "sandbox" && !process.env["WEBHOOK_BASE_URL"]) throw new ManualStep("A6 runs in a guided run only: Run workflow with a6_receiver ticked and wait_minutes 30 (a public webhook receiver for this run, and time to post HHAPP/FEEDS during it)");
+    if (side.kind === "sandbox" && waitMs === 0) throw new ManualStep("A6 needs a posting during the run: start it with wait_minutes above 0");
     // Only this run's subscriptions: in the sandbox the pilot's live ones (same app registration) must survive.
     const mine = async () => w.db(async (db) => (await db.query<{ subscription_id: string }>("select subscription_id from bc_webhook_subscriptions where household_id = $1", [w.hh.householdId])).rows.map((r) => r.subscription_id));
     const before = await mine();
