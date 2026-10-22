@@ -116,6 +116,12 @@ permissionset 72100 "HH-APP"
         tabledata "Tax Jurisdiction" = R,
         tabledata "Currency Exchange Rate" = R,
         tabledata "IC Setup" = R,
+        // 1.0.0.7: the third AP run (10/22/2026) was refused at "TableData 2000000068 Record Link Read": the posting
+        // looks for record links (notes, attachments) on the journal lines to carry them to the posted entries. Read
+        // only; HHAPP lines carry no links, so nothing is inserted. Feature Key is read by base-app feature checks on the
+        // same path.
+        tabledata "Record Link" = R,
+        tabledata "Feature Key" = R,
         // Analysis views with Update on Posting on (HH-SPEND) are brought up to date by the posting (codeunit 410)
         tabledata "Analysis View" = rm,
         tabledata "Analysis View Filter" = r,
