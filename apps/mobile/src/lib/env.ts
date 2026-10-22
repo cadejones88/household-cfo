@@ -17,6 +17,12 @@ const Env = z.object({
   easProjectId: z.string().default(""),
   /** Who fixes entries already in the books (Business Central). Cade for the Jones household. */
   bookkeeperName: z.string().default("Cade"),
+}).refine((e) => e.authMode !== "entra" || e.entraApiScope !== "", {
+  // The MFA policy in the family tenant targets homestead-api: Conditional Access cannot target a public client
+  // such as this app, only the resource it asks for. So an Entra sign-in must always ask for the API scope, or it
+  // could finish without the second factor.
+  message: "EXPO_PUBLIC_ENTRA_API_SCOPE is required when EXPO_PUBLIC_AUTH_MODE is entra",
+  path: ["entraApiScope"],
 });
 
 export type Env = z.infer<typeof Env>;
