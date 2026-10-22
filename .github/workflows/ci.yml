@@ -9,6 +9,11 @@ on:
         description: "Sandbox run: minutes to wait at each step Cade does in BC (0 = report the step and move on)"
         required: false
         default: "0"
+      autopost_check:
+        description: "Sandbox run: run AP, which posts HHAPP/AUTOPOST through the API (needs HH App Connector 1.0.0.4). Use with wait_minutes."
+        required: false
+        type: boolean
+        default: false
       a6_receiver:
         description: "Sandbox run: open a temporary public webhook receiver for A6 (Cloudflare quick tunnel, this run only). Use with wait_minutes."
         required: false
@@ -87,6 +92,7 @@ jobs:
       BC_SANDBOX_CONNECTOR_INSTALLED: ${{ vars.BC_SANDBOX_CONNECTOR_INSTALLED || 'true' }}
       # A guided run (workflow_dispatch with wait_minutes): each of Cade's BC steps is waited for instead of reported.
       BC_SANDBOX_WAIT_MINUTES: ${{ github.event.inputs.wait_minutes || '0' }}
+      BC_SANDBOX_AUTOPOST: ${{ github.event.inputs.autopost_check || 'false' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

@@ -292,6 +292,21 @@ describe("post and read-back", () => {
     expect(res.status).toBe(400);
   });
 
+  it("with the HH Post Guard the app posts HHAPP/AUTOPOST only; FEEDS is refused and stays a draft until Cade posts it", async () => {
+    const { adapter, server } = makeAdapter({ postGuard: { personTokens: ["cade"] } });
+    await adapter.createJournalLines({ journalCode: "AUTOPOST", lines: walmartSplit(idempotencyKey.plaid("acct1", "guard-a"), "2026-10-20") });
+    await adapter.createJournalLines({ journalCode: "FEEDS", lines: walmartSplit(idempotencyKey.plaid("acct1", "guard-f"), "2026-10-20") });
+    await adapter.postBatch("AUTOPOST");
+    expect(server.draftLines("AUTOPOST")).toHaveLength(0);
+    const err = await adapter.postBatch("FEEDS").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(BcNonRetryableError);
+    expect((err as Error).message).toMatch(/HHAPP\/FEEDS cannot be posted through the API/);
+    expect(server.draftLines("FEEDS")).toHaveLength(walmartSplit().length);
+    const byCade = await server.fetch(`${server.baseUrl}/api/v2.0/companies(${server.companyId})/journals(${server.journalId("FEEDS")})/Microsoft.NAV.post`, { method: "POST", headers: { authorization: "Bearer cade" } });
+    expect(byCade.status).toBe(204);
+    expect(server.draftLines("FEEDS")).toHaveLength(0);
+  });
+
   it("posting an empty batch or an unbalanced document is a non-retryable BC error", async () => {
     const { adapter, server } = makeAdapter();
     await expect(adapter.postBatch("FEEDS")).rejects.toThrow(/nothing to post/);

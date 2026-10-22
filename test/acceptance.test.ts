@@ -36,6 +36,7 @@ const NAMES: Record<string, string> = {
   A7: "Safe-to-spend excludes restricted funds and covers bills due before the next paycheck",
   A8: "A budget change needs the other spouse's approval and writes a versioned revision",
   A9: "Everything shown in the app ties to BC with the data-through date displayed",
+  AP: "Rules R2 and R3 post transfers and card payments themselves through HHAPP/AUTOPOST; the app cannot post any other journal",
 };
 
 /**
@@ -463,5 +464,62 @@ d("A1–A9", () => {
     recorder.nightlyPoll = { ranAt: new Date().toISOString(), differences: (c["differences"] ?? 0) + unexplained };
     expect(c["differences"]).toBe(0);
     expect(unexplained).toBe(0);
+  });
+
+  // Auto-posting (BC change 6b, HH App Connector 1.0.0.4; rules R2, R3 and R7 approved to go live after the sandbox
+  // test). Last in the file because it switches the household's auto-post on.
+  acceptance("AP", async () => {
+    // It posts real sandbox entries and needs one posting by Cade during the run, so the sandbox runs it on request.
+    if (side.kind === "sandbox" && process.env["BC_SANDBOX_AUTOPOST"] !== "true") throw new ManualStep("AP runs in a guided run only: Run workflow with autopost_check ticked and wait_minutes 30, once HH App Connector 1.0.0.4 is installed");
+    if (side.kind === "sandbox" && waitMs === 0) throw new ManualStep("AP needs a posting by Cade during the run: start it with wait_minutes above 0");
+    for (const r of await w.db((db) => listRules(db, w.hh.householdId, "proposed"))) {
+      if (!["R2", "R3"].includes(r.rule_no ?? "")) continue;
+      const res = await w.app.inject({ method: "POST", url: `/v1/rules/${r.id}/approve`, headers: as(w.hh.members.cade, true), payload: { approvalNote: `Approved in writing by Cade to go live after the sandbox test (${r.rule_no})` } });
+      expect(res.statusCode, res.body).toBe(200);
+    }
+    await w.db((db) => db.query("update ledger_connections set auto_post_enabled = true where household_id = $1", [w.hh.householdId]));
+    // New documents every sandbox run (the sandbox keeps what earlier runs posted).
+    const tag = side.kind === "sandbox" ? w.hh.householdId.slice(0, 8) : "mock";
+    const pairs = [
+      ["BEEHIVE-CHK", `ap-xfer-out-${tag}`, 1, "ONLINE TRANSFER TO SAVINGS"],
+      ["BEEHIVE-SAV", `ap-xfer-in-${tag}`, -1, "ONLINE TRANSFER FROM CHECKING"],
+      ["AFCU-CHK", `ap-pay-out-${tag}`, 1, "CAPITAL ONE ONLINE PMT"],
+      ["CAPONE-CC", `ap-pay-in-${tag}`, -1, "PAYMENT THANK YOU"],
+    ] as const;
+    for (const [code, id, amount, name] of pairs) w.plaidTx(code, id, today, amount, name);
+    for (let i = 0; i < pairs.length; i += 1) await w.job("plaid-sync");
+    await w.job("matching");
+    const k = (code: string, id: string) => idempotencyKey.plaid(({ "BEEHIVE-CHK": "plaid-beehive-chk", "BEEHIVE-SAV": "plaid-beehive-sav", "AFCU-CHK": "plaid-afcu-chk", "CAPONE-CC": "plaid-capone-cc" } as Record<string, string>)[code]!, id);
+    const txs = await Promise.all(pairs.map(([code, id]) => txByKey(k(code, id))));
+    for (const t of txs) expect([t.kind, t.bc_batch], t.merchant_norm).toEqual(["transfer", "AUTOPOST"]);
+    await w.job("outbox-relay");
+    await w.job("autopost-post"); // posts HHAPP/AUTOPOST through the API and reads the entries back
+    const docs: string[] = [];
+    for (const t of txs) {
+      const now = await tx(t.id);
+      expect(["posted", "reconciled"], `${now.merchant_norm}: ${now.state} ${now.exception_reason ?? ""}`).toContain(now.state);
+      docs.push(now.bc_external_doc_no!);
+    }
+    const posted = (await Promise.all(docs.map((d) => w.side.ledger.listAppDocuments!({ externalDocumentNoStartsWith: d, source: "ledger" })))).flat();
+    expect(posted).toHaveLength(8);
+    for (const e of posted) expect([e.batch, e.sourceCode, e.reasonCode]).toEqual(["AUTOPOST", "HHAUTO", "AUTOPOST"]);
+    const net = (acct: string) => posted.filter((e) => e.accountNo === acct).reduce((s, e) => s + e.amountCents, 0);
+    expect([net("115101"), net("115201")]).toEqual([0, 0]);
+    // The guard: a FEEDS draft the app wrote is not the app's to post. It stays a draft until Cade posts it.
+    w.plaidTx("BEEHIVE-CHK", `ap-guard-${tag}`, today, 1.23, "WINCO FOODS", "WinCo");
+    await w.job("plaid-sync");
+    await w.job("matching");
+    const g = await txByKey(k("BEEHIVE-CHK", `ap-guard-${tag}`));
+    await answer(w.hh.members.vanessa, `tx:${g.id}`, "category:groceries");
+    await w.job("outbox-relay");
+    const drafted = await tx(g.id);
+    expect([drafted.state, drafted.bc_batch]).toEqual(["bc_draft_created", "FEEDS"]);
+    const refused = await w.side.ledger.postBatch("FEEDS").catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(LedgerError);
+    expect((refused as Error).message).toMatch(/cannot be posted through the API/);
+    expect((await w.side.ledger.findByExternalDocumentNo(drafted.bc_external_doc_no!)).journalLineIds).toHaveLength(2);
+    await w.side.postAsCade("FEEDS", [drafted.bc_external_doc_no!]);
+    await w.job("bc-readback");
+    expect((await tx(g.id)).state).toBe("posted");
   });
 });

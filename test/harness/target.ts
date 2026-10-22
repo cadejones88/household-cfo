@@ -141,7 +141,8 @@ export function bcSide(env: NodeJS.ProcessEnv = process.env): BcSide {
     };
   }
   let receiver: (url: string, init: RequestInit) => Promise<Response> = async (url) => new Response(new URL(url).searchParams.get("validationToken") ?? "", { status: 200 });
-  const server = new MockBcServer({ deliver: (url, init) => receiver(url, init), budgets: ["BUD26-REV"] });
+  // The HH App Connector's posting guard (1.0.0.4): the app's token may post HHAPP/AUTOPOST only; "cade" is Cade in BC.
+  const server = new MockBcServer({ deliver: (url, init) => receiver(url, init), budgets: ["BUD26-REV"], postGuard: { personTokens: ["cade"] } });
   const call = (method: string, path: string, body?: unknown) =>
     server.fetch(`${server.baseUrl}/api/v2.0/companies(${server.companyId})/${path}`, { method, headers: { authorization: "Bearer cade", "content-type": "application/json", "if-match": "*" }, ...(body ? { body: JSON.stringify(body) } : {}) });
   return {

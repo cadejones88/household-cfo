@@ -55,7 +55,7 @@ For **Gate 4** the test runs use a separate certificate made on Cade's Mac and k
 
    Both sets are assigned for the household company only. A new line on `HH-APP-SYS` starts as "Table Data 0, All objects of type Table Data, Read Yes" the moment the row is touched: change it to the intended object and Read Indirect before leaving the page, and read the set back afterwards. It must hold exactly the lines above.
 4. No **Grant Consent** on the card: the admin consent granted on the app registration (step 1.3) is the consent the S2S token needs. BC's Grant Consent button is only for registrations that were not admin-consented in Entra, and it needs a redirect URI, which this registration deliberately has none of; pressed anyway, it fails with AADSTS900561 ("The endpoint only accepts POST requests"). Found October 21, 2026.
-5. Optional, server-side scoping: on the application's user card, **Permission Sets → Security Filters** for `Gen. Journal Line`: `Journal Template Name=CONST(HHAPP)`. The adapter only ever addresses HHAPP batches; this makes BC enforce it as well. Note the user card also lists the permission set with a blank company, which means all companies; set the household company explicitly.
+5. The user card lists each permission set with a company; a blank company means all companies, so set the household company explicitly. (A security filter here was once suggested for scoping; it does not narrow rights from another assigned set, so the HH Post Guard enforces the posting limit instead, change 6b.)
 
 ### 1.4 Test
 
@@ -66,7 +66,7 @@ The sandbox acceptance run in GitHub Actions does these (it signs in with `BC_SA
 3. `listAccounts()`, `listDimensions()`, `listBankAccounts()` return the chart (incl. 401102/401202 after change 5), the five dimensions with values, and the fourteen bank cards.
 4. `createJournalLines()` of the three-line Walmart split into `HHAPP/FEEDS`: three draft lines, one Document No., the five dimensions visible on each line's **Dimensions** in BC. Then the forced-failure batch (one bad dimension value in line 2): zero lines in the batch afterwards.
 5. `subscriptions.create()` for `generalLedgerEntries` against the dev receiver succeeds (handshake visible in the receiver log).
-6. A `POST journals({id})/Microsoft.NAV.post` with HH-APP must **fail** with a permission error until change 6b (posting right) is approved. Record that it failed.
+6. A `POST journals({id})/Microsoft.NAV.post` with HH-APP must **fail** with a permission error before connector 1.0.0.4 (change 6b). With 1.0.0.4 it succeeds for HHAPP/AUTOPOST only, and fails with the HH Post Guard's message for any other batch.
 
 ---
 
@@ -166,12 +166,16 @@ Done in the sandbox October 21, 2026.
 
 ---
 
-## 6b — Posting right for HHAPP/AUTOPOST (not yet; recorded here so it is not forgotten)
+## 6b — Posting right for HHAPP/AUTOPOST (HH App Connector 1.0.0.4)
 
-Only after auto-post rules R2, R3 and R7 pass their sandbox test and Cade approves them in writing (spec: Decisions, question 4):
+Approved with auto-post rules R2, R3 and R7 (10/20/2026) and Gate 4 (10/21/2026). Auto-posting itself stays off until the sandbox test below passes and `ledger_connections.auto_post_enabled` is set; the deployed `autopost-post` job is also off (`autoPostJobEnabled = false` in the Bicep parameters).
 
-1. In `bc/hh-app-connector/src/HHApp.PermissionSet.al` add `codeunit "Gen. Jnl.-Post Batch" = X` (and `tabledata "G/L Entry" = RI`, `tabledata "Bank Account Ledger Entry" = RI`, `tabledata "G/L Register" = RI`, `tabledata "Bank Account" = RM`, `tabledata "G/L Account" = RM`, `tabledata "No. Series Line" = RM`, plus whatever the first posting attempt reports), bump the version, republish (change 2).
-2. On the application's user card, security filter for `Gen. Journal Batch`: `Journal Template Name=CONST(HHAPP),Name=CONST(AUTOPOST)` so the post action cannot reach FEEDS or RECEIPTS.
-3. Set `ledger_connections.auto_post_enabled` only after test 3 below.
+1. **Install HH App Connector 1.0.0.4** in the sandbox (change 2: Extension Management → Upload, from the GitHub release). It adds:
+   - indirect posting rights in `HH-APP` (the posting codeunits' G/L, bank ledger, register, posted-journal, VAT-link and analysis-view tables; see the permission set's header for the list);
+   - the **HH Post Guard** (codeunit 72102). A posting started from a web-service session (API, OData, SOAP) is refused unless it posts **HHAPP/AUTOPOST**. FEEDS, RECEIPTS and every other journal stay Cade's to post in the BC client, which the guard never affects.
+2. **No security filter on the user card.** The original plan here was a `Gen. Journal Batch` security filter. It does not work: an AL permission set carries no security filters, and a filter on a user-defined set does not narrow a right another assigned set grants without one. The guard enforces the one-batch limit instead, inside BC.
+3. Run the sandbox acceptance workflow by hand with `autopost_check` ticked and `wait_minutes` set (Actions → CI → Run workflow). Test **AP** approves R2/R3, routes four $1 transfer pairs to AUTOPOST, posts them with the app's token, checks the eight G/L entries (batch AUTOPOST, source code HHAUTO, reason code AUTOPOST, 115101 and 115201 net to zero), and checks that the app's attempt to post FEEDS is refused by the guard. The FEEDS line it leaves is then posted by Cade (the guided step).
+4. Only after AP passes: set `auto_post_enabled` for the household and turn on the `autopost-post` job (`autoPostJobEnabled = true`), each recorded in the Review Log.
 
-Test: `postBatch("AUTOPOST")` returns 204 and the read-back by External Document No. returns the entry numbers (`adapter.test.ts`, "post and read-back"); `postBatch("FEEDS")` with the application's token is refused.
+If the first posting reports another missing permission (for example on API Webhook Notification while a subscription exists), that table goes on `HH-APP-SYS` as Read Indirect or, if it needs insert, is proposed for approval first; nothing is added to the card without Cade's approval.
+
