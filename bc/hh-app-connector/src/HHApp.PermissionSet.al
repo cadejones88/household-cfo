@@ -98,6 +98,24 @@ permissionset 72100 "HH-APP"
         tabledata "Source Code Setup" = R,
         tabledata "Cost Accounting Setup" = R,
         tabledata Currency = R,
+        // 1.0.0.6: the second AP run (10/22/2026) was refused at "TableData 325 VAT Posting Setup (Tax Posting Setup)
+        // Read": G/L posting looks up the posting setups even for lines with blank posting groups. Microsoft's symbol
+        // packages carry no source to trace the rest, so every posting-setup and tax-setup table a G/L or bank line can
+        // touch is a direct read here at once. All are configuration; none holds amounts or personal data.
+        tabledata "VAT Posting Setup" = R,
+        tabledata "General Posting Setup" = R,
+        tabledata "Gen. Business Posting Group" = R,
+        tabledata "Gen. Product Posting Group" = R,
+        tabledata "VAT Business Posting Group" = R,
+        tabledata "VAT Product Posting Group" = R,
+        tabledata "VAT Return Period" = R,
+        tabledata "Tax Area" = R,
+        tabledata "Tax Area Line" = R,
+        tabledata "Tax Group" = R,
+        tabledata "Tax Detail" = R,
+        tabledata "Tax Jurisdiction" = R,
+        tabledata "Currency Exchange Rate" = R,
+        tabledata "IC Setup" = R,
         // Analysis views with Update on Posting on (HH-SPEND) are brought up to date by the posting (codeunit 410)
         tabledata "Analysis View" = rm,
         tabledata "Analysis View Filter" = r,
@@ -117,7 +135,7 @@ permissionset 72100 "HH-APP"
         tabledata "Deferral Header" = R,
         tabledata "User Setup" = R,
         tabledata "Acc. Sched. KPI Web Srv. Setup" = R,
-        tabledata "VAT Setup" = r,
+        tabledata "VAT Setup" = R,
         tabledata "Approval Entry" = r,
         tabledata "Workflow Webhook Entry" = r,
         tabledata Workflow = r,

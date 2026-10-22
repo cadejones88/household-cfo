@@ -166,7 +166,7 @@ Done in the sandbox October 21, 2026.
 
 ---
 
-## 6b — Posting right for HHAPP/AUTOPOST (HH App Connector 1.0.0.4, 1.0.0.5)
+## 6b — Posting right for HHAPP/AUTOPOST (HH App Connector 1.0.0.4–1.0.0.6)
 
 Approved with auto-post rules R2, R3 and R7 (10/20/2026) and Gate 4 (10/21/2026). Auto-posting itself stays off until the sandbox test below passes and `ledger_connections.auto_post_enabled` is set; the deployed `autopost-post` job is also off (`autoPostJobEnabled = false` in the Bicep parameters).
 
@@ -178,6 +178,8 @@ Approved with auto-post rules R2, R3 and R7 (10/20/2026) and Gate 4 (10/21/2026)
 4. Only after AP passes: set `auto_post_enabled` for the household and turn on the `autopost-post` job (`autoPostJobEnabled = true`), each recorded in the Review Log.
 
 **1.0.0.5 (10/22/2026):** the first AP run with 1.0.0.4 stopped at "TableData 50 Accounting Period Read" when the API posted AUTOPOST, so Accounting Period, Source Code Setup, Cost Accounting Setup and Currency are now direct reads in HH-APP. That run left its four transfer pairs as drafts in HHAPP/AUTOPOST; the next AP run posts the whole batch, those eight $1 lines included (they net to zero on 115101 and 115201).
+
+**1.0.0.6 (10/22/2026):** the second AP run stopped at "TableData 325 VAT Posting Setup (Tax Posting Setup) Read". Microsoft's symbol packages carry no AL source to trace the remaining reads, so every posting-setup and tax-setup table a G/L or bank line can touch became a direct read at once (VAT and general posting setups and groups, VAT setup and return periods, US tax area, group, detail and jurisdiction, currency exchange rates, IC setup). All configuration; no amounts or personal data.
 
 If the first posting reports another missing permission (for example on API Webhook Notification while a subscription exists), that table goes on `HH-APP-SYS` as Read Indirect or, if it needs insert, is proposed for approval first; nothing is added to the card without Cade's approval.
 
