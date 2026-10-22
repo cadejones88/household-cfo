@@ -1,0 +1,6 @@
+# Microsoft_Application_27.5.46862.47359.app: 0 .al files
+# Microsoft_Base Application_27.5.46862.47359.app: 0 .al files
+# Microsoft_Business Foundation_27.5.46862.47359.app: 0 .al files
+# Microsoft_System Application_27.5.46862.47359.app: 0 .al files
+# Microsoft__Exclude_APIV2__27.5.46862.47359.app: 0 .al files
+# System.app: 0 .al files
