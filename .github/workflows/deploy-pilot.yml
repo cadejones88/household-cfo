@@ -1,0 +1,26 @@
+# Deploys the pilot (Phase 5: real read-only bank feeds through Plaid's Trial plan, the BC sandbox ledger, the
+# one-month parallel run) from a tag, never from a push: `git tag pilot-YYYYMMDD-N && git push origin <tag>`, or
+# Actions -> Deploy pilot -> Run workflow on a tag. Same steps as dev (deploy.yml) with infra/main.pilot.bicepparam.
+# Needs, once: the repository variable PILOT_DEPLOY_ENABLED = "true", the GitHub environment `pilot`, and a federated
+# credential whose subject ends `:environment:pilot` (docs/runbook-azure-setup.md, "Pilot environment").
+
+name: Deploy pilot
+on:
+  push:
+    tags: ["pilot-*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-pilot
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: vars.PILOT_DEPLOY_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/pilot-')
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: pilot

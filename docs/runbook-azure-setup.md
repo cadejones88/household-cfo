@@ -227,6 +227,17 @@ For TestFlight (phase 5) and the App Store later. Organization enrollment, not i
 - Cost Management shows the `homestead-monthly` budget.
 - `node scripts/secrets-scan.mjs` in the repo is clean (CI runs it too).
 
+## 13. Pilot environment (Phase 5)
+
+The pilot is its own environment (`rg-homestead-pilot`): real read-only feeds through Plaid's Trial plan, the same BC sandbox ledger, geo-redundant file storage, no synthetic data. It is built by the same steps as dev (`.github/workflows/deploy.yml`) but only from a tag, never from a push to `main`.
+
+1. Firm tenant → `homestead-github-deploy` → Federated credentials → add a second **Other issuer** credential: subject `repo:cadejones88@212395518/household-cfo@1426547300:environment:pilot`, name `github-pilot-immutable`, audience `api://AzureADTokenExchange`.
+2. GitHub → Settings → Environments → **New environment** `pilot`.
+3. GitHub variable `PILOT_DEPLOY_ENABLED` = `true`.
+4. Tag and push: `git tag pilot-20261101-1 && git push origin pilot-20261101-1` (or Actions → Deploy pilot → Run workflow, choosing the tag). The run prints the pilot's API and Console URLs.
+5. Repeat steps 8.3–8.4 and 9 for the pilot: generate `bc-sandbox-client-cert` in the **pilot** vault and upload its CER to the same BC registration; load `plaid-production-secret` (not the sandbox one) once Plaid approves production access; run the migrations and grant the two identities their role on `psql-homestead-pilot`; add the pilot Console URL to `homestead-console`'s redirect URIs; link your and Vanessa's sign-ins (9b).
+6. The phone app's pilot build points at the pilot API (`EXPO_PUBLIC_API_URL`), not dev.
+
 ## Open items for Cade
 
 1. ~~External tenant name~~: `homesteadfamily` (10/21/2026).
