@@ -114,7 +114,7 @@ src/
   shims/node-crypto.ts      SHA-256 for the browser
   styles/app.css            tokens from prototype/homestead.html (light and dark)
 public/health.json          written by the nightly acceptance job
-staticwebapp.config.json    SPA fallback and security headers for Azure Static Web Apps (CSP: scripts and styles
+public/staticwebapp.config.json    SPA fallback and security headers for Azure Static Web Apps (CSP: scripts and styles
                             from the site only; connect-src is the API's *.azurecontainerapps.io host and the
                             sign-in hosts — add the API's host there if it moves to a custom domain)
 e2e/, playwright.config.ts  smoke test in mock mode

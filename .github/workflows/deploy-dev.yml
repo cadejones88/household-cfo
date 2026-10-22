@@ -162,9 +162,9 @@ jobs:
           azure_static_web_apps_api_token: ${{ steps.swa.outputs.token }}
           action: upload
           skip_app_build: true
-          skip_api_build: true
+          # staticwebapp.config.json (SPA fallback, security headers) ships inside dist from apps/console/public;
+          # this action version has no config_file_location input and silently ignored it on the first deploy.
           app_location: apps/console/dist
-          config_file_location: apps/console
 
       - name: Prune old images (keep the last 10 tags)
         env:
