@@ -76,7 +76,7 @@ export default async function accountsRoutes(app: FastifyInstance): Promise<void
   app.post("/accounts/feeds/:id/unlink", async (req) => {
     requireStepUp(req);
     const { id } = parse(z.object({ id: z.string().uuid() }), req.params);
-    await inHousehold(req, (db, p) => unlinkItem(db, p.householdId, p.memberId, id, app.deps.secrets));
+    await inHousehold(req, (db, p) => unlinkItem(db, p.householdId, p.memberId, id, app.deps.secrets, app.deps.plaid));
     return { ok: true };
   });
 

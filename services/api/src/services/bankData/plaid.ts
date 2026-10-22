@@ -18,6 +18,8 @@
  *      (https://plaid.com/docs/api/products/balance/#accountsbalanceget)
  *  - POST /liabilities/get { access_token } -> { liabilities: { credit[], mortgage[], student[] } }  (https://plaid.com/docs/api/products/liabilities/#liabilitiesget)
  *  - POST /institutions/search { query, products, country_codes } -> { institutions[] }  (https://plaid.com/docs/api/institutions/#institutionssearch)
+ *  - POST /item/remove { access_token, reason_code? } -> { request_id }: the token stops working, and for Transactions
+ *      and Liabilities it is the only way to end the Item's subscription billing (https://plaid.com/docs/api/items/#itemremove)
  *  - Errors: { error_type, error_code, error_message }; ITEM_LOGIN_REQUIRED is error_code "ITEM_LOGIN_REQUIRED" of type ITEM_ERROR.
  *      (https://plaid.com/docs/errors/item/#item_login_required)
  *  - Webhooks: TRANSACTIONS / SYNC_UPDATES_AVAILABLE { item_id }, ITEM / ERROR { item_id, error }; verification by the
@@ -96,6 +98,8 @@ export interface PlaidPort {
   balanceGet(accessToken: string): Promise<PlaidAccountBalance[]>;
   liabilitiesGet(accessToken: string): Promise<PlaidLiability[]>;
   institutionsSearch(query: string): Promise<PlaidInstitution[]>;
+  /** Ends Plaid's access to the Item; the access token is useless afterwards. */
+  removeItem(accessToken: string): Promise<void>;
 }
 
 export class PlaidClient implements PlaidPort {
@@ -165,6 +169,9 @@ export class PlaidClient implements PlaidPort {
     const j = await this.call<{ institutions: PlaidInstitution[] }>("/institutions/search", { query, products: ["transactions"], country_codes: ["US"], options: { include_optional_metadata: false } });
     return j.institutions;
   }
+  async removeItem(accessToken: string): Promise<void> {
+    await this.call<{ request_id: string }>("/item/remove", { access_token: accessToken });
+  }
 }
 
 /** Scripted fake: pages of sync results per access token, balances, and an error to throw on the next sync. */
@@ -212,6 +219,11 @@ export class FakePlaid implements PlaidPort {
     this.calls.push("liabilities");
     return this.liabilities.get(accessToken) ?? [];
   }
+  readonly removed: string[] = [];
+  async removeItem(accessToken: string): Promise<void> {
+    this.calls.push("remove");
+    this.removed.push(accessToken);
+  }
   async institutionsSearch(query: string): Promise<PlaidInstitution[]> {
     this.calls.push(`institutions:${query}`);
     return this.institutions.filter((i) => i.name.toLowerCase().includes(query.toLowerCase()));
@@ -245,15 +257,33 @@ export async function linkItem(db: Queryable, householdId: string, memberId: str
   return { feedConnectionId: id, itemId };
 }
 
-/** Only the login's owner may remove it (authority matrix). The token is deleted from the vault. */
-export async function unlinkItem(db: Queryable, householdId: string, memberId: string, feedConnectionId: string, secrets: SecretStore): Promise<void> {
+/**
+ * Only the login's owner may remove it (authority matrix). Plaid is told first (/item/remove ends its access and
+ * the Item's billing), then the token is deleted from the vault. Already-imported transactions stay: they are the
+ * household's records under the retention schedule. An Item Plaid no longer knows (the person revoked it at
+ * my.plaid.com) is still unlinked here.
+ */
+export async function unlinkItem(db: Queryable, householdId: string, memberId: string, feedConnectionId: string, secrets: SecretStore, plaid: PlaidPort): Promise<void> {
   const r = await db.query<{ owner_member_id: string; plaid_item_ref: string | null }>("select owner_member_id, plaid_item_ref from feed_connections where id = $1 and household_id = $2", [feedConnectionId, householdId]);
   const row = r.rows[0];
   if (!row) throw notFound("connection");
   if (row.owner_member_id !== memberId) throw badRequest("owner_only", "Only the person who connected this login can remove it");
-  if (row.plaid_item_ref) await secrets.delete(row.plaid_item_ref);
+  let plaidRemoved: "removed" | "already_gone" | "no_token" = "no_token";
+  if (row.plaid_item_ref) {
+    const token = await secrets.get(row.plaid_item_ref);
+    if (token) {
+      try {
+        await plaid.removeItem(token);
+        plaidRemoved = "removed";
+      } catch (e) {
+        if (!(e instanceof PlaidError && ["ITEM_NOT_FOUND", "INVALID_ACCESS_TOKEN"].includes(e.errorCode))) throw e;
+        plaidRemoved = "already_gone";
+      }
+    }
+    await secrets.delete(row.plaid_item_ref);
+  }
   await db.query("update feed_connections set status = 'disabled', plaid_item_ref = null, cursor = null where id = $1", [feedConnectionId]);
-  await audit(db, householdId, { actor: memberId, action: "feed.unlinked", entity: "feed_connection", entityId: feedConnectionId });
+  await audit(db, householdId, { actor: memberId, action: "feed.unlinked", entity: "feed_connection", entityId: feedConnectionId, after: { plaid: plaidRemoved } });
 }
 
 // Sync ------------------------------------------------------------------------------------------------------

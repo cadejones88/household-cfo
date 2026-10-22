@@ -3,10 +3,10 @@
  * name and the Item ID); /transactions/sync pages apply in order with the cursor stored after each; a pending line is
  * replaced when the settled one arrives; a removed pending line is dropped; a removed posted line becomes an
  * exception for Cade; ITEM_LOGIN_REQUIRED marks the login for re-link and tells only its owner; balances carry
- * their timestamp.
+ * their timestamp; unlinking tells Plaid (/item/remove) before the vaulted token is deleted, and keeps the imported lines.
  */
 import { afterAll, beforeAll, expect, it } from "vitest";
-import { FakePlaid, PlaidError, attachPlaidAccount, linkItem, listFeeds, refreshBalances, syncFeed } from "../src/services/bankData/plaid.js";
+import { FakePlaid, PlaidError, attachPlaidAccount, linkItem, listFeeds, refreshBalances, syncFeed, unlinkItem } from "../src/services/bankData/plaid.js";
 import { InMemorySecretStore } from "../src/services/ports.js";
 import { listQuestions } from "../src/services/questions.js";
 import type { SeedResult } from "../src/db/seed.js";
@@ -82,6 +82,34 @@ describeDb("Plaid sync", () => {
       const a = await db.query<{ member_id: string; level: string; payload: { title: string } }>("select member_id, level, payload from alerts where household_id = $1 and kind = 'needs_relink'", [hh.householdId]);
       expect(a.rows).toEqual([{ member_id: hh.members.vanessa, level: "watch", payload: expect.objectContaining({ title: "Beehive FCU needs a fresh sign-in" }) }]);
       expect(await count(db, "select 1 from feed_connections where id = $1 and cursor = 'c3'", [feedId])).toBe(1);
+    });
+  });
+
+  it("unlinking: only the owner; Plaid's /item/remove first, then the vaulted token is deleted; imported lines stay", async () => {
+    const ref = (await inHh(hh, async (db) => (await listFeeds(db, hh.householdId))[0]!)).plaid_item_ref!;
+    await expect(inHh(hh, (db) => unlinkItem(db, hh.householdId, hh.members.cade, feedId, secrets, plaid))).rejects.toThrow(/Only the person who connected/);
+    expect(plaid.removed).toEqual([]);
+    await inHh(hh, (db) => unlinkItem(db, hh.householdId, hh.members.vanessa, feedId, secrets, plaid));
+    expect(plaid.removed).toEqual([token]);
+    expect(await secrets.get(ref)).toBeUndefined();
+    await inHh(hh, async (db) => {
+      expect(await count(db, "select 1 from feed_connections where id = $1 and status = 'disabled' and plaid_item_ref is null and cursor is null", [feedId])).toBe(1);
+      expect(await count(db, "select 1 from transactions where household_id = $1", [hh.householdId])).toBeGreaterThan(0);
+      expect(await count(db, "select 1 from audit_log where household_id = $1 and action = 'feed.unlinked' and after->>'plaid' = 'removed'", [hh.householdId])).toBe(1);
+    });
+  });
+
+  it("unlinking a login the person already revoked at my.plaid.com still deletes the token", async () => {
+    const l = await inHh(hh, (db) => linkItem(db, hh.householdId, hh.members.cade, plaid, secrets, { publicToken: "public-capone", institutionId: "ins_capone", institutionName: "Capital One" }));
+    const ref = (await inHh(hh, (db) => db.query<{ plaid_item_ref: string }>("select plaid_item_ref from feed_connections where id = $1", [l.feedConnectionId]))).rows[0]!.plaid_item_ref;
+    expect(await secrets.get(ref)).toBeDefined();
+    const gone = new FakePlaid();
+    gone.removeItem = async () => { throw new PlaidError("INVALID_INPUT", "ITEM_NOT_FOUND", "gone", 400); };
+    await inHh(hh, (db) => unlinkItem(db, hh.householdId, hh.members.cade, l.feedConnectionId, secrets, gone));
+    expect(await secrets.get(ref)).toBeUndefined();
+    await inHh(hh, async (db) => {
+      expect(await count(db, "select 1 from feed_connections where id = $1 and status = 'disabled' and plaid_item_ref is null", [l.feedConnectionId])).toBe(1);
+      expect(await count(db, "select 1 from audit_log where household_id = $1 and action = 'feed.unlinked' and after->>'plaid' = 'already_gone'", [hh.householdId])).toBe(1);
     });
   });
 });
