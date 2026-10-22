@@ -90,8 +90,14 @@ permissionset 72100 "HH-APP"
         tabledata "Check Ledger Entry" = ri,
         tabledata "Posted Gen. Journal Batch" = ri, // only if a batch has "Copy to Posted Jnl. Lines" on
         tabledata "Posted Gen. Journal Line" = ri,
-        tabledata "Accounting Period" = r,
-        tabledata "Source Code Setup" = r,
+        // Direct read since 1.0.0.5: the first API posting (sandbox run 10/22/2026) was refused with "TableData 50
+        // Accounting Period Read", so the base-app code that checks the posting date reads it without its own
+        // Permissions property. The other read-only setup tables a G/L and bank posting consults are made direct with
+        // it, so one refusal does not cost one more install: none holds amounts or personal data.
+        tabledata "Accounting Period" = R,
+        tabledata "Source Code Setup" = R,
+        tabledata "Cost Accounting Setup" = R,
+        tabledata Currency = R,
         // Analysis views with Update on Posting on (HH-SPEND) are brought up to date by the posting (codeunit 410)
         tabledata "Analysis View" = rm,
         tabledata "Analysis View Filter" = r,

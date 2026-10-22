@@ -166,7 +166,7 @@ Done in the sandbox October 21, 2026.
 
 ---
 
-## 6b — Posting right for HHAPP/AUTOPOST (HH App Connector 1.0.0.4)
+## 6b — Posting right for HHAPP/AUTOPOST (HH App Connector 1.0.0.4, 1.0.0.5)
 
 Approved with auto-post rules R2, R3 and R7 (10/20/2026) and Gate 4 (10/21/2026). Auto-posting itself stays off until the sandbox test below passes and `ledger_connections.auto_post_enabled` is set; the deployed `autopost-post` job is also off (`autoPostJobEnabled = false` in the Bicep parameters).
 
@@ -176,6 +176,8 @@ Approved with auto-post rules R2, R3 and R7 (10/20/2026) and Gate 4 (10/21/2026)
 2. **No security filter on the user card.** The original plan here was a `Gen. Journal Batch` security filter. It does not work: an AL permission set carries no security filters, and a filter on a user-defined set does not narrow a right another assigned set grants without one. The guard enforces the one-batch limit instead, inside BC.
 3. Run the sandbox acceptance workflow by hand with `autopost_check` ticked and `wait_minutes` set (Actions → CI → Run workflow). Test **AP** approves R2/R3, routes four $1 transfer pairs to AUTOPOST, posts them with the app's token, checks the eight G/L entries (batch AUTOPOST, source code HHAUTO, reason code AUTOPOST, 115101 and 115201 net to zero), and checks that the app's attempt to post FEEDS is refused by the guard. The FEEDS line it leaves is then posted by Cade (the guided step).
 4. Only after AP passes: set `auto_post_enabled` for the household and turn on the `autopost-post` job (`autoPostJobEnabled = true`), each recorded in the Review Log.
+
+**1.0.0.5 (10/22/2026):** the first AP run with 1.0.0.4 stopped at "TableData 50 Accounting Period Read" when the API posted AUTOPOST, so Accounting Period, Source Code Setup, Cost Accounting Setup and Currency are now direct reads in HH-APP. That run left its four transfer pairs as drafts in HHAPP/AUTOPOST; the next AP run posts the whole batch, those eight $1 lines included (they net to zero on 115101 and 115201).
 
 If the first posting reports another missing permission (for example on API Webhook Notification while a subscription exists), that table goes on `HH-APP-SYS` as Read Indirect or, if it needs insert, is proposed for approval first; nothing is added to the card without Cade's approval.
 
