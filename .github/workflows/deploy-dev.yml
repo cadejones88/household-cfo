@@ -183,3 +183,5 @@ jobs:
             echo "- Console: ${{ steps.infra2.outputs.consoleUrl }}"
             echo "- Image: ${{ steps.image.outputs.image }}"
           } >> "$GITHUB_STEP_SUMMARY"
+          # Also as an annotation, which the REST API returns (the step summary it does not). URLs are not secrets.
+          echo "::notice title=Homestead dev::API ${{ steps.infra2.outputs.apiUrl }} | Console ${{ steps.infra2.outputs.consoleUrl }}"
