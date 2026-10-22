@@ -25,7 +25,13 @@ create policy lookup_read on members for select to homestead_lookup using (true)
 create policy lookup_read on feed_connections for select to homestead_lookup using (true);
 create policy lookup_read on bc_webhook_subscriptions for select to homestead_lookup using (true);
 
+-- A new owner needs CREATE on the function's schema at the moment of the change (PostgreSQL 15+ no longer grants
+-- CREATE on public to everyone). Grant it for the four statements and take it back: ownership stays, and the role
+-- can create nothing afterwards. (A superuser migrator never hit this, which is why it surfaced only on Azure-like
+-- runs; this migration had not been applied in any Azure environment when the fix went in, 10/22/2026.)
+grant create on schema public to homestead_lookup;
 alter function members_lookup_fn(uuid, text) owner to homestead_lookup;
 alter function household_ids_fn() owner to homestead_lookup;
 alter function plaid_feed_lookup_fn(text) owner to homestead_lookup;
 alter function bc_subscription_lookup_fn(text) owner to homestead_lookup;
+revoke create on schema public from homestead_lookup;

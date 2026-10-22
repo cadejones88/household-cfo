@@ -2,7 +2,9 @@
 -- row-level security; the API sets `app.household_id` per request and the jobs set it per household.
 -- Money is integer cents. Timestamps are timestamptz. The audit log is insert-only at the role level.
 
-create extension if not exists pgcrypto;
+-- No extensions: gen_random_uuid() is built into PostgreSQL 13 and later. (pgcrypto was listed here and is not
+-- allow-listed on Azure Database for PostgreSQL by default; nothing used it. Removed 10/22/2026 before the first
+-- successful Azure run, so no environment has applied the old text.)
 
 -- Roles -------------------------------------------------------------------------------------------
 -- homestead_app: the API and jobs. Subject to RLS. Cannot update or delete audit_log.
