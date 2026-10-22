@@ -1,0 +1,39 @@
+name: BC source trace
+# Searches the AL source shipped in Microsoft's public symbol packages and commits the matches to the bc-trace branch,
+# so a permission question can be answered from Microsoft's code instead of one sandbox refusal at a time. Reads only
+# public packages; touches no BC environment.
+on:
+  workflow_dispatch:
+    inputs:
+      paths:
+        description: "Regex on the .al file paths to search (e.g. GenJnlPostLine|GenJnlCheckLine)"
+        required: true
+      lines:
+        description: "Regex on lines to keep, or * for whole files"
+        required: true
+        default: "*"
+permissions:
+  contents: write
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch symbols from Microsoft's public feed
+        run: python3 scripts/al/fetch-symbols.py bc/hh-app-connector
+      - name: Search
+        env:
+          PATHS: ${{ inputs.paths }}
+          LINES: ${{ inputs.lines }}
+        run: python3 scripts/al/trace-source.py bc/hh-app-connector/.alpackages "$PATHS" "$LINES" "$RUNNER_TEMP/trace.txt"
+      - name: Commit to bc-trace
+        env:
+          RUN: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP" && rm -rf out && mkdir out && cd out
+          git init -q -b bc-trace
+          cp "$RUNNER_TEMP/trace.txt" trace.txt
+          git add trace.txt
+          git -c user.name=bc-trace -c user.email=bc-trace@users.noreply.github.com commit -qm "BC source trace (run $RUN)"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" bc-trace
