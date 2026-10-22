@@ -36,11 +36,12 @@ The firm has no Azure subscription today. Create one under **Cade T. Jones CPA, 
 The deploy workflow signs in to Azure with a short-lived token from GitHub; nothing is stored.
 
 1. Entra admin center (firm tenant) → App registrations → New: `homestead-github-deploy`, single tenant, no redirect URI.
-2. Certificates & secrets → **Federated credentials** → Add → GitHub Actions deploying Azure resources:
-   - Organization `cadejones88`, repository `household-cfo`
-   - Entity **Branch** `main` → subject `repo:cadejones88/household-cfo:ref:refs/heads/main`
-   - Add a second one, entity **Environment** `dev` → subject `repo:cadejones88/household-cfo:environment:dev` (the workflow runs in the `dev` environment)
+2. Certificates & secrets → **Federated credentials** → Add → scenario **Other issuer** (not the GitHub Actions template, which builds the old name-based subject):
+   - Issuer `https://token.actions.githubusercontent.com`
+   - Subject identifier `repo:cadejones88@212395518/household-cfo@1426547300:environment:dev` (the workflow runs in the `dev` environment; a second credential ending `:environment:pilot` comes with the pilot deploy)
    - Audience `api://AzureADTokenExchange`
+
+   The repository was created after July 15, 2026, so GitHub sends **immutable subjects** that carry the owner and repository ids (`212395518`, `1426547300`), not the name-based `repo:cadejones88/household-cfo:…`. A credential with the old form fails with AADSTS700213, which is what the first deploy hit on 10/21/2026 ([Microsoft: immutable subjects](https://learn.microsoft.com/en-us/entra/workload-id/workload-identities-github-immutable-subjects)).
 3. Role assignments on the subscription (Subscriptions → Homestead → Access control):
    - **Contributor** — creates every resource
    - **Role Based Access Control Administrator** — the templates assign roles to the managed identities; constrain it to the roles in `infra/modules/rbac.bicep` if you like (Key Vault Secrets User/Officer, Key Vault Crypto User/Officer, Storage Blob Data Contributor, Azure Service Bus Data Sender/Owner, AcrPull, Monitoring Metrics Publisher, Cognitive Services User)
