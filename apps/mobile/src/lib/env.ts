@@ -72,10 +72,10 @@ export function devMembers(): { name: string; id: string }[] {
 }
 
 /**
- * Entra External ID issuer for OpenID discovery. With the custom URL domain (homestead.cadejonescpa.com) the
- * authority is https://<domain>/<tenant id>/v2.0; without it, https://<tenant>.ciamlogin.com/<tenant>.onmicrosoft.com/v2.0.
- * Passkeys bind to the custom domain, which is why it must be configured before the first passkey is registered
- * (Phase 3 spec, decision 2; https://learn.microsoft.com/en-us/entra/external-id/customers/how-to-sign-in-with-passkey).
+ * Entra External ID base for OpenID discovery: https://<tenant>.ciamlogin.com/<tenant id>/v2.0 through the pilot
+ * (custom domain skipped 10/21/2026), https://<custom domain>/<tenant id>/v2.0 once the domain exists. Passkeys bind to
+ * the custom domain, which is why they wait for it
+ * (https://learn.microsoft.com/en-us/entra/external-id/customers/how-to-sign-in-with-passkey).
  */
 export function entraIssuer(): string {
   const base = env.entraCustomDomain ? `https://${env.entraCustomDomain}` : `https://${env.entraTenantName}.ciamlogin.com`;

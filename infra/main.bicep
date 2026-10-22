@@ -45,9 +45,10 @@ param plaidClientId string = ''
 @description('Key Vault secret name holding the Plaid secret for this environment')
 param plaidSecretName string = 'plaid-sandbox-secret'
 
-@description('Entra External ID: tenant id, custom domain, and the API app registration client id (audience)')
+@description('Entra External ID: tenant id, the sign-in host, and the API app registration client id (audience)')
 param entraTenantId string = ''
-param entraTenantDomain string = 'homestead.cadejonescpa.com'
+@description('Where the family signs in: homesteadfamily.ciamlogin.com through the pilot (decided 10/21/2026); the custom URL domain later')
+param entraSignInHost string = 'homesteadfamily.ciamlogin.com'
 param entraApiAudience string = ''
 
 @description('Foundry endpoint and model deployment name for Ask Homestead and receipt line mapping; created by hand')
@@ -199,9 +200,12 @@ var commonEnv = [
   { name: 'PG_AUTH', value: 'entra' } // PGUSER and AZURE_CLIENT_ID are set per role in container-apps.bicep
   // Entra External ID
   { name: 'ENTRA_TENANT_ID', value: entraTenantId }
-  { name: 'ENTRA_TENANT_DOMAIN', value: entraTenantDomain }
+  { name: 'ENTRA_SIGN_IN_HOST', value: entraSignInHost }
   { name: 'ENTRA_API_AUDIENCE', value: entraApiAudience }
-  { name: 'ENTRA_ISSUER', value: empty(entraTenantId) ? '' : 'https://${entraTenantDomain}/${entraTenantId}/v2.0' }
+  // External ID tokens name the tenant-id host as issuer whichever host signed the user in (the tenant's discovery
+  // document, checked 10/21/2026). Re-check it when the custom URL domain is added. The keys come from the sign-in host.
+  { name: 'ENTRA_ISSUER', value: empty(entraTenantId) ? '' : 'https://${entraTenantId}.ciamlogin.com/${entraTenantId}/v2.0' }
+  { name: 'ENTRA_JWKS_URI', value: empty(entraTenantId) ? '' : 'https://${entraSignInHost}/${entraTenantId}/discovery/v2.0/keys' }
   // Business Central (certificate by Key Vault name)
   { name: 'BC_TENANT_ID', value: bcTenantId }
   { name: 'BC_ENVIRONMENT', value: bcEnvironment }

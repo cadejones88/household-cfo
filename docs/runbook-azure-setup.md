@@ -48,14 +48,15 @@ The deploy workflow signs in to Azure with a short-lived token from GitHub; noth
 
 **Produces:** the app registration's client id → GitHub variable `AZURE_CLIENT_ID`. No secret.
 
-## 3. Entra External ID tenant (decision 2; "homesteadfamily" to confirm)
+## 3. Entra External ID tenant (decision 2; `homesteadfamily`, created 10/21/2026)
 
 A separate *external* tenant for the family's sign-in, owned by the firm. Free under 50,000 monthly users.
 
 1. Entra admin center → Overview → Manage tenants → Create → **External** → name `Homestead family`, domain `homesteadfamily` (gives `homesteadfamily.onmicrosoft.com` and the sign-in host `homesteadfamily.ciamlogin.com`), country United States, under the Homestead subscription.
-2. Switch to the new tenant. External Identities → User flows → New: `HomesteadSignIn`, identity provider Email with password, **MFA required** (email one-time passcode is fine for sign-up; Authenticator TOTP for day to day), attributes: display name only. Do not collect anything else.
-3. Authentication methods → enable **Passkey (FIDO2)** for the whole tenant. Passkeys are registered through the system browser on the sign-in domain, which is why the domain (step 4) is decided *before* the first passkey.
-4. Create the two users (Users → New → Create external user) with your and Vanessa's email addresses, or let them sign up through the flow on first use.
+2. Switch to the new tenant. External Identities → User flows → New: `HomesteadSignIn`, identity provider **Email with password**, attributes: display name only. Do not collect anything else. Then the flow → Applications → add `homestead-phone` and `homestead-console`.
+3. **MFA.** Authentication methods → Policies → **Email OTP** → Enable, All users. Conditional Access → New policy `Homestead MFA`: Users **All users**; Target resources → Select resources → **`homestead-api`**; Grant → **Require multifactor authentication**; On. Conditional Access cannot target a public client such as `homestead-phone`, only the resource it asks for; both apps ask for the API at every sign-in (the phone refuses to build without the API scope), so the policy covers both, and the admin's own portal sign-in is untouched. External ID's second factors are an email code, a text message (paid add-on) or a passkey; there is **no authenticator app** option in an external tenant.
+4. **Passkeys: after the pilot** (decided 10/21/2026). External ID passkeys need the custom URL domain (step 4), and Microsoft provides no registration screen in an external tenant: the app needs its own, built on Microsoft Graph's FIDO2 methods (backlog item). Through the pilot each spouse signs in with email and password plus the email code, and the phone locks with Face ID.
+5. No users to create by hand: you and Vanessa sign up through the flow the first time you open the app or the Console, and the API admits only the two member rows linked to your object ids (step 9b).
 
 **Produces:** External tenant id → GitHub variable `HOMESTEAD_ENTRA_TENANT_ID`.
 
@@ -76,9 +77,11 @@ Authority strings for the clients (variables, not secrets):
 - `HOMESTEAD_ENTRA_AUTHORITY` = `https://homesteadfamily.ciamlogin.com/<external tenant id>/` (or `https://homestead.cadejonescpa.com/<external tenant id>/` once step 4 is done)
 - `HOMESTEAD_ENTRA_KNOWN_AUTHORITY` = `homesteadfamily.ciamlogin.com` (or `homestead.cadejonescpa.com`)
 
-The API validates tokens against `ENTRA_ISSUER` = `https://<domain>/<external tenant id>/v2.0`, which `infra/main.bicep` derives from the same two values.
+The API validates tokens against `ENTRA_ISSUER` = `https://<external tenant id>.ciamlogin.com/<external tenant id>/v2.0`, which is what External ID writes into every token whichever host the user signed in on, and reads the signing keys from `ENTRA_JWKS_URI` = `https://<sign-in host>/<external tenant id>/discovery/v2.0/keys`. Both come from the tenant's discovery document (checked 10/21/2026) and `infra/main.bicep` derives them from the tenant id and `entraSignInHost`. Re-check the issuer when the custom domain is added.
 
 ## 4. Custom sign-in domain `homestead.cadejonescpa.com` (decision 2)
+
+**Decided 10/21/2026: Option B.** The pilot signs in on `homesteadfamily.ciamlogin.com`; the custom domain and passkeys come together before production.
 
 External ID custom URL domains are served through **Azure Front Door**: Microsoft requires a Front Door profile in front of the tenant's sign-in endpoint. Front Door Standard carries a base charge of roughly **$35 a month** plus a small amount of traffic, which is about the size of the whole rest of the bill (spec: $30–55 a month). That is a decision, not a step:
 
@@ -178,6 +181,18 @@ psql "host=$H dbname=homestead user=$ME sslmode=require" -c 'grant homestead_app
 unset PGPASSWORD
 ```
 
+### 9b. Link your sign-ins to the household
+
+The API admits a signed-in person only when a member row carries their object id. After you and Vanessa have each signed up once (step 3.5), read your object ids in the family tenant (Entra ID → Users → your name → Object ID; ids are not secrets) and, with the same token as above:
+
+```sh
+psql "host=$H dbname=homestead user=$ME sslmode=require" \
+  -c "update members set entra_object_id = '<Cade object id>' where display_name = 'Cade';" \
+  -c "update members set entra_object_id = '<Vanessa object id>' where display_name = 'Vanessa';"
+```
+
+Until a row is linked, that person gets "not signed in" from every screen, which is the intended behavior for anyone else who signs up through the flow.
+
 Remove the firewall rule afterwards if you prefer (`az postgres flexible-server firewall-rule delete`).
 
 The API signs in to Postgres with its managed identity (no password; `PGHOST`, `PGUSER`, `PGDATABASE` set by the templates), and the jobs list households through a security-definer function owned by a non-superuser role (migrations 0006–0007).
@@ -213,7 +228,7 @@ For TestFlight (phase 5) and the App Store later. Organization enrollment, not i
 
 ## Open items for Cade
 
-1. External tenant name `homesteadfamily` (spec: "name to confirm").
-2. Custom sign-in domain now (Front Door, about +$35/month) or after the pilot (step 4).
+1. ~~External tenant name~~: `homesteadfamily` (10/21/2026).
+2. ~~Custom sign-in domain~~: after the pilot (10/21/2026, step 4).
 3. The container registry adds about $5/month over the spec's cost table (`infra/README.md`); alternative is a GitHub-hosted image with a stored pull credential, which the spec's "no stored cloud secrets" rule argues against.
 4. Document Intelligence tier for the pilot: F0 (500 free pages, may throttle) or S0 (pay per page).

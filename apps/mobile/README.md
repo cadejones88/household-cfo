@@ -101,7 +101,7 @@ Everything is read at build time from `EXPO_PUBLIC_*` variables, each as a liter
 | `EXPO_PUBLIC_ENTRA_TENANT_ID` | Tenant GUID, used in the issuer path when set |
 | `EXPO_PUBLIC_ENTRA_CUSTOM_DOMAIN` | `homestead.cadejonescpa.com` (passkeys bind to it); when set the issuer is `https://<domain>/<tenant id>/v2.0` |
 | `EXPO_PUBLIC_ENTRA_CLIENT_ID` | The phone app registration (public client, PKCE); redirect `homestead://auth` |
-| `EXPO_PUBLIC_ENTRA_API_SCOPE` | `api://<api client id>/access_as_user` |
+| `EXPO_PUBLIC_ENTRA_API_SCOPE` | `api://<api client id>/Household.ReadWrite` |
 | `EXPO_PUBLIC_EAS_PROJECT_ID` | For Expo push tokens (or `app.json` `extra.eas.projectId`) |
 | `EXPO_PUBLIC_BOOKKEEPER_NAME` | Who fixes entries already in the books; default `Cade` |
 

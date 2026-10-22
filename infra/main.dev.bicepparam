@@ -27,7 +27,7 @@ param plaidSecretName = 'plaid-sandbox-secret'
 
 // Entra External ID (same tenant for every environment; separate app registrations are a later hardening step)
 param entraTenantId = readEnvironmentVariable('HOMESTEAD_ENTRA_TENANT_ID', '')
-param entraTenantDomain = 'homestead.cadejonescpa.com'
+param entraSignInHost = 'homesteadfamily.ciamlogin.com' // custom domain skipped for the pilot (10/21/2026)
 param entraApiAudience = readEnvironmentVariable('HOMESTEAD_ENTRA_API_AUDIENCE', '')
 
 param foundryEndpoint = readEnvironmentVariable('HOMESTEAD_FOUNDRY_ENDPOINT', '')

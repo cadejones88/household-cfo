@@ -22,7 +22,7 @@ param plaidClientId = readEnvironmentVariable('HOMESTEAD_PLAID_CLIENT_ID', '')
 param plaidSecretName = 'plaid-production-secret'
 
 param entraTenantId = readEnvironmentVariable('HOMESTEAD_ENTRA_TENANT_ID', '')
-param entraTenantDomain = 'homestead.cadejonescpa.com'
+param entraSignInHost = 'homesteadfamily.ciamlogin.com' // custom domain skipped for the pilot (10/21/2026)
 param entraApiAudience = readEnvironmentVariable('HOMESTEAD_ENTRA_API_AUDIENCE', '')
 
 param foundryEndpoint = readEnvironmentVariable('HOMESTEAD_FOUNDRY_ENDPOINT', '')

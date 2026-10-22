@@ -32,7 +32,8 @@ export const authPlugin = fp(async (app: FastifyInstance) => {
   const mode = process.env["AUTH_MODE"] ?? (process.env["NODE_ENV"] === "production" ? "entra" : "dev");
   const issuer = process.env["ENTRA_ISSUER"];
   const audience = process.env["ENTRA_API_AUDIENCE"];
-  const jwks = mode === "entra" && issuer ? createRemoteJWKSet(new URL(`${issuer.replace(/\/$/, "")}/discovery/v2.0/keys`)) : undefined;
+  const jwksUri = process.env["ENTRA_JWKS_URI"] || (issuer ? jwksUriFromIssuer(issuer) : undefined);
+  const jwks = mode === "entra" && jwksUri ? createRemoteJWKSet(new URL(jwksUri)) : undefined;
 
   app.decorateRequest("principal", undefined);
 
@@ -46,6 +47,14 @@ export const authPlugin = fp(async (app: FastifyInstance) => {
     req.principal = principal;
   });
 });
+
+/**
+ * External ID publishes its signing keys at `https://<host>/<tenant id>/discovery/v2.0/keys`, beside the issuer's
+ * `/v2.0`, not under it (the tenant's discovery document, checked 10/21/2026). Used when ENTRA_JWKS_URI is unset.
+ */
+export function jwksUriFromIssuer(issuer: string): string {
+  return `${issuer.replace(/\/+$/, "").replace(/\/v2\.0$/, "")}/discovery/v2.0/keys`;
+}
 
 async function devPrincipal(req: FastifyRequest): Promise<Principal | undefined> {
   const memberId = req.headers["x-dev-member"];
