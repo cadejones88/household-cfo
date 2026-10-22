@@ -2,14 +2,13 @@
 /// HH-APP: the one permission set assigned to the Homestead Entra application (Microsoft Entra Applications card in BC),
 /// matching the spec's rights: read on G/L Account, Dimension, Dimension Value, Bank Account, G/L Entry, G/L Budget
 /// Name, G/L Budget Entry, Bank Account Ledger Entry; insert, modify and delete on Gen. Journal Line; insert on
-/// G/L Budget Entry; the three connector pages; no posting codeunit.
+/// G/L Budget Entry; the connector pages; and, since 1.0.0.4, posting HHAPP/AUTOPOST.
 ///
-/// Posting: the set grants no insert (direct or indirect) on G/L Entry, G/L Register, Bank Account Ledger Entry or any
-/// other entry table, so the app cannot post even though object Execute is granted by wildcard (since 1.0.0.3; BC
-/// checks Execute on tables and codeunits the API pages use). The posting rights are added only when the first auto-post
-/// rules (R2, R3, R7) pass their sandbox test and Cade approves them in writing (spec: Decisions, question 4), and then
-/// the Microsoft.NAV.post action is called by the posting job for HHAPP/AUTOPOST only. Until then Cade posts FEEDS and
-/// RECEIPTS himself in BC or from the Console.
+/// Posting (1.0.0.4, BC change 6b, approved with auto-post rules R2, R3 and R7 and Gate 4 on 10/21/2026): the entry
+/// tables get indirect insert only (lowercase), so they can be written by the posting codeunits (12 Gen. Jnl.-Post Line,
+/// 13 Gen. Jnl.-Post Batch, 410 Update Analysis View) under their own Permissions property and by nothing else. Those
+/// rights cannot be limited to one batch in a permission set, so codeunit "HH Post Guard" refuses any posting from an
+/// API session other than HHAPP/AUTOPOST: FEEDS, RECEIPTS and every other journal stay Cade's to post in BC.
 ///
 /// AL permission sets cannot filter table rights by field value, so "Gen. Journal Line restricted to the HHAPP template"
 /// is enforced by the adapter (it only ever resolves batches of its configured template) and audited by the Change Log
@@ -31,6 +30,7 @@ permissionset 72100 "HH-APP"
         page "HH Journal Lines" = X,
         codeunit "HH Budget Name Check" = X,
         codeunit "HH AutoPost Defaults" = X,
+        codeunit "HH Post Guard" = X,
 
         // The standard API v2.0 pages the app calls (Microsoft's _Exclude_APIV2_ app). The entitlement for an
         // application holding API.ReadWrite.All allows these pages, but BC still requires Execute on each from the
@@ -74,15 +74,29 @@ permissionset 72100 "HH-APP"
 
         // Journals: drafts in the HHAPP batches (API v2.0 journals, journalLines)
         tabledata "Gen. Journal Template" = R,
-        tabledata "Gen. Journal Batch" = R,
+        tabledata "Gen. Journal Batch" = Rm, // m indirect: codeunit 13 declares rimd on the batch
         tabledata "Gen. Journal Line" = RIMD,
         tabledata "No. Series" = R,
         tabledata "No. Series Line" = RM,
         tabledata "Change Log Entry" = RI,
 
-        // Posted entries and reconciliation state (API v2.0 generalLedgerEntries, hhBankLedgerEntries)
-        tabledata "G/L Entry" = R,
-        tabledata "Bank Account Ledger Entry" = R,
+        // Posted entries and reconciliation state (API v2.0 generalLedgerEntries, hhBankLedgerEntries); since 1.0.0.4 the
+        // indirect insert the posting codeunits need for HHAPP/AUTOPOST (see "HH Post Guard")
+        tabledata "G/L Entry" = Ri,
+        tabledata "Bank Account Ledger Entry" = Ri,
+        tabledata "G/L Register" = Rim,
+        tabledata "G/L Entry - VAT Entry Link" = ri,
+        tabledata "VAT Entry" = ri,
+        tabledata "Check Ledger Entry" = ri,
+        tabledata "Posted Gen. Journal Batch" = ri, // only if a batch has "Copy to Posted Jnl. Lines" on
+        tabledata "Posted Gen. Journal Line" = ri,
+        tabledata "Accounting Period" = r,
+        tabledata "Source Code Setup" = r,
+        // Analysis views with Update on Posting on (HH-SPEND) are brought up to date by the posting (codeunit 410)
+        tabledata "Analysis View" = rm,
+        tabledata "Analysis View Filter" = r,
+        tabledata "Analysis View Entry" = rimd,
+        tabledata "Analysis View Budget Entry" = rimd,
         tabledata "Bank Account Statement" = R,
         tabledata "Bank Account Statement Line" = R,
 
