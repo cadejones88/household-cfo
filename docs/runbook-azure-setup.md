@@ -182,17 +182,32 @@ psql "host=$H dbname=homestead user=$ME sslmode=require" -c 'grant homestead_app
 unset PGPASSWORD
 ```
 
-### 9b. Link your sign-ins to the household
+### 9b. Create the household and link your sign-ins
 
-The API admits a signed-in person only when a member row carries their object id. After you and Vanessa have each signed up once (step 3.5), read your object ids in the family tenant (Entra ID → Users → your name → Object ID; ids are not secrets) and, with the same token as above:
+Every table forces row-level security, and in Azure the administrator is not a superuser, so plain SQL as the administrator sees no rows (an `update members …` would quietly change nothing). Two scripts handle it: the household's id is derived from its name and set before the first read.
 
-```sh
-psql "host=$H dbname=homestead user=$ME sslmode=require" \
-  -c "update members set entra_object_id = '<Cade object id>' where display_name = 'Cade';" \
-  -c "update members set entra_object_id = '<Vanessa object id>' where display_name = 'Vanessa';"
-```
+1. Create the household once (with the same `PGPASSWORD` token as above; the BC ids fill the Console's ledger panel):
 
-Until a row is linked, that person gets "not signed in" from every screen, which is the intended behavior for anyone else who signs up through the flow.
+   ```sh
+   BC_TENANT_ID=<firm tenant id> BC_COMPANY_ID=<BC company id> \
+   DATABASE_URL="postgres://cade%40cadejonescpa.com@psql-homestead-dev.postgres.database.azure.com:5432/homestead" \
+     npx pnpm@10.28.0 --filter @homestead/shared build && \
+   BC_TENANT_ID=<firm tenant id> BC_COMPANY_ID=<BC company id> \
+   DATABASE_URL="postgres://cade%40cadejonescpa.com@psql-homestead-dev.postgres.database.azure.com:5432/homestead" \
+     npx pnpm@10.28.0 --filter @homestead/api db:seed
+   ```
+
+   dev gets the seed's synthetic starting data (accounts by mask, categories, sample budget marked as a sample).
+2. You and Vanessa each sign up once through the Console or the phone (step 3.5). Read each Object ID in the family tenant (Entra ID → Users → your name → Object ID; ids are not secrets), then:
+
+   ```sh
+   DATABASE_URL="postgres://cade%40cadejonescpa.com@psql-homestead-dev.postgres.database.azure.com:5432/homestead" \
+     npx pnpm@10.28.0 --filter @homestead/api db:link-member -- --member Cade --object-id <Cade's object id>
+   ```
+
+   and again with `--member Vanessa`. Each link is written to the audit log.
+
+Until a member is linked, that person gets "not signed in" from every screen, which is the intended behavior for anyone else who signs up through the flow.
 
 Remove the firewall rule afterwards if you prefer (`az postgres flexible-server firewall-rule delete`).
 

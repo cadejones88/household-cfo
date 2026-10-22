@@ -7,6 +7,7 @@
  * Synthetic data only: no real balances, no account numbers beyond the masks the family already uses.
  * Idempotent by household name. Run: DATABASE_URL=... pnpm --filter @homestead/api db:seed
  */
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import pg from "pg";
@@ -21,6 +22,8 @@ import { account as chartAccount } from "@homestead/shared";
 
 export interface SeedOptions {
   name?: string;
+  /** The household's Business Central connection as the deployed API sees it (ids only). Defaults to placeholders. */
+  ledger?: { tenantId: string; environment: string; companyId: string; certSecretRef: string };
   /** Prefix for the members' Entra object ids (unique per seeded household). */
   entraPrefix?: string;
   today?: string;
@@ -91,16 +94,41 @@ export const HFH_TEMPLATE = {
   lastSixNetCents: [313559, 313559, 312988, 314102, 313559, 313559],
 };
 
+/**
+ * A household's id, derived from its name (UUID version 5 in a Homestead namespace). Every table forces row-level
+ * security, so in Azure, where the migrator is the Entra administrator and not a superuser, nothing is visible until
+ * `app.household_id` is set. A name-derived id lets the seed and the sign-in link set it before the first read, and
+ * makes both safe to run twice.
+ */
+const HOUSEHOLD_NAMESPACE = "0a349cec-34bd-4b91-9774-94747df7b776";
+export function householdIdFor(name: string): string {
+  const b = createHash("sha1").update(Buffer.from(HOUSEHOLD_NAMESPACE.replace(/-/g, ""), "hex")).update(name, "utf8").digest().subarray(0, 16);
+  b[6] = (b[6]! & 0x0f) | 0x50;
+  b[8] = (b[8]! & 0x3f) | 0x80;
+  const x = Buffer.from(b).toString("hex");
+  return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20)}`;
+}
+
+/** Finds a household by name as either a superuser (any id) or a row-level-security-bound admin (the derived id), and sets `app.household_id` to it for the transaction. */
+export async function useHouseholdByName(db: Queryable, name: string): Promise<string | undefined> {
+  const byName = await db.query<{ id: string }>("select id from households where name = $1", [name]);
+  const id = byName.rows[0]?.id ?? householdIdFor(name);
+  await db.query("select set_config('app.household_id', $1, true)", [id]);
+  const found = await db.query<{ id: string }>("select id from households where id = $1", [id]);
+  return found.rows[0]?.id;
+}
+
 export async function seedHousehold(db: Queryable, opts: SeedOptions = {}): Promise<SeedResult> {
   const name = opts.name ?? "Cade & Vanessa Jones Family";
   const prefix = opts.entraPrefix ?? "dev";
   const today = opts.today ?? todayIso();
-  const existing = await db.query<{ id: string }>("select id from households where name = $1", [name]);
-  if (existing.rows[0]) return { ...(await describe(db, existing.rows[0].id)), created: false };
+  const existing = await useHouseholdByName(db, name);
+  if (existing) return { ...(await describe(db, existing)), created: false };
 
   const settings: HouseholdSettings = { ...DEFAULT_SETTINGS, ...opts.settings };
-  const hh = (await db.query<{ id: string }>("insert into households (name, settings, settings_version) values ($1, $2, 1) returning id", [name, JSON.stringify(settings)])).rows[0]!.id;
-  await db.query("select set_config('app.household_id', $1, true)", [hh]);
+  const ledger = opts.ledger ?? { tenantId: "TBD", environment: "CADE_Sandbox_vs25", companyId: "TBD", certSecretRef: "bc-sandbox-cert" };
+  const hh = householdIdFor(name); // app.household_id is already set to it by useHouseholdByName
+  await db.query("insert into households (id, name, settings, settings_version) values ($1, $2, $3, 1)", [hh, name, JSON.stringify(settings)]);
   const cade = (await db.query<{ id: string }>("insert into members (household_id, entra_object_id, display_name) values ($1, $2, 'Cade') returning id", [hh, `${prefix}-cade`])).rows[0]!.id;
   const vanessa = (await db.query<{ id: string }>("insert into members (household_id, entra_object_id, display_name) values ($1, $2, 'Vanessa') returning id", [hh, `${prefix}-vanessa`])).rows[0]!.id;
   await db.query("insert into household_setting_versions (household_id, version, settings, approved_by) values ($1, 1, $2, $3)", [hh, JSON.stringify(settings), [cade, vanessa]]);
@@ -108,8 +136,8 @@ export async function seedHousehold(db: Queryable, opts: SeedOptions = {}): Prom
   const ledgerConnectionId = (
     await db.query<{ id: string }>(
       `insert into ledger_connections (household_id, bc_tenant_id, bc_environment, bc_company_id, api_base_url, cert_secret_ref)
-       values ($1, 'TBD', 'CADE_Sandbox_vs25', 'TBD', 'https://api.businesscentral.dynamics.com/v2.0/TBD/CADE_Sandbox_vs25/api/v2.0', 'bc-sandbox-cert') returning id`,
-      [hh],
+       values ($1, $2, $3, $4, $5, $6) returning id`,
+      [hh, ledger.tenantId, ledger.environment, ledger.companyId, `https://api.businesscentral.dynamics.com/v2.0/${ledger.tenantId}/${ledger.environment}/api/v2.0`, ledger.certSecretRef],
     )
   ).rows[0]!.id;
 
@@ -217,7 +245,12 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   await client.connect();
   try {
     await client.query("begin");
-    const r = await seedHousehold(client);
+    const env = process.env;
+    const r = await seedHousehold(client, {
+      ...(env["BC_TENANT_ID"] && env["BC_COMPANY_ID"]
+        ? { ledger: { tenantId: env["BC_TENANT_ID"], environment: env["BC_ENVIRONMENT"] ?? "CADE_Sandbox_vs25", companyId: env["BC_COMPANY_ID"], certSecretRef: env["BC_CERT_SECRET_REF"] ?? "bc-sandbox-client-cert" } }
+        : {}),
+    });
     await client.query("commit");
     console.log(`${r.created ? "Seeded" : "Already seeded"}: household ${r.householdId}, members cade=${r.members.cade} vanessa=${r.members.vanessa}`);
   } catch (e) {
