@@ -61,7 +61,10 @@ export async function runJob(name: JobName, deps: Deps, householdIds?: readonly 
           const drafts = await db.query<{ n: number }>("select count(*)::int as n from transactions where household_id = $1 and bc_batch = 'AUTOPOST' and state = 'bc_draft_created'", [hh]);
           let enqueued = 0;
           if (conn?.auto_post_enabled && (drafts.rows[0]?.n ?? 0) > 0) {
-            await enqueueOutbox(db, hh, { aggregate: "household", aggregateId: hh, operation: "post_batch", payload: { batch: "AUTOPOST", requestedBy: "autopost-post", enqueued: true, draftCount: drafts.rows[0]?.n } });
+            const id = await enqueueOutbox(db, hh, { aggregate: "household", aggregateId: hh, operation: "post_batch", payload: { batch: "AUTOPOST", requestedBy: "autopost-post", enqueued: true, draftCount: drafts.rows[0]?.n } });
+            // Due as of this run's clock, so the relay below sends it now rather than on the next run (the row's default
+            // is the database's now(), which is later than the job's start time).
+            await db.query("update outbox set next_attempt_at = $2 where id = $1", [id, now.toISOString()]);
             enqueued = 1;
           }
           const r = await relayOutbox(db, hh, deps, now, "autopost-post");

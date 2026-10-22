@@ -41,6 +41,12 @@ export interface MockBcServerOptions {
   deliver?: (url: string, init: RequestInit) => Promise<Response>;
   /** Extra budgets to seed besides 2026-ORIG. */
   budgets?: string[];
+  /**
+   * The HH App Connector's posting guard (1.0.0.4, codeunit "HH Post Guard"): a post from a web-service session may only
+   * post HHAPP/AUTOPOST. A person in the BC client is told apart by bearer token here (the listed tokens); every other
+   * caller is the app. Off unless set, so tests that post FEEDS through the adapter as a stand-in for Cade still can.
+   */
+  postGuard?: { personTokens: readonly string[] };
 }
 
 export interface MockRequestLog {
@@ -217,7 +223,10 @@ export class MockBcServer {
   private readonly oneShots: OneShotFailure[] = [];
   private httpServer: Server | undefined;
 
+  private readonly opts: MockBcServerOptions;
+
   constructor(opts: MockBcServerOptions = {}) {
+    this.opts = opts;
     this.tenantId = opts.tenantId ?? "00000000-0000-0000-0000-00000000c0de";
     this.environment = opts.environment ?? "CADE_Sandbox_vs25";
     this.companyId = opts.companyId ?? "11111111-2222-3333-4444-555555555555";
@@ -509,6 +518,15 @@ export class MockBcServer {
     if (sub === undefined) return method === "GET" ? ok(journal) : odataError(405, "MethodNotAllowed", "journals are managed in BC");
     if (sub === "Microsoft.NAV.post") {
       if (method !== "POST") return odataError(405, "MethodNotAllowed", "post is an action");
+      const guard = this.opts.postGuard;
+      if (guard) {
+        const token = (ctx.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+        const lines = this.state.lines.filter((l) => l.journalId === journal.id);
+        // Page 30016 refuses an empty batch before the posting codeunit (and the guard) runs.
+        if (lines.length > 0 && !guard.personTokens.includes(token) && !(journal.templateDisplayName === this.journalTemplate && journal.code === "AUTOPOST")) {
+          return odataError(400, "Application_DialogException", `Journal ${journal.templateDisplayName}/${journal.code} cannot be posted through the API in this company. Homestead posts only HHAPP/AUTOPOST; post ${journal.templateDisplayName}/${journal.code} in Business Central.`);
+        }
+      }
       return this.postJournal(journal);
     }
     const subKeyed = parseKeyed(sub);
