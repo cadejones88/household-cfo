@@ -94,6 +94,7 @@ async function lookupMember(by: { memberId?: string; entraObjectId?: string }): 
 
 /**
  * Step-up: a token issued inside the last 2 minutes (or the dev header x-step-up) that shows multifactor sign-in.
+ * "Issued" allows for Entra's five-minute backdating of iat (STEP_UP_MAX_IAT_AGE_SECONDS).
  *
  * Where the token carries `amr`, it must name MFA (mfa, fido or ngcmfa). Entra External ID issues no `amr` at all
  * (checked on the family tenant's access and ID tokens, 10/23/2026); there, ENTRA_MFA_BY_POLICY=true says the
@@ -101,12 +102,19 @@ async function lookupMember(by: { memberId?: string; entraObjectId?: string }): 
  * emailed code, so a valid token is itself proof of MFA. The client adds the presence check before it asks for the
  * token: Face ID on the phone, a sign-in inside the last 15 minutes in the Console (Cade, 10/23/2026).
  */
+/**
+ * How old `iat` may be on a token issued just now. Entra backdates `iat` and `nbf` by five minutes for clock skew
+ * (family tenant, 10/23/2026: tokens MSAL wrote at :51 and :41 past the minute carried iat exactly 300 s earlier,
+ * each with a new uti and exp), so "issued inside 2 minutes" reads as iat inside 2 + 5 minutes.
+ */
+export const STEP_UP_MAX_IAT_AGE_SECONDS = 120 + 300;
+
 export function hasFreshStepUp(req: FastifyRequest, now = Date.now()): boolean {
   if ((process.env["AUTH_MODE"] ?? "dev") === "dev") return req.headers["x-step-up"] === "true";
   const p = req.principal;
   if (!p?.issuedAt) return false;
   const ageSeconds = now / 1000 - p.issuedAt;
-  if (ageSeconds > 120) return false;
+  if (ageSeconds > STEP_UP_MAX_IAT_AGE_SECONDS) return false;
   if (p.amr) return p.amr.includes("mfa") || p.amr.includes("fido") || p.amr.includes("ngcmfa");
   return process.env["ENTRA_MFA_BY_POLICY"] === "true";
 }

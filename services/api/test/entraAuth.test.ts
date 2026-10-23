@@ -49,7 +49,9 @@ describe("step-up (hasFreshStepUp)", () => {
     const { hasFreshStepUp } = await import("../src/lib/auth.js");
     withEnv({ AUTH_MODE: "entra", ENTRA_MFA_BY_POLICY: "true" }, () => {
       expect(hasFreshStepUp(req({ issuedAt: now / 1000 - 30 }), now)).toBe(true);
-      expect(hasFreshStepUp(req({ issuedAt: now / 1000 - 330 }), now)).toBe(false); // the token Cade's sign-in left behind
+      // Entra backdates iat by 300 s: a token issued 12 s ago carries iat 312 s ago (seen on the family tenant).
+      expect(hasFreshStepUp(req({ issuedAt: now / 1000 - 312 }), now)).toBe(true);
+      expect(hasFreshStepUp(req({ issuedAt: now / 1000 - 421 }), now)).toBe(false); // issued more than 2 minutes ago
       expect(hasFreshStepUp(req({}), now)).toBe(false);
     });
     withEnv({ AUTH_MODE: "entra", ENTRA_MFA_BY_POLICY: undefined }, () => {
