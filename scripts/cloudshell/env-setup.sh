@@ -85,10 +85,11 @@ elif THUMB_B64=$(python3 -c 'import sys,base64; print(base64.b64encode(bytes.fro
   ok "public certificate already on the registration"
 else
   if ask "Add this vault's certificate (thumbprint $THUMB) to \"$BC_APP_NAME\", keeping its existing ones?"; then
-    cer=$(mktemp)
-    az keyvault certificate download --vault-name "$KV" -n "$BC_CERT_NAME" -e PEM -f "$cer"
-    az ad app credential reset --id "$APP_ID" --cert "@$cer" --append -o none
-    rm -f "$cer"
+    # The download refuses to overwrite a file, so it goes into a fresh directory.
+    cerdir=$(mktemp -d)
+    az keyvault certificate download --vault-name "$KV" -n "$BC_CERT_NAME" -e PEM -f "$cerdir/cert.pem"
+    az ad app credential reset --id "$APP_ID" --cert "@$cerdir/cert.pem" --append -o none
+    rm -rf "$cerdir"
     ok "added"
   fi
 fi
