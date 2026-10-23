@@ -67,6 +67,8 @@ describeDb("bank linking", () => {
     expect(r.statusCode).toBe(201);
     feedId = r.json().feedConnectionId;
     await inHh(hh, async (db) => {
+      // Plaid's update webhooks start only after the first /transactions/sync, so linking asks for one at once.
+      expect(await count(db, "select 1 from outbox where household_id = $1 and operation = 'plaid_sync' and aggregate_id = $2 and payload->>'reason' = 'linked'", [hh.householdId, feedId])).toBe(1);
       const a = await db.query<{ feed_connection_id: string; plaid_account_id: string }>("select feed_connection_id, plaid_account_id from accounts where id = $1", [hh.accounts["CAPONE-CC"]]);
       expect(a.rows[0]).toEqual({ feed_connection_id: feedId, plaid_account_id: "pa-card" });
     });

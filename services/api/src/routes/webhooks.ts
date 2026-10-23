@@ -82,9 +82,11 @@ export async function handlePlaidWebhook(body: PlaidWebhookBody): Promise<{ hand
   const feed = await feedForItem(itemId);
   if (!feed) return { handled: "unknown_item" };
   const type = `${body.webhook_type ?? ""}/${body.webhook_code ?? ""}`;
-  if (type === "TRANSACTIONS/SYNC_UPDATES_AVAILABLE") {
+  // SYNC_UPDATES_AVAILABLE starts only after the Item's first /transactions/sync (plaid.com/docs/transactions/webhooks);
+  // the older update codes still arrive before that, so they ask for a sync too.
+  if (["TRANSACTIONS/SYNC_UPDATES_AVAILABLE", "TRANSACTIONS/INITIAL_UPDATE", "TRANSACTIONS/HISTORICAL_UPDATE", "TRANSACTIONS/DEFAULT_UPDATE"].includes(type)) {
     await withHousehold(feed.householdId, async (db) => {
-      await db.query("insert into outbox (household_id, aggregate, aggregate_id, operation, payload) values ($1,'transaction',$2,'plaid_sync',$3)", [feed.householdId, feed.feedId, JSON.stringify({ feedConnectionId: feed.feedId, reason: "webhook" })]);
+      await db.query("insert into outbox (household_id, aggregate, aggregate_id, operation, payload) values ($1,'transaction',$2,'plaid_sync',$3)", [feed.householdId, feed.feedId, JSON.stringify({ feedConnectionId: feed.feedId, reason: `webhook:${body.webhook_code ?? ""}` })]);
     });
     return { handled: "sync_enqueued" };
   }

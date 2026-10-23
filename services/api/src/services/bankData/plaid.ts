@@ -315,6 +315,9 @@ export async function linkItem(db: Queryable, householdId: string, memberId: str
   );
   const id = r.rows[0]!.id;
   await audit(db, householdId, { actor, action: "feed.linked", entity: "feed_connection", entityId: id, after: { provider: "plaid", institutionId: input.institutionId, owner: memberId } });
+  // Plaid sends SYNC_UPDATES_AVAILABLE only after the Item's first /transactions/sync, so the first sync is asked for
+  // here (it may find nothing yet; the webhooks then say when the bank's history is ready).
+  await enqueueSync(db, householdId, id, "linked");
   return { feedConnectionId: id, itemId };
 }
 
