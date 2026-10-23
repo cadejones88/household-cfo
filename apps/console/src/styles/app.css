@@ -637,6 +637,8 @@ input[type="checkbox"] {
 
 /* Dialog ---------------------------------------------------------------------------------------------- */
 dialog.dlg {
+  /* A dialog opened from a table cell (td.actions is nowrap) would otherwise inherit nowrap and run off its edge. */
+  white-space: normal;
   border: 1px solid var(--line);
   border-radius: var(--r);
   background: var(--surface);

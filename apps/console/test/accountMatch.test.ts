@@ -44,6 +44,11 @@ describe("account matching", () => {
     expect(afcu).toEqual({ chk: "AFCU-CHK", sav: "AFCU-SAV", visa: "", odl: "" });
   });
 
+  it("never suggests another bank's account when the bank is known", () => {
+    expect(suggestMatches([acct("hsa", "depository", "hsa", "9001")], household, { institutionName: "First Platypus Bank" })).toEqual({ hsa: "" });
+    expect(suggestMatches([acct("sav", "depository", "savings", "9001")], household, { institutionName: "Beehive Federal Credit Union" })).toEqual({ sav: "BEEHIVE-SAV" });
+  });
+
   it("never suggests one household account twice, nor one another login feeds", () => {
     expect(suggestMatches([acct("a", "depository", "checking", "1221"), acct("b", "depository", "checking", "1221")], household, { institutionName: "America First CU" })).toEqual({ a: "", b: "" });
     const connectedVia = new Map([["CAPONE-CC", { feedId: "f-other", institutionName: "Capital One" }]]);

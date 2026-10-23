@@ -73,8 +73,9 @@ export function suggestMatches(plaidAccounts: readonly BankLoginAccount[], house
   const out: Record<string, string> = {};
   for (const p of plaidAccounts) {
     const kinds = kindsFor(p);
-    let fits = household.filter((h) => kinds.includes(h.kind) && maskAgrees(p.mask, h.mask) && !isTakenElsewhere(h, opts));
-    if (fits.length > 1 && inst) fits = fits.filter((h) => institutionKey(h.institution) === inst);
+    // With the bank's name known, never suggest another bank's account (Plaid's test HSA ••9001 once matched
+    // Beehive savings 6289-001 on the digits alone).
+    const fits = household.filter((h) => kinds.includes(h.kind) && maskAgrees(p.mask, h.mask) && !isTakenElsewhere(h, opts) && (!inst || institutionKey(h.institution) === inst));
     out[p.plaidAccountId] = fits.length === 1 ? fits[0]!.id : "";
   }
   const seen = new Map<string, number>();
