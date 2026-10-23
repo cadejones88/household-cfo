@@ -55,12 +55,25 @@ jobs:
           HOMESTEAD_API_IMAGE: ""
         run: |
           set -euo pipefail
-          az deployment sub create \
-            --name "homestead-$HOMESTEAD_ENV-$(date -u +%Y%m%d%H%M)-1" \
-            --location "$AZURE_LOCATION" \
-            --template-file infra/main.bicep \
-            --parameters "infra/main.$HOMESTEAD_ENV.bicepparam" \
-            --query properties.outputs -o json > outputs1.json
+          # Postgres refuses a configuration write while it is busy (a firewall change, a backup); that is
+          # transient, so retry up to three times on ServerIsBusy and fail at once on anything else.
+          for attempt in 1 2 3 4; do
+            if az deployment sub create \
+              --name "homestead-$HOMESTEAD_ENV-$(date -u +%Y%m%d%H%M%S)-1" \
+              --location "$AZURE_LOCATION" \
+              --template-file infra/main.bicep \
+              --parameters "infra/main.$HOMESTEAD_ENV.bicepparam" \
+              --query properties.outputs -o json > outputs1.json 2> deploy1.err; then
+              break
+            fi
+            cat deploy1.err >&2
+            if [ "$attempt" -lt 4 ] && grep -q ServerIsBusy deploy1.err; then
+              echo "::warning::Postgres was busy (attempt $attempt); retrying in 90 seconds"
+              sleep 90
+            else
+              exit 1
+            fi
+          done
           echo "registry=$(jq -r .registryLoginServer.value outputs1.json)" >> "$GITHUB_OUTPUT"
           echo "registryName=$(jq -r .registryName.value outputs1.json)" >> "$GITHUB_OUTPUT"
           echo "swa=$(jq -r .staticWebAppName.value outputs1.json)" >> "$GITHUB_OUTPUT"
@@ -97,12 +110,25 @@ jobs:
           HOMESTEAD_API_IMAGE: ${{ steps.image.outputs.image }}
         run: |
           set -euo pipefail
-          az deployment sub create \
-            --name "homestead-$HOMESTEAD_ENV-$(date -u +%Y%m%d%H%M)-2" \
-            --location "$AZURE_LOCATION" \
-            --template-file infra/main.bicep \
-            --parameters "infra/main.$HOMESTEAD_ENV.bicepparam" \
-            --query properties.outputs -o json > outputs2.json
+          # Postgres refuses a configuration write while it is busy (a firewall change, a backup); that is
+          # transient, so retry up to three times on ServerIsBusy and fail at once on anything else.
+          for attempt in 1 2 3 4; do
+            if az deployment sub create \
+              --name "homestead-$HOMESTEAD_ENV-$(date -u +%Y%m%d%H%M%S)-2" \
+              --location "$AZURE_LOCATION" \
+              --template-file infra/main.bicep \
+              --parameters "infra/main.$HOMESTEAD_ENV.bicepparam" \
+              --query properties.outputs -o json > outputs2.json 2> deploy2.err; then
+              break
+            fi
+            cat deploy2.err >&2
+            if [ "$attempt" -lt 4 ] && grep -q ServerIsBusy deploy2.err; then
+              echo "::warning::Postgres was busy (attempt $attempt); retrying in 90 seconds"
+              sleep 90
+            else
+              exit 1
+            fi
+          done
           echo "apiUrl=$(jq -r .apiUrl.value outputs2.json)" >> "$GITHUB_OUTPUT"
           echo "consoleUrl=$(jq -r .consoleUrl.value outputs2.json)" >> "$GITHUB_OUTPUT"
 
