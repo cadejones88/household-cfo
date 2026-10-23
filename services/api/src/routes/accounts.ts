@@ -99,7 +99,8 @@ export default async function accountsRoutes(app: FastifyInstance): Promise<void
       feedConnectionId: r.feedConnectionId,
       institutionName: r.institutionName,
       ownerMemberId: r.ownerMemberId,
-      accounts: r.accounts.map((a) => ({ plaidAccountId: a.account_id, name: a.name ?? a.official_name ?? "Account", mask: a.mask ?? null, type: a.type ?? null, subtype: a.subtype ?? null, accountId: a.accountId })),
+      // Plaid's cached current balance helps tell apart two accounts with the same mask (Beehive's shares).
+      accounts: r.accounts.map((a) => ({ plaidAccountId: a.account_id, name: a.name ?? a.official_name ?? "Account", mask: a.mask ?? null, type: a.type ?? null, subtype: a.subtype ?? null, balance: a.balances?.current ?? null, accountId: a.accountId })),
     };
   });
 

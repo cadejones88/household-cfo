@@ -93,8 +93,8 @@ describeDb("bank linking", () => {
       institutionName: "Capital One",
       ownerMemberId: hh.members.cade,
       accounts: [
-        { plaidAccountId: "pa-card", name: "Quicksilver", mask: "6450", type: "credit", subtype: "credit card", accountId: hh.accounts["CAPONE-CC"] },
-        { plaidAccountId: "pa-card2", name: "Savor", mask: "1188", type: "credit", subtype: "credit card", accountId: null },
+        { plaidAccountId: "pa-card", name: "Quicksilver", mask: "6450", type: "credit", subtype: "credit card", balance: null, accountId: hh.accounts["CAPONE-CC"] },
+        { plaidAccountId: "pa-card2", name: "Savor", mask: "1188", type: "credit", subtype: "credit card", balance: null, accountId: null },
       ],
     });
     expect(JSON.stringify(r.json())).not.toContain(token);

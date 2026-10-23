@@ -39,6 +39,8 @@ export interface BankLoginAccount {
   mask: string | null;
   type: string | null;
   subtype: string | null;
+  /** Plaid's cached current balance in dollars, where known (not in Link's own results). */
+  balance?: number | null;
 }
 
 export interface AccountLink {
@@ -58,7 +60,8 @@ export interface FeedAccounts {
   feedConnectionId: string;
   institutionName: string | null;
   ownerMemberId: string;
-  accounts: (BankLoginAccount & { accountId: string | null })[];
+  /** balance: Plaid's cached current balance in dollars (amount owed for cards and loans), when it has one. */
+  accounts: (BankLoginAccount & { accountId: string | null; balance?: number | null })[];
 }
 
 export interface PageQuery {

@@ -340,7 +340,10 @@ export function MapAccountsDialog({ title, intro, plaidAccounts, household, opts
                 <td>
                   {p.name}
                   {p.mask ? <span className="mono"> ••{p.mask}</span> : null}
-                  <span className="sub">{[p.type, p.subtype].filter(Boolean).join(" · ")}</span>
+                  <span className="sub">
+                    {[p.type, p.subtype].filter(Boolean).join(" · ")}
+                    {typeof p.balance === "number" ? ` · balance ${p.balance.toLocaleString("en-US", { style: "currency", currency: "USD" })}` : ""}
+                  </span>
                 </td>
                 <td>
                   {readOnly ? (

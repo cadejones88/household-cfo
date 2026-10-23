@@ -225,6 +225,7 @@ paths:
                         mask: { type: string, nullable: true }
                         type: { type: string, nullable: true }
                         subtype: { type: string, nullable: true }
+                        balance: { type: number, nullable: true, description: "Plaid's cached current balance in dollars (amount owed for cards and loans)" }
                         accountId: { type: string, format: uuid, nullable: true }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
