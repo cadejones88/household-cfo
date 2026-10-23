@@ -48,10 +48,9 @@ param plaidSecretName string = 'plaid-sandbox-secret'
 @description('Entra External ID: tenant id, the sign-in host, and the API app registration client id (audience)')
 param entraTenantId string = ''
 @description('Where the family signs in: homesteadfamily.ciamlogin.com through the pilot (decided 10/21/2026); the custom URL domain later')
+param entraSignInHost string = 'homesteadfamily.ciamlogin.com'
 @description('True while a Conditional Access policy in the sign-in tenant requires MFA for every token to the API (External ID issues no amr claim to prove it per token).')
 param entraMfaByPolicy bool = true
-
-param entraSignInHost string = 'homesteadfamily.ciamlogin.com'
 param entraApiAudience string = ''
 
 @description('Foundry endpoint and model deployment name for Ask Homestead and receipt line mapping; created by hand')
