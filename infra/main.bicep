@@ -62,6 +62,9 @@ param foundryKeySecretName string = 'foundry-api-key'
 @description('Browser origins allowed to call the API besides the Console\'s Static Web App (for example a custom console hostname, or http://localhost:5174 in dev)')
 param consoleExtraOrigins array = []
 
+@description('Region for the Postgres server; defaults to the deployment region. The pilot uses westus2 because Azure would not create a new Burstable server in westus3 for this subscription (SkuNotAvailable, 10/23/2026).')
+param postgresLocation string = location
+
 @description('Postgres backup retention: 7 (dev, pilot) or 35 (prod)')
 param postgresBackupRetentionDays int = 7
 @allowed(['Enabled', 'Disabled'])
@@ -137,7 +140,7 @@ module postgres 'modules/postgres.bicep' = {
   name: 'postgres'
   params: {
     env: env
-    location: location
+    location: postgresLocation
     tags: tags
     adminObjectId: adminObjectId
     adminPrincipalName: adminPrincipalName

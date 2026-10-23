@@ -29,6 +29,9 @@ param foundryEndpoint = readEnvironmentVariable('HOMESTEAD_FOUNDRY_ENDPOINT', ''
 param foundryModel = readEnvironmentVariable('HOMESTEAD_FOUNDRY_MODEL', '')
 
 // Real receipts and real transactions: geo-redundant blobs, 7-day PITR, paid Document Intelligence tier.
+// West US 3 refused a new Burstable server for this subscription on 10/23/2026 (SkuNotAvailable, twice) though the
+// region's size list offers it; the database alone sits next door (about 25 ms away). Cade, 10/23/2026.
+param postgresLocation = 'westus2'
 param postgresBackupRetentionDays = 7
 param postgresGeoRedundantBackup = 'Disabled'
 param storageSku = 'Standard_GRS'

@@ -245,7 +245,7 @@ For TestFlight (phase 5) and the App Store later. Organization enrollment, not i
 
 ## 13. Pilot environment (Phase 5)
 
-The pilot is its own environment (`rg-homestead-pilot`): real read-only feeds through Plaid's Trial plan, the same BC sandbox ledger, geo-redundant file storage, no synthetic data. It is built by the same steps as dev (`.github/workflows/deploy.yml`) but only from a tag, never from a push to `main`.
+The pilot is its own environment (`rg-homestead-pilot`): real read-only feeds through Plaid's Trial plan, the same BC sandbox ledger, geo-redundant file storage, no synthetic data. It is built by the same steps as dev (`.github/workflows/deploy.yml`) but only from a tag, never from a push to `main`. Its Postgres server is in **West US 2** (`postgresLocation`): on 10/23/2026 Azure twice refused a new Burstable server in West US 3 for this subscription (SkuNotAvailable) although the region lists the size. Everything else stays in West US 3. Tags are made as GitHub releases (Releases → Draft a new release → new tag `pilot-YYYYMMDD-N` on `main`, pre-release).
 
 1. Firm tenant → `homestead-github-deploy` → Federated credentials → add a second **Other issuer** credential: subject `repo:cadejones88@212395518/household-cfo@1426547300:environment:pilot`, name `github-pilot-immutable`, audience `api://AzureADTokenExchange`.
 2. GitHub → Settings → Environments → **New environment** `pilot`.
