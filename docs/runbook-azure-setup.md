@@ -160,8 +160,8 @@ Nothing in the table is pasted into chat or the repo. The deploy needs no GitHub
 The deployer has no database rights on purpose. Migrations run as you (a Postgres Entra administrator) until a migration job is added:
 
 ```sh
-az postgres flexible-server firewall-rule create -g rg-homestead-dev -n psql-homestead-dev \
-  --rule-name cade-laptop --start-ip-address $(curl -s https://api.ipify.org) --end-ip-address $(curl -s https://api.ipify.org)
+az postgres flexible-server firewall-rule create -g rg-homestead-dev --server-name psql-homestead-dev \
+  --name cade-laptop --start-ip-address $(curl -s https://api.ipify.org) --end-ip-address $(curl -s https://api.ipify.org)
 export PGPASSWORD=$(az account get-access-token --resource-type oss-rdbms --query accessToken -o tsv)
 DATABASE_URL="postgres://$(az ad signed-in-user show --query userPrincipalName -o tsv)@psql-homestead-dev.postgres.database.azure.com:5432/homestead" \
 PGSSLMODE=require pnpm --filter @homestead/api db:migrate

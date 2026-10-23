@@ -79,7 +79,9 @@ APP_ID=$(az ad app list --display-name "$BC_APP_NAME" --query "[0].appId" -o tsv
 THUMB=$(az keyvault certificate show --vault-name "$KV" -n "$BC_CERT_NAME" --query x509ThumbprintHex -o tsv)
 if [[ -z "$APP_ID" ]]; then
   echo "   Could not find the app registration \"$BC_APP_NAME\"; upload the CER by hand (runbook 5.2)."
-elif az ad app credential list --id "$APP_ID" --cert --query "[].customKeyIdentifier" -o tsv | grep -qiF -e "$THUMB" -e "$(printf '%s' "$THUMB" | xxd -r -p | base64)"; then
+elif THUMB_B64=$(python3 -c 'import sys,base64; print(base64.b64encode(bytes.fromhex(sys.argv[1])).decode())' "$THUMB") \
+  && [[ -n "$THUMB" && -n "$THUMB_B64" ]] \
+  && az ad app credential list --id "$APP_ID" --cert --query "[].customKeyIdentifier" -o tsv | grep -qiF -e "$THUMB" -e "$THUMB_B64"; then
   ok "public certificate already on the registration"
 else
   if ask "Add this vault's certificate (thumbprint $THUMB) to \"$BC_APP_NAME\", keeping its existing ones?"; then
@@ -110,11 +112,11 @@ fi
 step "4. Database firewall opening for this Cloud Shell"
 MYIP=$(curl -s https://api.ipify.org)
 RULE="cloudshell-$(date +%Y%m%d)"
-if az postgres flexible-server firewall-rule show -g "$RG" -n "$PG" --rule-name "$RULE" -o none 2>/dev/null; then
-  az postgres flexible-server firewall-rule update -g "$RG" -n "$PG" --rule-name "$RULE" --start-ip-address "$MYIP" --end-ip-address "$MYIP" -o none
+if az postgres flexible-server firewall-rule show -g "$RG" --server-name "$PG" --name "$RULE" -o none 2>/dev/null; then
+  az postgres flexible-server firewall-rule update -g "$RG" --server-name "$PG" --name "$RULE" --start-ip-address "$MYIP" --end-ip-address "$MYIP" -o none
   ok "rule $RULE now allows $MYIP"
 elif ask "Allow this Cloud Shell's address ($MYIP) through $PG's firewall as rule $RULE? (step 9 removes it)"; then
-  az postgres flexible-server firewall-rule create -g "$RG" -n "$PG" --rule-name "$RULE" --start-ip-address "$MYIP" --end-ip-address "$MYIP" -o none
+  az postgres flexible-server firewall-rule create -g "$RG" --server-name "$PG" --name "$RULE" --start-ip-address "$MYIP" --end-ip-address "$MYIP" -o none
   ok "added"
 else
   echo "   Skipped; the database steps cannot run."; exit 1
@@ -167,6 +169,6 @@ unset PGPASSWORD
 step "9. Restart the API so it reads the vault, and close the firewall opening"
 REV=$(az containerapp show -g "$RG" -n "$API" --query properties.latestReadyRevisionName -o tsv 2>/dev/null || true)
 if [[ -n "$REV" ]]; then az containerapp revision restart -g "$RG" -n "$API" --revision "$REV" -o none && ok "restarted $REV"; else echo "   No API revision yet (deploy first)."; fi
-if ask "Remove firewall rule $RULE now?"; then az postgres flexible-server firewall-rule delete -g "$RG" -n "$PG" --rule-name "$RULE" --yes -o none; ok "removed"; fi
+if ask "Remove firewall rule $RULE now?"; then az postgres flexible-server firewall-rule delete -g "$RG" --server-name "$PG" --name "$RULE" --yes -o none; ok "removed"; fi
 
 printf '\nDone for %s. Still by hand: add the %s Console address to homestead-console'"'"'s redirect URIs (family tenant), then sign in.\n' "$ENV" "$ENV"
