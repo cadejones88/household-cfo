@@ -36,12 +36,12 @@ describe("PlaidClient", () => {
       "/accounts/get": { accounts: [{ account_id: "a1", name: "Quicksilver", official_name: "Capital One Quicksilver", mask: "6450", type: "credit", subtype: "credit card", balances: { current: 12 } }], item: { item_id: "i" } },
     });
     const c = new PlaidClient("production", "id", "s", fetchImpl);
-    await c.createLinkToken({ clientUserId: "member-1", accessToken: "access-production-x", institutionId: "ins_9", webhookUrl: "https://example.invalid/v1/webhooks/plaid" });
-    expect(calls[0]!.body).toMatchObject({ access_token: "access-production-x", user: { client_user_id: "member-1" }, webhook: "https://example.invalid/v1/webhooks/plaid" });
+    await c.createLinkToken({ clientUserId: "member-1", accessToken: "access-token-u", institutionId: "ins_9", webhookUrl: "https://example.invalid/v1/webhooks/plaid" });
+    expect(calls[0]!.body).toMatchObject({ access_token: "access-token-u", user: { client_user_id: "member-1" }, webhook: "https://example.invalid/v1/webhooks/plaid" });
     expect(calls[0]!.body).not.toHaveProperty("products");
     expect(calls[0]!.body).not.toHaveProperty("optional_products");
     expect(calls[0]!.body).not.toHaveProperty("institution_id");
-    const accts = await c.accountsGet("access-production-x");
+    const accts = await c.accountsGet("access-token-u");
     expect(calls[1]!.url).toBe("https://production.plaid.com/accounts/get");
     expect(accts).toEqual([{ account_id: "a1", name: "Quicksilver", official_name: "Capital One Quicksilver", mask: "6450", type: "credit", subtype: "credit card" }]);
   });
