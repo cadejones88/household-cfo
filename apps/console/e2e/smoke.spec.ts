@@ -138,3 +138,16 @@ test("health: failed jobs retry and the nightly page reads health.json", async (
   await page.getByRole("tab", { name: "Nightly acceptance" }).click();
   await expect(page.getByTestId("nightly-table")).toContainText("A1");
 });
+
+test("connect a bank: Link (mocked), confirm where each account goes, and the login appears", async ({ page }) => {
+  await page.goto("/health");
+  await expect(page.getByTestId("feeds-table")).toContainText("Capital One");
+  await page.getByTestId("connect-bank").click();
+  const dialog = page.getByTestId("map-accounts-dialog");
+  await expect(dialog).toContainText("Frontier Credit Union");
+  await expect(dialog.getByLabel("Where Primary Share ending 7003 goes")).toHaveValue("acct-FRONTIER-SH");
+  await expect(dialog.getByLabel("Where Auto Loan ending 0001 goes")).toHaveValue("");
+  await dialog.getByTestId("save-mapping").click();
+  await expect(page.getByRole("status")).toContainText("Frontier Credit Union connected: 1 account");
+  await expect(page.getByTestId("feeds-table")).toContainText("Frontier Credit Union");
+});

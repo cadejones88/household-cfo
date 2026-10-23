@@ -30,6 +30,22 @@ describe("PlaidClient", () => {
     expect(JSON.stringify(calls[0]!.body)).not.toMatch(/"auth"|transfer|payment_initiation/);
   });
 
+  it("update mode names the Item and drops products; /accounts/get returns names and masks only", async () => {
+    const { calls, fetchImpl } = recorder({
+      "/link/token/create": { link_token: "link-sandbox-u", expiration: "2026-10-20T20:00:00Z" },
+      "/accounts/get": { accounts: [{ account_id: "a1", name: "Quicksilver", official_name: "Capital One Quicksilver", mask: "6450", type: "credit", subtype: "credit card", balances: { current: 12 } }], item: { item_id: "i" } },
+    });
+    const c = new PlaidClient("production", "id", "s", fetchImpl);
+    await c.createLinkToken({ clientUserId: "member-1", accessToken: "access-production-x", institutionId: "ins_9", webhookUrl: "https://example.invalid/v1/webhooks/plaid" });
+    expect(calls[0]!.body).toMatchObject({ access_token: "access-production-x", user: { client_user_id: "member-1" }, webhook: "https://example.invalid/v1/webhooks/plaid" });
+    expect(calls[0]!.body).not.toHaveProperty("products");
+    expect(calls[0]!.body).not.toHaveProperty("optional_products");
+    expect(calls[0]!.body).not.toHaveProperty("institution_id");
+    const accts = await c.accountsGet("access-production-x");
+    expect(calls[1]!.url).toBe("https://production.plaid.com/accounts/get");
+    expect(accts).toEqual([{ account_id: "a1", name: "Quicksilver", official_name: "Capital One Quicksilver", mask: "6450", type: "credit", subtype: "credit card" }]);
+  });
+
   it("syncs with the cursor and count, and maps liabilities", async () => {
     const { calls, fetchImpl } = recorder({
       "/transactions/sync": { added: [], modified: [], removed: [], next_cursor: "c2", has_more: false },

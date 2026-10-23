@@ -45,7 +45,7 @@ import {
   type Transaction,
 } from "@homestead/shared";
 import { config } from "../config";
-import { ApiError, type ConsoleApi, type PageQuery } from "./types";
+import { ApiError, type AccountLink, type ConsoleApi, type FeedAccounts, type LinkToken, type PageQuery } from "./types";
 
 export type AuthHeaders = () => Promise<Record<string, string>>;
 export interface MemberInfo {
@@ -564,6 +564,7 @@ export function createHttpApi(opts: HttpApiOptions): ConsoleApi {
         id: f.id,
         provider: f.provider,
         institutionName: f.institutionName || f.id,
+        ...(f.ownerMemberId ? { ownerMemberId: f.ownerMemberId } : {}),
         ownerName: f.ownerName || f.ownerMemberId || "—",
         status: f.status ?? "ok",
         needsRelink: f.needsRelink ?? f.status === "needs_relink",
@@ -626,6 +627,38 @@ export function createHttpApi(opts: HttpApiOptions): ConsoleApi {
       if (!res.ok) return null;
       const json = (await res.json()) as HealthReport & { generatedAt: string | null };
       return json.generatedAt ? json : null;
+    },
+
+    // ---- Bank logins (routes/accounts.ts) ----------------------------------------------------------------------
+    householdAccounts: () => accounts(),
+
+    async confirmStepUp() {
+      await stepUpHeaders();
+    },
+
+    bankLinkToken: () => post<LinkToken>("/v1/accounts/link-token", {}),
+
+    async linkBank(input) {
+      const r = await post<{ feedConnectionId: string; itemId: string }>("/v1/accounts/link", input, true);
+      accountsCache = undefined;
+      return r;
+    },
+
+    feedLinkToken: (feedId) => post<LinkToken>(`/v1/accounts/feeds/${encodeURIComponent(feedId)}/link-token`, {}),
+
+    feedReconnected: (feedId) => post<{ syncQueued: boolean }>(`/v1/accounts/feeds/${encodeURIComponent(feedId)}/reconnected`, {}),
+
+    feedAccounts: (feedId) => get<FeedAccounts>(`/v1/accounts/feeds/${encodeURIComponent(feedId)}/accounts`),
+
+    async setFeedAccounts(feedId, links: readonly AccountLink[]) {
+      const r = await call<{ attached: number; detached: number; syncQueued: boolean }>("PUT", `/v1/accounts/feeds/${encodeURIComponent(feedId)}/accounts`, { accounts: links }, true);
+      accountsCache = undefined;
+      return r;
+    },
+
+    async unlinkFeed(feedId) {
+      await post(`/v1/accounts/feeds/${encodeURIComponent(feedId)}/unlink`, {}, true);
+      accountsCache = undefined;
     },
   };
   return api;

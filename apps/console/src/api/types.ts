@@ -3,6 +3,7 @@
  * listed in api/http.ts and reconciled against services/api/openapi.yaml (see README "API routes").
  */
 import type {
+  AccountSummary,
   AuditEntry,
   AuthorityMatrix,
   BcBatch,
@@ -24,6 +25,41 @@ import type {
   SyncStatus,
   BusinessFlag,
 } from "@homestead/shared";
+
+/** A Plaid Link token (Link opens in Plaid's own frame; the token is single-use and short-lived). */
+export interface LinkToken {
+  linkToken: string;
+  expiration: string;
+}
+
+/** One bank account on a login, as Plaid names it (mask: last 2-4 characters). */
+export interface BankLoginAccount {
+  plaidAccountId: string;
+  name: string;
+  mask: string | null;
+  type: string | null;
+  subtype: string | null;
+}
+
+export interface AccountLink {
+  /** Household account id. */
+  accountId: string;
+  plaidAccountId: string;
+}
+
+export interface LinkBankInput {
+  publicToken: string;
+  institutionId?: string;
+  institutionName?: string;
+  accounts: AccountLink[];
+}
+
+export interface FeedAccounts {
+  feedConnectionId: string;
+  institutionName: string | null;
+  ownerMemberId: string;
+  accounts: (BankLoginAccount & { accountId: string | null })[];
+}
 
 export interface PageQuery {
   page?: number;
@@ -67,6 +103,22 @@ export interface ConsoleApi {
   retryOutbox(id: string): Promise<OutboxItem>;
   audit(q?: PageQuery & { entity?: string; entityId?: string; actor?: string }): Promise<ConsolePage<AuditEntry>>;
   healthReport(): Promise<HealthReport | null>;
+
+  // Bank logins (Plaid Link). Each spouse connects and looks after their own; the other can see, not change.
+  householdAccounts(): Promise<AccountSummary[]>;
+  /** Fresh sign-in check before Link opens, so the save at the end never has to leave the page. */
+  confirmStepUp(): Promise<void>;
+  bankLinkToken(): Promise<LinkToken>;
+  /** Step-up. Exchanges the public token on the server; the access token never reaches the browser. */
+  linkBank(input: LinkBankInput): Promise<{ feedConnectionId: string; itemId: string }>;
+  /** Update mode: a fresh bank sign-in for an existing login (its owner only). */
+  feedLinkToken(feedId: string): Promise<LinkToken>;
+  feedReconnected(feedId: string): Promise<{ syncQueued: boolean }>;
+  feedAccounts(feedId: string): Promise<FeedAccounts>;
+  /** Step-up; replaces the whole mapping. */
+  setFeedAccounts(feedId: string, accounts: readonly AccountLink[]): Promise<{ attached: number; detached: number; syncQueued: boolean }>;
+  /** Step-up; Plaid's access ends and the vaulted token is deleted. Imported lines stay. */
+  unlinkFeed(feedId: string): Promise<void>;
 }
 
 export class ApiError extends Error {

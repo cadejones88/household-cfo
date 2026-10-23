@@ -50,7 +50,7 @@ describeDb("Plaid sync", () => {
 
   it("applies the pages in order: pending replaced on settlement, removed pending dropped, removed posted raised for Cade", async () => {
     const r = await inHh(hh, async (db) => syncFeed(db, hh.householdId, (await listFeeds(db, hh.householdId))[0]!, plaid, secrets));
-    expect(r).toEqual({ added: 2, pendingAdded: 2, settled: 1, modified: 1, removedPending: 1, removedPosted: 1, duplicates: 0, pages: 3, unknownAccounts: 1 });
+    expect(r).toEqual({ added: 2, pendingAdded: 2, settled: 1, modified: 1, removedPending: 1, removedPosted: 1, duplicates: 0, pages: 3, unknownAccounts: 1, beforeStart: 0 });
     await inHh(hh, async (db) => {
       const rows = await db.query<{ idempotency_key: string; amount_cents: number; pending: boolean; state: string; exception_reason: string | null }>("select idempotency_key, amount_cents::int, pending, state, exception_reason from transactions where household_id = $1 order by idempotency_key", [hh.householdId]);
       expect(rows.rows.map((x) => [x.idempotency_key, x.amount_cents, x.pending, x.exception_reason])).toEqual([

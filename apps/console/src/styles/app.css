@@ -809,3 +809,24 @@ details.json pre {
     grid-template-columns: 1fr;
   }
 }
+
+/* Bank logins (components/BankLogins.tsx) */
+.connect-bank {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.connect-bank .sub {
+  max-width: 320px;
+  font-size: 12px;
+  text-align: right;
+}
+table.data td.actions .btn + .btn {
+  margin-left: 6px;
+}
+[data-testid="map-accounts-table"] select {
+  width: 100%;
+  max-width: 420px;
+}

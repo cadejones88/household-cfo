@@ -18,7 +18,7 @@
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.azurecontainerapps.io https://*.ciamlogin.com https://homestead.cadejonescpa.com; frame-src https://*.ciamlogin.com https://homestead.cadejonescpa.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' https://cdn.plaid.com/link/v2/stable/link-initialize.js; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.azurecontainerapps.io https://*.ciamlogin.com https://homestead.cadejonescpa.com https://sandbox.plaid.com https://production.plaid.com; frame-src https://*.ciamlogin.com https://homestead.cadejonescpa.com https://cdn.plaid.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'",
     "Strict-Transport-Security": "max-age=31536000"
   },
   "mimeTypes": {

@@ -6,8 +6,11 @@
 import {
   assertTransition,
   plainStatus,
+  BANK_CARD_LIST,
   CATEGORIES,
+  type AccountSummary,
   type Actor,
+  type FeedConnectionSummary,
   type AuditEntry,
   type BcBatch,
   type ConsolePage,
@@ -19,7 +22,7 @@ import {
   type SyncStatus,
   type TransactionState,
 } from "@homestead/shared";
-import { ApiError, type ConsoleApi, type PageQuery } from "../types";
+import { ApiError, type BankLoginAccount, type ConsoleApi, type PageQuery } from "../types";
 import * as data from "./data";
 
 const latency = () => new Promise<void>((r) => setTimeout(r, 120 + Math.random() * 180));
@@ -31,6 +34,12 @@ function page<T>(items: readonly T[], q: PageQuery | undefined, dataThrough: Dat
   return { items: items.slice(start, start + pageSize), total: items.length, page: pageNo, pageSize, dataThrough };
 }
 
+/** What the mock Link "returns" (lib/plaidLink.ts mockOpenLink uses the same list). */
+export const mockLinkAccounts: BankLoginAccount[] = [
+  { plaidAccountId: "pa-frontier-share", name: "Primary Share", mask: "7003", type: "depository", subtype: "savings" },
+  { plaidAccountId: "pa-frontier-auto", name: "Auto Loan", mask: "0001", type: "loan", subtype: "auto" },
+];
+
 export function createMockApi(): ConsoleApi {
   const tx = data.transactions.map((t) => ({ ...t, splits: [...t.splits] }));
   const receipts = data.receipts.map((r) => ({ ...r }));
@@ -38,6 +47,40 @@ export function createMockApi(): ConsoleApi {
   const outbox = data.outbox.map((o) => ({ ...o }));
   const audit = data.auditLog.map((a) => ({ ...a }));
   const proposals: { approvalId: string; categoryId: string; requestedBy: string; requestedAt: string }[] = [];
+  // Bank logins: the household's accounts (one per bank card) and which Plaid login feeds each.
+  const feeds: FeedConnectionSummary[] = data.feeds.map((f) => ({ ...f }));
+  const plaidFeedOf: Record<string, string> = { "BEEHIVE-CHK": "feed-beehive", "BEEHIVE-CHK2": "feed-beehive", "BEEHIVE-SAV": "feed-beehive", VENMO: "feed-venmo", "AFCU-CHK": "feed-afcu", "AFCU-SAV": "feed-afcu", "AFCU-VISA": "feed-afcu", "AFCU-ODL": "feed-afcu", "MACU-CHK": "feed-macu", "MACU-SAV": "feed-macu", "CAPONE-CC": "feed-capone" };
+  const plaidKind = (kind: string): Pick<BankLoginAccount, "type" | "subtype"> =>
+    kind === "card" ? { type: "credit", subtype: "credit card" } : kind === "line" ? { type: "credit", subtype: "line of credit" } : kind === "checking" ? { type: "depository", subtype: "checking" } : { type: "depository", subtype: kind === "wallet" ? "paypal" : "savings" };
+  const accts = BANK_CARD_LIST.map((b) => ({ id: `acct-${b.code}`, code: b.code, displayName: b.name, institution: b.institution, kind: b.kind, mask: b.mask, feedId: plaidFeedOf[b.code] as string | undefined, plaidAccountId: plaidFeedOf[b.code] ? `pa-${b.code}` : undefined }));
+  const itemAccounts = new Map<string, BankLoginAccount[]>();
+  for (const a of accts) {
+    if (!a.feedId) continue;
+    itemAccounts.set(a.feedId, [...(itemAccounts.get(a.feedId) ?? []), { plaidAccountId: a.plaidAccountId!, name: a.displayName, mask: a.mask.replace(/\D/g, "").slice(-4) || null, ...plaidKind(a.kind) }]);
+  }
+  const liveFeed = (feedId: string) => {
+    const f = feeds.find((x) => x.id === feedId && x.provider === "plaid" && x.status !== "disabled");
+    if (!f) throw new ApiError(404, "not_found", "That connection was not found.");
+    return f;
+  };
+  const ownFeed = (feedId: string, action: string) => {
+    const f = liveFeed(feedId);
+    if (f.ownerMemberId !== data.CADE_ID) throw new ApiError(400, "owner_only", `Only the person who connected this login can ${action}`);
+    return f;
+  };
+  const checkLinks = (links: readonly { accountId: string; plaidAccountId: string }[], feedId?: string) => {
+    if (new Set(links.map((l) => l.accountId)).size !== links.length) throw new ApiError(400, "duplicate_account", "Each household account can take one bank account");
+    if (new Set(links.map((l) => l.plaidAccountId)).size !== links.length) throw new ApiError(400, "duplicate_plaid_account", "Each bank account can feed one household account");
+    for (const l of links) {
+      const a = accts.find((x) => x.id === l.accountId);
+      if (!a) throw new ApiError(400, "unknown_account", "One of those accounts is not in this household");
+      const other = a.feedId && a.feedId !== feedId ? feeds.find((f) => f.id === a.feedId && f.status !== "disabled") : undefined;
+      if (other) throw new ApiError(409, "account_already_connected", `${a.displayName} is already connected through ${other.institutionName}; remove that login first`);
+    }
+  };
+  const recount = () => {
+    for (const f of feeds) if (f.provider === "plaid") f.accountCount = accts.filter((a) => a.feedId === f.id).length;
+  };
   let lastPostRequested: Partial<Record<BcBatch, string>> = {};
   let seq = 100;
 
@@ -310,7 +353,7 @@ export function createMockApi(): ConsoleApi {
     async connections() {
       await latency();
       return {
-        feeds: data.feeds,
+        feeds: feeds.map((f) => ({ ...f })),
         subscriptions: data.subscriptions,
         ledger: { lastPollAt: data.iso(12 * 3_600_000), lastWebhookAt: data.iso(5 * 3_600_000), apiReachable: true, checkedAt: data.iso(10 * 60_000) },
         dataThrough: through("imported_pending", 10 * 60_000),
@@ -351,6 +394,110 @@ export function createMockApi(): ConsoleApi {
       await latency();
       const items = audit.filter((a) => (!q?.entity || a.entity === q.entity) && (!q?.entityId || a.entityId === q.entityId) && (!q?.actor || a.actor === q.actor));
       return page(items, { page: q?.page, pageSize: q?.pageSize ?? 25 }, through("posted_unreconciled", 0));
+    },
+
+    async householdAccounts(): Promise<AccountSummary[]> {
+      await latency();
+      return accts.map((a) => {
+        const f = a.feedId ? feeds.find((x) => x.id === a.feedId) : undefined;
+        const feedStatus: AccountSummary["feedStatus"] = !f || f.status === "disabled" ? "none" : f.needsRelink ? "needs_relink" : f.status === "stale" ? "stale" : "ok";
+        return { id: a.id, displayName: a.displayName, institution: a.institution, kind: a.kind as AccountSummary["kind"], mask: a.mask, bcBankAccountCode: a.code, feedStatus, ...(f && f.status !== "disabled" ? { feedConnectionId: f.id } : {}) };
+      });
+    },
+
+    async confirmStepUp() {
+      await latency();
+    },
+
+    async bankLinkToken() {
+      await latency();
+      return { linkToken: "link-mock-new", expiration: new Date(Date.now() + 4 * 3_600_000).toISOString() };
+    },
+
+    async linkBank(input) {
+      await latency();
+      if (!input.publicToken) throw new ApiError(400, "invalid_request", "publicToken is required");
+      checkLinks(input.accounts);
+      const id = `feed-${Math.random().toString(36).slice(2, 8)}`;
+      feeds.push({ id, provider: "plaid", institutionName: input.institutionName ?? "Bank", ownerMemberId: data.CADE_ID, ownerName: "Cade", status: "ok", needsRelink: false, accountCount: input.accounts.length, cursorPresent: false });
+      itemAccounts.set(id, mockLinkAccounts.map((a) => ({ ...a })));
+      for (const l of input.accounts) {
+        const a = accts.find((x) => x.id === l.accountId)!;
+        a.feedId = id;
+        a.plaidAccountId = l.plaidAccountId;
+      }
+      record({ actor: data.CADE_ID, action: "feed.linked", entity: "feed_connection", entityId: id, after: { provider: "plaid", institutionId: input.institutionId, owner: data.CADE_ID } });
+      return { feedConnectionId: id, itemId: `item-${id}` };
+    },
+
+    async feedLinkToken(feedId) {
+      await latency();
+      ownFeed(feedId, "reconnect it");
+      return { linkToken: `link-mock-update-${feedId}`, expiration: new Date(Date.now() + 4 * 3_600_000).toISOString() };
+    },
+
+    async feedReconnected(feedId) {
+      await latency();
+      const f = ownFeed(feedId, "reconnect it");
+      // As the API: a sync is queued; the sync (here: at once) clears the re-link flag.
+      f.needsRelink = false;
+      f.status = "ok";
+      f.lastSyncedAt = new Date().toISOString();
+      record({ actor: data.CADE_ID, action: "feed.reconnected", entity: "feed_connection", entityId: feedId, after: { syncQueued: true } });
+      return { syncQueued: true };
+    },
+
+    async feedAccounts(feedId) {
+      await latency();
+      const f = liveFeed(feedId);
+      return {
+        feedConnectionId: feedId,
+        institutionName: f.institutionName,
+        ownerMemberId: f.ownerMemberId ?? "",
+        accounts: (itemAccounts.get(feedId) ?? []).map((p) => ({ ...p, accountId: accts.find((a) => a.feedId === feedId && a.plaidAccountId === p.plaidAccountId)?.id ?? null })),
+      };
+    },
+
+    async setFeedAccounts(feedId, links) {
+      await latency();
+      ownFeed(feedId, "change its accounts");
+      checkLinks(links, feedId);
+      const known = new Set((itemAccounts.get(feedId) ?? []).map((p) => p.plaidAccountId));
+      if (links.some((l) => !known.has(l.plaidAccountId))) throw new ApiError(400, "unknown_plaid_account", "That bank account is not part of this login");
+      let attached = 0;
+      let detached = 0;
+      for (const a of accts.filter((x) => x.feedId === feedId)) {
+        const keep = links.find((l) => l.accountId === a.id);
+        if (keep?.plaidAccountId === a.plaidAccountId) continue;
+        if (!keep) detached += 1;
+        a.feedId = undefined;
+        a.plaidAccountId = undefined;
+      }
+      for (const l of links) {
+        const a = accts.find((x) => x.id === l.accountId)!;
+        if (a.feedId === feedId && a.plaidAccountId === l.plaidAccountId) continue;
+        a.feedId = feedId;
+        a.plaidAccountId = l.plaidAccountId;
+        attached += 1;
+      }
+      recount();
+      record({ actor: data.CADE_ID, action: "feed.accounts_set", entity: "feed_connection", entityId: feedId, after: { accounts: links.map((l) => l.accountId), attached, detached, historyReplay: attached > 0 } });
+      return { attached, detached, syncQueued: attached > 0 };
+    },
+
+    async unlinkFeed(feedId) {
+      await latency();
+      const f = ownFeed(feedId, "remove it");
+      f.status = "disabled";
+      f.needsRelink = false;
+      let n = 0;
+      for (const a of accts.filter((x) => x.feedId === feedId)) {
+        a.feedId = undefined;
+        a.plaidAccountId = undefined;
+        n += 1;
+      }
+      recount();
+      record({ actor: data.CADE_ID, action: "feed.unlinked", entity: "feed_connection", entityId: feedId, after: { plaid: "removed", accountsDetached: n } });
     },
 
     async healthReport() {

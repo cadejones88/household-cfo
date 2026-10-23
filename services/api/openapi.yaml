@@ -155,7 +155,115 @@ paths:
                 properties:
                   feedConnectionId: { type: string, format: uuid }
                   itemId: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/accounts/feeds/{id}/link-token:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    post:
+      tags: [accounts]
+      summary: A Link token in update mode for this login (its owner only), for a fresh bank sign-in
+      description: The Item, its account ids and its history stay; no public token comes back from update mode.
+      responses:
+        "200":
+          description: Link token
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [linkToken, expiration]
+                properties:
+                  linkToken: { type: string }
+                  expiration: { type: string, format: date-time }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/accounts/feeds/{id}/reconnected:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    post:
+      tags: [accounts]
+      summary: Update mode finished; queue a sync for this login (its owner only). A successful sync clears the re-link flag.
+      responses:
+        "200":
+          description: Sync queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  syncQueued: { type: boolean }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/accounts/feeds/{id}/accounts:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    get:
+      tags: [accounts]
+      summary: The login's bank accounts (from Plaid /accounts/get) and the household account each one feeds
+      responses:
+        "200":
+          description: Accounts on the login
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [feedConnectionId, ownerMemberId, accounts]
+                properties:
+                  feedConnectionId: { type: string, format: uuid }
+                  institutionName: { type: string, nullable: true }
+                  ownerMemberId: { type: string, format: uuid }
+                  accounts:
+                    type: array
+                    items:
+                      type: object
+                      required: [plaidAccountId, name]
+                      properties:
+                        plaidAccountId: { type: string }
+                        name: { type: string }
+                        mask: { type: string, nullable: true }
+                        type: { type: string, nullable: true }
+                        subtype: { type: string, nullable: true }
+                        accountId: { type: string, format: uuid, nullable: true }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    put:
+      tags: [accounts]
+      summary: Set which household accounts this login feeds (its owner only; step-up)
+      description: Replaces the whole mapping. A newly attached account clears the stored cursor and queues a sync, so the Item's history replays; lines already imported are skipped by their keys.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [accounts]
+              properties:
+                accounts:
+                  type: array
+                  maxItems: 20
+                  items:
+                    type: object
+                    required: [accountId, plaidAccountId]
+                    properties:
+                      accountId: { type: string, format: uuid }
+                      plaidAccountId: { type: string }
+      responses:
+        "200":
+          description: Mapping saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  attached: { type: integer }
+                  detached: { type: integer }
+                  syncQueued: { type: boolean }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
 
   /v1/accounts/feeds/{id}/unlink:
     parameters: [{ $ref: "#/components/parameters/id" }]
@@ -1627,6 +1735,7 @@ components:
         balanceCents: { type: integer, description: Cards, lines and loans are negative like BC }
         balanceAsOf: { type: string, format: date-time }
         feedStatus: { type: string, enum: [ok, stale, needs_relink, file_only, none] }
+        feedConnectionId: { type: string, format: uuid, description: The bank login that feeds this account, when one does }
         isRestricted: { type: boolean, description: Excluded from safe-to-spend }
     SplitInput:
       type: object

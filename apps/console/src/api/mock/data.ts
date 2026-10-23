@@ -384,14 +384,14 @@ export const subscriptions: BcSubscriptionSummary[] = [
 ];
 
 export const feeds: FeedConnectionSummary[] = [
-  { id: "feed-beehive", provider: "plaid", institutionName: "Beehive FCU", ownerName: "Vanessa", status: "ok", needsRelink: false, lastSyncedAt: iso(3 * H), accountCount: 3, cursorPresent: true },
-  { id: "feed-venmo", provider: "plaid", institutionName: "Venmo", ownerName: "Vanessa", status: "ok", needsRelink: false, lastSyncedAt: iso(3.2 * H), accountCount: 1, cursorPresent: true },
-  { id: "feed-afcu", provider: "plaid", institutionName: "America First CU", ownerName: "Cade", status: "ok", needsRelink: false, lastSyncedAt: iso(2.8 * H), accountCount: 4, cursorPresent: true },
-  { id: "feed-macu", provider: "plaid", institutionName: "Mountain America CU", ownerName: "Cade", status: "stale", needsRelink: false, lastSyncedAt: iso(3.1 * D), accountCount: 2, cursorPresent: true },
-  { id: "feed-capone", provider: "plaid", institutionName: "Capital One", ownerName: "Cade", status: "needs_relink", needsRelink: true, lastSyncedAt: iso(4 * D), accountCount: 1, cursorPresent: true },
-  { id: "feed-carecredit", provider: "file", institutionName: "CareCredit (Synchrony)", ownerName: "Cade", status: "ok", needsRelink: false, lastSyncedAt: iso(18 * D), accountCount: 1, cursorPresent: false },
-  { id: "feed-frontier", provider: "file", institutionName: "Frontier CU", ownerName: "Cade", status: "ok", needsRelink: false, lastSyncedAt: iso(20 * D), accountCount: 3, cursorPresent: false },
-  { id: "feed-pennymac", provider: "file", institutionName: "PennyMac", ownerName: "Cade", status: "ok", needsRelink: false, lastSyncedAt: iso(22 * D), accountCount: 1, cursorPresent: false },
+  { id: "feed-beehive", provider: "plaid", institutionName: "Beehive FCU", ownerMemberId: VANESSA_ID, ownerName: "Vanessa", status: "ok", needsRelink: false, lastSyncedAt: iso(3 * H), accountCount: 3, cursorPresent: true },
+  { id: "feed-venmo", provider: "plaid", institutionName: "Venmo", ownerMemberId: VANESSA_ID, ownerName: "Vanessa", status: "ok", needsRelink: false, lastSyncedAt: iso(3.2 * H), accountCount: 1, cursorPresent: true },
+  { id: "feed-afcu", provider: "plaid", institutionName: "America First CU", ownerMemberId: CADE_ID, ownerName: "Cade", status: "ok", needsRelink: false, lastSyncedAt: iso(2.8 * H), accountCount: 4, cursorPresent: true },
+  { id: "feed-macu", provider: "plaid", institutionName: "Mountain America CU", ownerMemberId: CADE_ID, ownerName: "Cade", status: "stale", needsRelink: false, lastSyncedAt: iso(3.1 * D), accountCount: 2, cursorPresent: true },
+  { id: "feed-capone", provider: "plaid", institutionName: "Capital One", ownerMemberId: CADE_ID, ownerName: "Cade", status: "needs_relink", needsRelink: true, lastSyncedAt: iso(4 * D), accountCount: 1, cursorPresent: true },
+  { id: "feed-carecredit", provider: "file", institutionName: "CareCredit (Synchrony)", ownerMemberId: CADE_ID, ownerName: "Cade", status: "ok", needsRelink: false, lastSyncedAt: iso(18 * D), accountCount: 1, cursorPresent: false },
+  { id: "feed-frontier", provider: "file", institutionName: "Frontier CU", ownerMemberId: CADE_ID, ownerName: "Cade", status: "ok", needsRelink: false, lastSyncedAt: iso(20 * D), accountCount: 3, cursorPresent: false },
+  { id: "feed-pennymac", provider: "file", institutionName: "PennyMac", ownerMemberId: CADE_ID, ownerName: "Cade", status: "ok", needsRelink: false, lastSyncedAt: iso(22 * D), accountCount: 1, cursorPresent: false },
 ];
 
 export const syncRuns: SyncRunSummary[] = [

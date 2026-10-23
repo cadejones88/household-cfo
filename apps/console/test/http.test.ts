@@ -198,6 +198,38 @@ describe("HTTP ConsoleApi", () => {
     expect(calls.map((c) => c.path)).toEqual(["/v1/me", "/v1/console/mappings"]);
   });
 
+  it("bank logins: the routes each call uses, step-up on link, change and remove only, and no access token in sight", async () => {
+    const feedId = "11111111-1111-4111-8111-111111111111";
+    const { api, calls } = fakeApi((c) => {
+      if (c.method === "POST" && c.path === "/v1/accounts/link-token") return { json: { linkToken: "link-sandbox-a", expiration: "2026-10-23T20:00:00Z" } };
+      if (c.method === "POST" && c.path === "/v1/accounts/link") return { status: 201, json: { feedConnectionId: feedId, itemId: "item-1" } };
+      if (c.method === "POST" && c.path === `/v1/accounts/feeds/${feedId}/link-token`) return { json: { linkToken: "link-sandbox-update", expiration: "2026-10-23T20:00:00Z" } };
+      if (c.method === "POST" && c.path === `/v1/accounts/feeds/${feedId}/reconnected`) return { json: { syncQueued: true } };
+      if (c.method === "GET" && c.path === `/v1/accounts/feeds/${feedId}/accounts`) return { json: { feedConnectionId: feedId, institutionName: "Capital One", ownerMemberId: "m-cade", accounts: [{ plaidAccountId: "pa-1", name: "Quicksilver", mask: "6450", type: "credit", subtype: "credit card", accountId: "a-1" }] } };
+      if (c.method === "PUT" && c.path === `/v1/accounts/feeds/${feedId}/accounts`) return { json: { attached: 1, detached: 0, syncQueued: true } };
+      if (c.method === "POST" && c.path === `/v1/accounts/feeds/${feedId}/unlink`) return { json: { ok: true } };
+      return undefined;
+    });
+    expect(await api.bankLinkToken()).toEqual({ linkToken: "link-sandbox-a", expiration: "2026-10-23T20:00:00Z" });
+    await api.linkBank({ publicToken: "public-1", institutionId: "ins_9", institutionName: "Capital One", accounts: [{ accountId: "a-1", plaidAccountId: "pa-1" }] });
+    expect((await api.feedLinkToken(feedId)).linkToken).toBe("link-sandbox-update");
+    expect(await api.feedReconnected(feedId)).toEqual({ syncQueued: true });
+    expect((await api.feedAccounts(feedId)).accounts[0]).toMatchObject({ plaidAccountId: "pa-1", accountId: "a-1" });
+    expect(await api.setFeedAccounts(feedId, [{ accountId: "a-1", plaidAccountId: "pa-1" }])).toEqual({ attached: 1, detached: 0, syncQueued: true });
+    await api.unlinkFeed(feedId);
+
+    const stepUp = (method: string, path: string) => calls.find((c) => c.method === method && c.path === path)?.headers["x-step-up"];
+    expect(stepUp("POST", "/v1/accounts/link")).toBe("true");
+    expect(stepUp("PUT", `/v1/accounts/feeds/${feedId}/accounts`)).toBe("true");
+    expect(stepUp("POST", `/v1/accounts/feeds/${feedId}/unlink`)).toBe("true");
+    expect(stepUp("POST", "/v1/accounts/link-token")).toBeUndefined();
+    expect(stepUp("POST", `/v1/accounts/feeds/${feedId}/link-token`)).toBeUndefined();
+    expect(stepUp("POST", `/v1/accounts/feeds/${feedId}/reconnected`)).toBeUndefined();
+    expect(calls.find((c) => c.path === "/v1/accounts/link")?.body).toEqual({ publicToken: "public-1", institutionId: "ins_9", institutionName: "Capital One", accounts: [{ accountId: "a-1", plaidAccountId: "pa-1" }] });
+    expect(calls.find((c) => c.method === "PUT")?.body).toEqual({ accounts: [{ accountId: "a-1", plaidAccountId: "pa-1" }] });
+    expect(JSON.stringify(calls)).not.toMatch(/access-/);
+  });
+
   it("turns the API's error body into an ApiError with its code", async () => {
     const { api } = fakeApi((c) => (c.path === "/v1/console/outbox/ob-1/retry" ? { status: 409, json: { error: "not_dead_lettered", message: "Only a dead-lettered row can be retried" } } : undefined));
     const err = await api.retryOutbox("ob-1").catch((e: unknown) => e);

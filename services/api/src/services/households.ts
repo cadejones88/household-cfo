@@ -36,6 +36,12 @@ export interface HouseholdSettings {
   pulse: { weekday: number; time: string };
   /** I-09 unilateral budget-move threshold between flexible categories; null = TBD (every move needs the other spouse). */
   unilateralMoveThresholdCents: number | null;
+  /**
+   * First bank date the feeds import (YYYY-MM-DD). Earlier lines are already inside BC's opening balances, so a bank
+   * connection's first pull (Plaid sends about 90 days) skips them instead of filling the queues with lines that
+   * would post twice. null = import everything Plaid sends.
+   */
+  feedStartDate: string | null;
   authorityMatrix: AuthorityRowSetting[];
 }
 
@@ -78,6 +84,8 @@ export const DEFAULT_SETTINGS: HouseholdSettings = {
   givingRate: 0.1,
   ruleProposalMinApprovals: 3,
   pulse: { weekday: 0, time: "19:00" },
+  // The day after the approved opening balances (records/bc-setup/Opening Balances 2026-09-30.csv).
+  feedStartDate: "2026-10-01",
   unilateralMoveThresholdCents: null,
   authorityMatrix: DEFAULT_AUTHORITY_MATRIX,
 };

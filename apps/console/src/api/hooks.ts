@@ -4,7 +4,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BcBatch, BusinessFlag, ConsoleTransactionQueue, ExceptionResolution, MappingProposal, SyncRunSummary } from "@homestead/shared";
 import { useApi } from "./ApiProvider";
-import type { PageQuery } from "./types";
+import type { AccountLink, LinkBankInput, PageQuery } from "./types";
 
 export const keys = {
   me: ["me"] as const,
@@ -20,6 +20,8 @@ export const keys = {
   outbox: (q?: object) => ["outbox", q ?? {}] as const,
   audit: (q?: object) => ["audit", q ?? {}] as const,
   health: ["health"] as const,
+  householdAccounts: ["household-accounts"] as const,
+  feedAccounts: (feedId: string) => ["feed-accounts", feedId] as const,
 };
 
 export function useMe() {
@@ -180,4 +182,42 @@ export function useAudit(q?: PageQuery & { entity?: string; entityId?: string; a
 export function useHealthReport() {
   const api = useApi();
   return useQuery({ queryKey: keys.health, queryFn: () => api.healthReport(), staleTime: 5 * 60_000 });
+}
+
+// ---- Bank logins ---------------------------------------------------------------------------------------------------
+
+export function useHouseholdAccounts() {
+  const api = useApi();
+  return useQuery({ queryKey: keys.householdAccounts, queryFn: () => api.householdAccounts() });
+}
+
+export function useFeedAccounts(feedId: string | undefined) {
+  const api = useApi();
+  return useQuery({ queryKey: keys.feedAccounts(feedId ?? ""), queryFn: () => api.feedAccounts(feedId ?? ""), enabled: Boolean(feedId), staleTime: 0 });
+}
+
+const BANK_KEYS = [keys.connections, keys.householdAccounts, ["feed-accounts"], keys.mappings, keys.reconciliation, ["audit"]] as const;
+
+export function useLinkBank() {
+  const api = useApi();
+  const invalidate = useInvalidate();
+  return useMutation({ mutationFn: (input: LinkBankInput) => api.linkBank(input), onSuccess: () => invalidate(...BANK_KEYS) });
+}
+
+export function useSetFeedAccounts() {
+  const api = useApi();
+  const invalidate = useInvalidate();
+  return useMutation({ mutationFn: (v: { feedId: string; accounts: readonly AccountLink[] }) => api.setFeedAccounts(v.feedId, v.accounts), onSuccess: () => invalidate(...BANK_KEYS) });
+}
+
+export function useUnlinkFeed() {
+  const api = useApi();
+  const invalidate = useInvalidate();
+  return useMutation({ mutationFn: (feedId: string) => api.unlinkFeed(feedId), onSuccess: () => invalidate(...BANK_KEYS) });
+}
+
+export function useFeedReconnected() {
+  const api = useApi();
+  const invalidate = useInvalidate();
+  return useMutation({ mutationFn: (feedId: string) => api.feedReconnected(feedId), onSuccess: () => invalidate(...BANK_KEYS) });
 }

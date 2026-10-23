@@ -40,6 +40,8 @@ export interface AccountSummary {
   balanceCents?: Cents;
   balanceAsOf?: string;
   feedStatus: "ok" | "stale" | "needs_relink" | "file_only" | "none";
+  /** The bank login that feeds this account, when one does. */
+  feedConnectionId?: Id;
   /** Excluded from safe-to-spend (openapi: isRestricted). */
   isRestricted?: boolean;
 }
@@ -499,6 +501,8 @@ export interface FeedConnectionSummary {
   id: Id;
   provider: "plaid" | "file" | "simplefin";
   institutionName: string;
+  /** The member who connected the login; only they can reconnect, change or remove it. */
+  ownerMemberId?: Id;
   ownerName: string;
   status: "ok" | "stale" | "needs_relink" | "disabled";
   needsRelink: boolean;

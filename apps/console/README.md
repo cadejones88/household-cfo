@@ -81,6 +81,10 @@ Modes come from `VITE_*` variables at build time (`src/config.ts`): `VITE_API_MO
 | Outbox; retry a dead letter | `GET /v1/console/outbox?state=`; `POST /v1/console/outbox/{id}/retry` | yes |
 | Audit log | `GET /v1/console/audit?limit&entity&entityId` | |
 | Header (member, household, settings version, BC environment and company) | `GET /v1/me` | |
+| Connect a bank: sign-in check, Link token, save | `confirmStepUp` (a fresh token before Link opens), `POST /v1/accounts/link-token`, Plaid Link (`cdn.plaid.com`, loaded on demand), `POST /v1/accounts/link { publicToken, institutionId, institutionName, accounts[] }` | save: yes |
+| Reconnect a login (update mode) | `POST /v1/accounts/feeds/{id}/link-token`, Link, `POST /v1/accounts/feeds/{id}/reconnected` (queues a sync; the sync clears the re-link flag) | |
+| A login's accounts; change them | `GET /v1/accounts/feeds/{id}/accounts`; `PUT /v1/accounts/feeds/{id}/accounts { accounts[] }` (a newly added account replays the Item's history; keys stop repeats) | change: yes |
+| Remove a login | `POST /v1/accounts/feeds/{id}/unlink` (Plaid `/item/remove`, vaulted token deleted, household accounts freed) | yes |
 
 Step-up: in dev the client sends `x-step-up: true`; with Entra it sends a token issued just now (`forceRefresh`), which the API accepts when `iat` is inside two minutes and `amr` carries MFA or a passkey.
 

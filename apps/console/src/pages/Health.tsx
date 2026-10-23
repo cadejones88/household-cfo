@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router";
 import type { SyncRunSummary } from "@homestead/shared";
-import { useAudit, useConnections, useHealthReport, useOutbox, useRetryOutbox, useSyncRuns } from "../api/hooks";
+import { useAudit, useConnections, useHealthReport, useMe, useOutbox, useRetryOutbox, useSyncRuns } from "../api/hooks";
+import { ConnectBank, FeedActions } from "../components/BankLogins";
 import { ErrorNotice, JsonDetails, Loading, PageHead, Pager, Tabs, Tag, errorMessage, useToast } from "../components/ui";
 import { ago, dateTime } from "../lib/format";
 import { feedStatusView, freshnessTone, syncRunStatusView } from "../lib/status";
@@ -36,7 +37,7 @@ export function Health() {
         value={section}
         onChange={(s) => setParams({ tab: s })}
       />
-      {section === "connections" ? <Connections /> : null}
+      {section === "connections" ? <Connections say={say} /> : null}
       {section === "runs" ? <Runs /> : null}
       {section === "jobs" ? <FailedJobs say={say} /> : null}
       {section === "audit" ? <Audit /> : null}
@@ -46,8 +47,10 @@ export function Health() {
   );
 }
 
-function Connections() {
+function Connections({ say }: { say: (m: string) => void }) {
   const q = useConnections();
+  const me = useMe();
+  const memberId = me.data?.member.id;
   if (q.isLoading) return <Loading what="Checking connections" />;
   if (q.error) return <ErrorNotice error={q.error} />;
   if (!q.data) return null;
@@ -88,7 +91,8 @@ function Connections() {
       <div className="card">
         <div className="card-head">
           <h2>Feed connections</h2>
-          <span className="hint">Plaid every 4 hours and on SYNC_UPDATES_AVAILABLE; files on upload. Stale after 48 hours.</span>
+          <span className="hint">Plaid every 4 hours and on SYNC_UPDATES_AVAILABLE; files on upload. Stale after 48 hours. Read-only: Plaid can see balances and transactions, never move money.</span>
+          <ConnectBank say={say} />
         </div>
         <table className="data" data-testid="feeds-table">
           <thead>
@@ -100,13 +104,14 @@ function Connections() {
               <th>Last sync</th>
               <th className="num">Accounts</th>
               <th>Cursor</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {d.feeds.length === 0 ? (
               <tr>
-                <td colSpan={7} className="sub">
-                  No bank logins linked yet. Each spouse links their own from the phone app; statement files are imported without a login.
+                <td colSpan={8} className="sub">
+                  No bank logins connected yet. Each spouse connects their own with Connect a bank; statement files are imported without a login.
                 </td>
               </tr>
             ) : null}
@@ -129,6 +134,9 @@ function Connections() {
                   </td>
                   <td className="num">{f.accountCount}</td>
                   <td>{f.cursorPresent ? "yes" : <span className="sub">—</span>}</td>
+                  <td className="actions">
+                    <FeedActions feed={f} memberId={memberId} say={say} />
+                  </td>
                 </tr>
               );
             })}
