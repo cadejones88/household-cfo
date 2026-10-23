@@ -153,22 +153,25 @@ export class PlaidClient implements PlaidPort {
   /**
    * Liabilities is requested as optional, so a bank without it still links. A Plaid team that has not been granted
    * Liabilities gets INVALID_PRODUCT for the whole request (production, 10/23/2026): then the token is made with
-   * Transactions alone and the client stops asking until it restarts. Items linked that way can be asked for
-   * Liabilities later through update mode.
+   * Transactions alone and the client stops asking until it restarts. Once granted, Reconnect (update mode) asks
+   * for consent to Liabilities (additional_consented_products) on logins made before.
    */
   private liabilitiesRefused = false;
   async createLinkToken(input: LinkTokenInput): Promise<{ linkToken: string; expiration: string }> {
     const body = (withLiabilities: boolean) => ({
       user: { client_user_id: input.clientUserId },
       client_name: "Homestead",
-      // Update mode names the Item instead of products; Plaid rejects products alongside an access token.
-      ...(input.accessToken ? { access_token: input.accessToken } : { products: ["transactions"], ...(withLiabilities ? { optional_products: ["liabilities"] } : {}) }),
+      // Update mode names the Item instead of products; Plaid rejects products alongside an access token. It can
+      // still ask the person to consent to Liabilities for a login made before Plaid granted it.
+      ...(input.accessToken
+        ? { access_token: input.accessToken, ...(withLiabilities ? { additional_consented_products: ["liabilities"] } : {}) }
+        : { products: ["transactions"], ...(withLiabilities ? { optional_products: ["liabilities"] } : {}) }),
       country_codes: ["US"],
       language: "en",
       ...(input.webhookUrl ? { webhook: input.webhookUrl } : {}),
       ...(input.institutionId && !input.accessToken ? { institution_id: input.institutionId } : {}),
     });
-    const ask = !input.accessToken && !this.liabilitiesRefused;
+    const ask = !this.liabilitiesRefused;
     try {
       const j = await this.call<{ link_token: string; expiration: string }>("/link/token/create", body(ask));
       return { linkToken: j.link_token, expiration: j.expiration };

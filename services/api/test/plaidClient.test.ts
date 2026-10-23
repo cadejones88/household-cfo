@@ -41,6 +41,8 @@ describe("PlaidClient", () => {
     expect(calls[0]!.body).not.toHaveProperty("products");
     expect(calls[0]!.body).not.toHaveProperty("optional_products");
     expect(calls[0]!.body).not.toHaveProperty("institution_id");
+    // A login made before Liabilities was granted is asked to consent to it on Reconnect.
+    expect(calls[0]!.body["additional_consented_products"]).toEqual(["liabilities"]);
     const accts = await c.accountsGet("access-token-u");
     expect(calls[1]!.url).toBe("https://production.plaid.com/accounts/get");
     expect(accts).toEqual([{ account_id: "a1", name: "Quicksilver", official_name: "Capital One Quicksilver", mask: "6450", type: "credit", subtype: "credit card", balances: { current: 12, available: null, iso_currency_code: null } }]);
@@ -61,6 +63,8 @@ describe("PlaidClient", () => {
     expect(bodies).toHaveLength(3);
     expect(bodies[2]).not.toHaveProperty("optional_products");
     expect(bodies[2]!["products"]).toEqual(["transactions"]);
+    await c.createLinkToken({ clientUserId: "m", accessToken: "access-token-u" });
+    expect(bodies[3]).not.toHaveProperty("additional_consented_products");
   });
 
   it("names Plaid's error type and code in the error, never its message text", async () => {
