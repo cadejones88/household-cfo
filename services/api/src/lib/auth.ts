@@ -28,8 +28,18 @@ declare module "fastify" {
 
 const PUBLIC_PATHS = [/^\/health/, /^\/v1\/webhooks\//];
 
+/**
+ * The one place the auth mode is decided: AUTH_MODE when set, otherwise Entra in production and dev elsewhere.
+ * The deployed API sets NODE_ENV=production and leaves AUTH_MODE unset; step-up once read AUTH_MODE alone, took
+ * the deployed API for dev, and refused every Entra request for want of the dev header (found 10/23/2026).
+ */
+export function authMode(): "dev" | "entra" {
+  const m = process.env["AUTH_MODE"] ?? (process.env["NODE_ENV"] === "production" ? "entra" : "dev");
+  return m === "entra" ? "entra" : "dev";
+}
+
 export const authPlugin = fp(async (app: FastifyInstance) => {
-  const mode = process.env["AUTH_MODE"] ?? (process.env["NODE_ENV"] === "production" ? "entra" : "dev");
+  const mode = authMode();
   const issuer = process.env["ENTRA_ISSUER"];
   const audience = process.env["ENTRA_API_AUDIENCE"];
   const jwksUri = process.env["ENTRA_JWKS_URI"] || (issuer ? jwksUriFromIssuer(issuer) : undefined);
@@ -110,7 +120,7 @@ async function lookupMember(by: { memberId?: string; entraObjectId?: string }): 
 export const STEP_UP_MAX_IAT_AGE_SECONDS = 120 + 300;
 
 export function hasFreshStepUp(req: FastifyRequest, now = Date.now()): boolean {
-  if ((process.env["AUTH_MODE"] ?? "dev") === "dev") return req.headers["x-step-up"] === "true";
+  if (authMode() === "dev") return req.headers["x-step-up"] === "true";
   const p = req.principal;
   if (!p?.issuedAt) return false;
   const ageSeconds = now / 1000 - p.issuedAt;

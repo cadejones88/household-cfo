@@ -59,6 +59,17 @@ describe("step-up (hasFreshStepUp)", () => {
     });
   });
 
+  it("the deployed API (NODE_ENV=production, no AUTH_MODE) is in Entra mode for step-up too, and ignores the dev header", async () => {
+    const { authMode, hasFreshStepUp } = await import("../src/lib/auth.js");
+    withEnv({ AUTH_MODE: undefined, NODE_ENV: "production", ENTRA_MFA_BY_POLICY: "true" }, () => {
+      expect(authMode()).toBe("entra");
+      expect(hasFreshStepUp(req({ issuedAt: now / 1000 - 312 }), now)).toBe(true);
+      const devHeaderOnly = { principal: { memberId: "m", householdId: "h", displayName: "Cade", role: "member" }, headers: { "x-step-up": "true" } } as unknown as import("fastify").FastifyRequest;
+      expect(hasFreshStepUp(devHeaderOnly, now)).toBe(false);
+    });
+    withEnv({ AUTH_MODE: undefined, NODE_ENV: "test" }, () => expect(authMode()).toBe("dev"));
+  });
+
   it("a token that does carry amr must name MFA, whatever the policy flag says", async () => {
     const { hasFreshStepUp } = await import("../src/lib/auth.js");
     withEnv({ AUTH_MODE: "entra", ENTRA_MFA_BY_POLICY: "true" }, () => {
