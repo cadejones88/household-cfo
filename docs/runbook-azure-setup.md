@@ -126,6 +126,8 @@ In the **firm's workforce tenant** (where BC lives), not the external tenant. Th
 
    (`--file` with process substitution keeps the value out of your shell history and the process list.)
 
+**Production products (checked 10/23/2026):** the team has **Transactions** only. Balance and Liabilities are separate products. Homestead reads balances from `/accounts/get` (Plaid's cached balances, part of every Item, no charge), so Balance is not needed. Liabilities (APR, due date, minimum payment for the debt register) is optional: the API asks for it, falls back to Transactions alone while Plaid has not granted it, and logs Plaid's error code. To add it, Plaid dashboard → Products → **Liabilities** → request access; logins made before that can add it through Reconnect.
+
 **Produces (variable):** `HOMESTEAD_PLAID_CLIENT_ID`. **Secrets (Key Vault only):** `plaid-sandbox-secret`, later `plaid-production-secret`. Plaid access tokens are written by the API itself as `plaid-<household id>-<item id>` and never seen by a person.
 
 ## 7. Where every secret lives

@@ -76,6 +76,8 @@ export interface PlaidItemAccount {
   mask?: string | null;
   type?: string;
   subtype?: string | null;
+  /** Plaid's cached balances (refreshed with each transactions update); the real-time Balance product is not used. */
+  balances?: { current?: number | null; available?: number | null; iso_currency_code?: string | null };
 }
 
 export interface PlaidLiability {
@@ -140,21 +142,42 @@ export class PlaidClient implements PlaidPort {
   private async call<T>(path: string, body: Record<string, unknown>): Promise<T> {
     const r = await this.fetchImpl(`${this.base}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client_id: this.clientId, secret: this.secret, ...body }) });
     const j = (await r.json()) as Record<string, unknown>;
-    if (!r.ok || typeof j["error_code"] === "string") throw new PlaidError(String(j["error_type"] ?? "API_ERROR"), String(j["error_code"] ?? "UNKNOWN"), "Plaid request failed", r.status);
+    if (!r.ok || typeof j["error_code"] === "string") {
+      const type = String(j["error_type"] ?? "API_ERROR");
+      const code = String(j["error_code"] ?? "UNKNOWN");
+      // Plaid's type and code are safe to log (no tokens, no account data); its message text is not kept.
+      throw new PlaidError(type, code, `Plaid request failed: ${type} ${code} (${path})`, r.status);
+    }
     return j as T;
   }
+  /**
+   * Liabilities is requested as optional, so a bank without it still links. A Plaid team that has not been granted
+   * Liabilities gets INVALID_PRODUCT for the whole request (production, 10/23/2026): then the token is made with
+   * Transactions alone and the client stops asking until it restarts. Items linked that way can be asked for
+   * Liabilities later through update mode.
+   */
+  private liabilitiesRefused = false;
   async createLinkToken(input: LinkTokenInput): Promise<{ linkToken: string; expiration: string }> {
-    const j = await this.call<{ link_token: string; expiration: string }>("/link/token/create", {
+    const body = (withLiabilities: boolean) => ({
       user: { client_user_id: input.clientUserId },
       client_name: "Homestead",
       // Update mode names the Item instead of products; Plaid rejects products alongside an access token.
-      ...(input.accessToken ? { access_token: input.accessToken } : { products: ["transactions"], optional_products: ["liabilities"] }),
+      ...(input.accessToken ? { access_token: input.accessToken } : { products: ["transactions"], ...(withLiabilities ? { optional_products: ["liabilities"] } : {}) }),
       country_codes: ["US"],
       language: "en",
       ...(input.webhookUrl ? { webhook: input.webhookUrl } : {}),
       ...(input.institutionId && !input.accessToken ? { institution_id: input.institutionId } : {}),
     });
-    return { linkToken: j.link_token, expiration: j.expiration };
+    const ask = !input.accessToken && !this.liabilitiesRefused;
+    try {
+      const j = await this.call<{ link_token: string; expiration: string }>("/link/token/create", body(ask));
+      return { linkToken: j.link_token, expiration: j.expiration };
+    } catch (e) {
+      if (!(ask && e instanceof PlaidError && e.errorCode === "INVALID_PRODUCT")) throw e;
+      this.liabilitiesRefused = true;
+      const j = await this.call<{ link_token: string; expiration: string }>("/link/token/create", body(false));
+      return { linkToken: j.link_token, expiration: j.expiration };
+    }
   }
   async exchangePublicToken(publicToken: string): Promise<{ accessToken: string; itemId: string }> {
     const j = await this.call<{ access_token: string; item_id: string }>("/item/public_token/exchange", { public_token: publicToken });
@@ -169,7 +192,7 @@ export class PlaidClient implements PlaidPort {
   }
   async accountsGet(accessToken: string): Promise<PlaidItemAccount[]> {
     const j = await this.call<{ accounts: PlaidItemAccount[] }>("/accounts/get", { access_token: accessToken });
-    return (j.accounts ?? []).map((a) => ({ account_id: a.account_id, ...(a.name ? { name: a.name } : {}), ...(a.official_name ? { official_name: a.official_name } : {}), mask: a.mask ?? null, ...(a.type ? { type: a.type } : {}), subtype: a.subtype ?? null }));
+    return (j.accounts ?? []).map((a) => ({ account_id: a.account_id, ...(a.name ? { name: a.name } : {}), ...(a.official_name ? { official_name: a.official_name } : {}), mask: a.mask ?? null, ...(a.type ? { type: a.type } : {}), subtype: a.subtype ?? null, ...(a.balances ? { balances: { current: a.balances.current ?? null, available: a.balances.available ?? null, iso_currency_code: a.balances.iso_currency_code ?? null } } : {}) }));
   }
   async liabilitiesGet(accessToken: string): Promise<PlaidLiability[]> {
     const j = await this.call<{ liabilities: { credit?: Record<string, unknown>[]; mortgage?: Record<string, unknown>[]; student?: Record<string, unknown>[] } }>("/liabilities/get", { access_token: accessToken });
@@ -228,7 +251,7 @@ export class FakePlaid implements PlaidPort {
   }
   async accountsGet(accessToken: string): Promise<PlaidItemAccount[]> {
     this.calls.push("accounts");
-    return this.itemAccounts.get(accessToken) ?? [];
+    return this.itemAccounts.get(accessToken) ?? (this.balances.get(accessToken) ?? []).map((b) => ({ account_id: b.account_id, mask: b.mask ?? null, balances: b.balances }));
   }
   async exchangePublicToken(publicToken: string): Promise<{ accessToken: string; itemId: string }> {
     this.calls.push("exchange");
@@ -623,9 +646,11 @@ export async function refreshBalances(db: Queryable, householdId: string, feed: 
   if (feed.provider !== "plaid" || !feed.plaid_item_ref || feed.status === "disabled") return 0;
   const token = await secrets.get(feed.plaid_item_ref);
   if (!token) return 0;
-  let balances: PlaidAccountBalance[];
+  // Cached balances from /accounts/get (part of every Item, no charge): the household needs today's balance, not a
+  // real-time one, and the team has Transactions only (Balance is a separate product, not enabled, 10/23/2026).
+  let balances: { account_id: string; balances: NonNullable<PlaidItemAccount["balances"]> }[];
   try {
-    balances = await plaid.balanceGet(token);
+    balances = (await plaid.accountsGet(token)).filter((a): a is PlaidItemAccount & { balances: NonNullable<PlaidItemAccount["balances"]> } => a.balances !== undefined);
   } catch (e) {
     if (e instanceof PlaidError && e.errorCode === "ITEM_LOGIN_REQUIRED") {
       await markRelink(db, householdId, feed, "ITEM_LOGIN_REQUIRED", actor);

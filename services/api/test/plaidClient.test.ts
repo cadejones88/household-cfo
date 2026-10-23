@@ -43,7 +43,31 @@ describe("PlaidClient", () => {
     expect(calls[0]!.body).not.toHaveProperty("institution_id");
     const accts = await c.accountsGet("access-token-u");
     expect(calls[1]!.url).toBe("https://production.plaid.com/accounts/get");
-    expect(accts).toEqual([{ account_id: "a1", name: "Quicksilver", official_name: "Capital One Quicksilver", mask: "6450", type: "credit", subtype: "credit card" }]);
+    expect(accts).toEqual([{ account_id: "a1", name: "Quicksilver", official_name: "Capital One Quicksilver", mask: "6450", type: "credit", subtype: "credit card", balances: { current: 12, available: null, iso_currency_code: null } }]);
+  });
+
+  it("falls back to Transactions alone when the team is not enabled for Liabilities, and stops asking", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      bodies.push(body);
+      if (body["optional_products"]) return new Response(JSON.stringify({ error_type: "INVALID_INPUT", error_code: "INVALID_PRODUCT", error_message: "Your account is not enabled for liabilities." }), { status: 400 });
+      return new Response(JSON.stringify({ link_token: "link-production-1", expiration: "2026-10-23T23:00:00Z" }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const c = new PlaidClient("production", "id", "s", fetchImpl);
+    expect((await c.createLinkToken({ clientUserId: "m" })).linkToken).toBe("link-production-1");
+    expect(bodies.map((b) => b["optional_products"] ?? null)).toEqual([["liabilities"], null]);
+    await c.createLinkToken({ clientUserId: "m" });
+    expect(bodies).toHaveLength(3);
+    expect(bodies[2]).not.toHaveProperty("optional_products");
+    expect(bodies[2]!["products"]).toEqual(["transactions"]);
+  });
+
+  it("names Plaid's error type and code in the error, never its message text", async () => {
+    const { fetchImpl } = recorder({ "/transactions/sync": new Error("x") });
+    const c = new PlaidClient("production", "id", "s", fetchImpl);
+    const e = await c.transactionsSync("t", null).catch((x: unknown) => x as PlaidError);
+    expect(e.message).toBe("Plaid request failed: ITEM_ERROR ITEM_LOGIN_REQUIRED (/transactions/sync)");
   });
 
   it("syncs with the cursor and count, and maps liabilities", async () => {

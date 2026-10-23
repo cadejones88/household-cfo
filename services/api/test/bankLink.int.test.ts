@@ -9,7 +9,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { buildFakeDeps, type Deps } from "../src/deps.js";
-import { FakePlaid, listFeeds, syncFeed } from "../src/services/bankData/plaid.js";
+import { FakePlaid, PlaidError, listFeeds, syncFeed } from "../src/services/bankData/plaid.js";
 import type { SeedResult } from "../src/db/seed.js";
 import { closePool, count, describeDb, inHh, seeded } from "./helpers/db.js";
 import { as } from "./helpers/http.js";
@@ -37,6 +37,20 @@ describeDb("bank linking", () => {
   afterAll(async () => {
     await app.close();
     await closePool();
+  });
+
+  it("says Plaid refused (502 with Plaid's code) instead of a bare 500", async () => {
+    const orig = plaid.createLinkToken.bind(plaid);
+    plaid.createLinkToken = async () => {
+      throw new PlaidError("INVALID_INPUT", "INVALID_PRODUCT", "Plaid request failed: INVALID_INPUT INVALID_PRODUCT (/link/token/create)", 400);
+    };
+    try {
+      const r = await app.inject({ method: "POST", url: "/v1/accounts/link-token", headers: as(hh.members.cade), payload: {} });
+      expect(r.statusCode).toBe(502);
+      expect(r.json()).toMatchObject({ error: "plaid_error", details: { plaidCode: "INVALID_PRODUCT" } });
+    } finally {
+      plaid.createLinkToken = orig;
+    }
   });
 
   it("gives the signed-in member a Link token", async () => {

@@ -51,6 +51,12 @@ export function registerErrorHandler(app: FastifyInstance): void {
     if (err instanceof IllegalTransitionError) {
       return reply.code(409).send({ error: "illegal_transition", message: "This item cannot move that way from where it is.", details: { from: err.from, to: err.to } });
     }
+    // Plaid refused or failed: say so (with its error code, never its message text) instead of a bare 500.
+    if (err.name === "PlaidError") {
+      const pe = err as Error & { errorCode?: string; errorType?: string };
+      req.log.warn({ err: { type: "PlaidError", plaidType: pe.errorType, plaidCode: pe.errorCode } }, "plaid refused");
+      return reply.code(502).send({ error: "plaid_error", message: `Plaid could not do that just now (${pe.errorCode ?? "unknown"}). Try again in a few minutes; if it keeps happening, tell Cade the code.`, details: { plaidCode: pe.errorCode, plaidType: pe.errorType } });
+    }
     const fe = err as FastifyError;
     if (typeof fe.statusCode === "number" && fe.statusCode < 500) {
       return reply.code(fe.statusCode).send({ error: fe.code ?? `http_${fe.statusCode}`, message: redactString(fe.message) });
