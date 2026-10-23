@@ -230,6 +230,21 @@ describe("HTTP ConsoleApi", () => {
     expect(JSON.stringify(calls)).not.toMatch(/access-/);
   });
 
+  it("asks for the standard recent sign-in before Link opens, and a wider window for the save after it", async () => {
+    const windows: (number | undefined)[] = [];
+    const api = createHttpApi({
+      getAuthHeaders: async () => ({ "x-dev-member": "m-cade" }),
+      getStepUpHeaders: async (m?: number) => (windows.push(m), { "x-dev-member": "m-cade", "x-step-up": "true" }),
+      member: () => ({ id: "m-cade", displayName: "Cade" }),
+      baseUrl: "http://api.test",
+      fetchImpl: (async () => new Response(JSON.stringify({ feedConnectionId: "f", itemId: "i" }), { status: 201 })) as typeof fetch,
+    });
+    await api.confirmStepUp();
+    await api.linkBank({ publicToken: "public-1", accounts: [] });
+    await api.unlinkFeed("f");
+    expect(windows).toEqual([undefined, 45, undefined]);
+  });
+
   it("turns the API's error body into an ApiError with its code", async () => {
     const { api } = fakeApi((c) => (c.path === "/v1/console/outbox/ob-1/retry" ? { status: 409, json: { error: "not_dead_lettered", message: "Only a dead-lettered row can be retried" } } : undefined));
     const err = await api.retryOutbox("ob-1").catch((e: unknown) => e);

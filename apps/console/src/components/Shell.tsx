@@ -81,6 +81,14 @@ export function Shell() {
         </div>
       </aside>
       <main className="main">
+        {auth.reauthReturned ? (
+          <div className="notice" role="status" style={{ marginBottom: 14, display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between" }}>
+            <span>You're signed in again. Repeat the change you were making; it will go through now.</span>
+            <button type="button" className="btn small" onClick={auth.clearReauthReturned}>
+              OK
+            </button>
+          </div>
+        ) : null}
         <Outlet />
       </main>
     </div>

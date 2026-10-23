@@ -48,6 +48,8 @@ import { config } from "../config";
 import { ApiError, type AccountLink, type ConsoleApi, type FeedAccounts, type LinkToken, type PageQuery } from "./types";
 
 export type AuthHeaders = () => Promise<Record<string, string>>;
+/** Step-up headers; `maxAuthAgeMinutes` widens or narrows how recent the sign-in must be (Entra mode). */
+export type StepUpHeaders = (maxAuthAgeMinutes?: number) => Promise<Record<string, string>>;
 export interface MemberInfo {
   id: string;
   displayName: string;
@@ -56,7 +58,7 @@ export interface MemberInfo {
 export interface HttpApiOptions {
   getAuthHeaders: AuthHeaders;
   /** Headers for a call that needs step-up. Default: the normal headers plus `x-step-up: true` (dev only). */
-  getStepUpHeaders?: AuthHeaders;
+  getStepUpHeaders?: StepUpHeaders;
   member: () => MemberInfo;
   baseUrl?: string;
   fetchImpl?: typeof fetch;
@@ -193,13 +195,16 @@ const DIMENSION_SLOTS: Record<string, DimensionDictionaryEntry["slot"]> = {
   [DIMENSION_CODES.PROJECT]: "shortcut5",
 };
 
+const LINK_SAVE_WINDOW_MINUTES = 45;
+
 export function createHttpApi(opts: HttpApiOptions): ConsoleApi {
   const baseUrl = (opts.baseUrl ?? config.apiBaseUrl).replace(/\/$/, "");
   const doFetch = opts.fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
-  const stepUpHeaders: AuthHeaders = opts.getStepUpHeaders ?? (async () => ({ ...(await opts.getAuthHeaders()), "x-step-up": "true" }));
+  const stepUpHeaders: StepUpHeaders = opts.getStepUpHeaders ?? (async () => ({ ...(await opts.getAuthHeaders()), "x-step-up": "true" }));
 
-  async function call<T>(method: "GET" | "POST" | "PUT", path: string, body?: unknown, stepUp = false): Promise<T> {
-    const headers: Record<string, string> = { accept: "application/json", ...(await (stepUp ? stepUpHeaders() : opts.getAuthHeaders())) };
+  /** `stepUp`: true for the standard recent-sign-in window, or a number of minutes for a wider one. */
+  async function call<T>(method: "GET" | "POST" | "PUT", path: string, body?: unknown, stepUp: boolean | number = false): Promise<T> {
+    const headers: Record<string, string> = { accept: "application/json", ...(await (stepUp === false ? opts.getAuthHeaders() : stepUpHeaders(typeof stepUp === "number" ? stepUp : undefined))) };
     if (body !== undefined) headers["content-type"] = "application/json";
     const res = await doFetch(`${baseUrl}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), credentials: "omit" });
     if (res.status === 204) return undefined as T;
@@ -217,7 +222,7 @@ export function createHttpApi(opts: HttpApiOptions): ConsoleApi {
     return json as T;
   }
   const get = <T>(path: string) => call<T>("GET", path);
-  const post = <T>(path: string, body: unknown = {}, stepUp = false) => call<T>("POST", path, body, stepUp);
+  const post = <T>(path: string, body: unknown = {}, stepUp: boolean | number = false) => call<T>("POST", path, body, stepUp);
 
   // Short-lived caches so the queue tabs, the sidebar badges and the overview share one /console/queues read.
   let queuesCache: { at: number; p: Promise<QueuesResponse> } | undefined;
@@ -632,14 +637,17 @@ export function createHttpApi(opts: HttpApiOptions): ConsoleApi {
     // ---- Bank logins (routes/accounts.ts) ----------------------------------------------------------------------
     householdAccounts: () => accounts(),
 
+    // Before Plaid Link opens: a sign-in inside the standard window (a redirect now loses nothing).
     async confirmStepUp() {
       await stepUpHeaders();
     },
 
     bankLinkToken: () => post<LinkToken>("/v1/accounts/link-token", {}),
 
+    // The save after Link allows 45 minutes since the sign-in checked before Link opened, so a slow bank sign-in
+    // never sends the person away (and loses the one-time public token) at the last step.
     async linkBank(input) {
-      const r = await post<{ feedConnectionId: string; itemId: string }>("/v1/accounts/link", input, true);
+      const r = await post<{ feedConnectionId: string; itemId: string }>("/v1/accounts/link", input, LINK_SAVE_WINDOW_MINUTES);
       accountsCache = undefined;
       return r;
     },

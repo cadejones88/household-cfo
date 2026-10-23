@@ -48,6 +48,9 @@ param plaidSecretName string = 'plaid-sandbox-secret'
 @description('Entra External ID: tenant id, the sign-in host, and the API app registration client id (audience)')
 param entraTenantId string = ''
 @description('Where the family signs in: homesteadfamily.ciamlogin.com through the pilot (decided 10/21/2026); the custom URL domain later')
+@description('True while a Conditional Access policy in the sign-in tenant requires MFA for every token to the API (External ID issues no amr claim to prove it per token).')
+param entraMfaByPolicy bool = true
+
 param entraSignInHost string = 'homesteadfamily.ciamlogin.com'
 param entraApiAudience string = ''
 
@@ -206,6 +209,9 @@ var commonEnv = [
   // document, checked 10/21/2026). Re-check it when the custom URL domain is added. The keys come from the sign-in host.
   { name: 'ENTRA_ISSUER', value: empty(entraTenantId) ? '' : 'https://${entraTenantId}.ciamlogin.com/${entraTenantId}/v2.0' }
   { name: 'ENTRA_JWKS_URI', value: empty(entraTenantId) ? '' : 'https://${entraSignInHost}/${entraTenantId}/discovery/v2.0/keys' }
+  // External ID tokens carry no `amr`; Conditional Access ("Homestead MFA" on homestead-api) requires the emailed code
+  // for every token to the API, so step-up trusts the policy (services/api/src/lib/auth.ts hasFreshStepUp).
+  { name: 'ENTRA_MFA_BY_POLICY', value: entraMfaByPolicy ? 'true' : 'false' }
   // Business Central (certificate by Key Vault name)
   { name: 'BC_TENANT_ID', value: bcTenantId }
   { name: 'BC_ENVIRONMENT', value: bcEnvironment }

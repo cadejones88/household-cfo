@@ -16,10 +16,14 @@ export interface AuthState {
   /** Headers for every API call: Bearer token (entra) or x-dev-member (dev). */
   getAuthHeaders: () => Promise<Record<string, string>>;
   /**
-   * Headers for a call that needs step-up (approvals, posting requests, retries): a token issued just now (entra;
-   * the API checks `iat` within two minutes and an MFA/passkey `amr`) or `x-step-up: true` (dev).
+   * Headers for a call that needs step-up (approvals, posting requests, retries, bank logins): in Entra mode a
+   * sign-in inside the last `maxAuthAgeMinutes` (default 15; otherwise a sign-in redirect first) and a token issued
+   * just now, which the API checks within two minutes; `x-step-up: true` in dev.
    */
-  getStepUpHeaders: () => Promise<Record<string, string>>;
+  getStepUpHeaders: (maxAuthAgeMinutes?: number) => Promise<Record<string, string>>;
+  /** True once after a step-up sign-in brought the person back: the action they started must be repeated. */
+  reauthReturned: boolean;
+  clearReauthReturned: () => void;
 }
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
@@ -77,15 +81,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (mode === "dev") return { "x-dev-member": config.devMemberId };
     return {};
   }, [mode]);
-  const getStepUpHeaders = useCallback(async (): Promise<Record<string, string>> => {
-    if (mode === "entra") return { authorization: `Bearer ${await (await loadMsal()).getStepUpToken()}` };
+  const getStepUpHeaders = useCallback(async (maxAuthAgeMinutes?: number): Promise<Record<string, string>> => {
+    if (mode === "entra") return { authorization: `Bearer ${await (await loadMsal()).getStepUpToken(maxAuthAgeMinutes)}` };
     if (mode === "dev") return { "x-dev-member": config.devMemberId, "x-step-up": "true" };
     return {};
   }, [mode]);
 
+  const [reauthReturned, setReauthReturned] = useState(false);
+  useEffect(() => {
+    if (mode !== "entra" || status !== "signed_in") return;
+    void loadMsal().then((m) => {
+      if (sessionStorage.getItem(m.REAUTH_RETURN_KEY)) setReauthReturned(true);
+    });
+  }, [mode, status]);
+  const clearReauthReturned = useCallback(() => {
+    setReauthReturned(false);
+    void loadMsal().then((m) => sessionStorage.removeItem(m.REAUTH_RETURN_KEY));
+  }, []);
+
   const value = useMemo<AuthState>(
-    () => ({ mode, status, memberName, memberId, error, signIn, signOut, getAuthHeaders, getStepUpHeaders }),
-    [mode, status, memberName, memberId, error, signIn, signOut, getAuthHeaders, getStepUpHeaders],
+    () => ({ mode, status, memberName, memberId, error, signIn, signOut, getAuthHeaders, getStepUpHeaders, reauthReturned, clearReauthReturned }),
+    [mode, status, memberName, memberId, error, signIn, signOut, getAuthHeaders, getStepUpHeaders, reauthReturned, clearReauthReturned],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

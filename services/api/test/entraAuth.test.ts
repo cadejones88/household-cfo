@@ -31,3 +31,38 @@ describe("Entra External ID token settings", () => {
     ).rejects.toThrow();
   });
 });
+
+describe("step-up (hasFreshStepUp)", () => {
+  const now = 1_792_778_400_000;
+  const req = (p: { issuedAt?: number; amr?: string[] }) => ({ principal: { memberId: "m", householdId: "h", displayName: "Cade", role: "member" as const, ...p }, headers: {} }) as unknown as import("fastify").FastifyRequest;
+  const withEnv = (vars: Record<string, string | undefined>, fn: () => void) => {
+    const saved = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
+    for (const [k, v] of Object.entries(vars)) v === undefined ? delete process.env[k] : (process.env[k] = v);
+    try {
+      fn();
+    } finally {
+      for (const [k, v] of Object.entries(saved)) v === undefined ? delete process.env[k] : (process.env[k] = v);
+    }
+  };
+
+  it("External ID (no amr): a fresh token passes only when the tenant's policy requires MFA", async () => {
+    const { hasFreshStepUp } = await import("../src/lib/auth.js");
+    withEnv({ AUTH_MODE: "entra", ENTRA_MFA_BY_POLICY: "true" }, () => {
+      expect(hasFreshStepUp(req({ issuedAt: now / 1000 - 30 }), now)).toBe(true);
+      expect(hasFreshStepUp(req({ issuedAt: now / 1000 - 330 }), now)).toBe(false); // the token Cade's sign-in left behind
+      expect(hasFreshStepUp(req({}), now)).toBe(false);
+    });
+    withEnv({ AUTH_MODE: "entra", ENTRA_MFA_BY_POLICY: undefined }, () => {
+      expect(hasFreshStepUp(req({ issuedAt: now / 1000 - 30 }), now)).toBe(false);
+    });
+  });
+
+  it("a token that does carry amr must name MFA, whatever the policy flag says", async () => {
+    const { hasFreshStepUp } = await import("../src/lib/auth.js");
+    withEnv({ AUTH_MODE: "entra", ENTRA_MFA_BY_POLICY: "true" }, () => {
+      expect(hasFreshStepUp(req({ issuedAt: now / 1000 - 30, amr: ["pwd"] }), now)).toBe(false);
+      expect(hasFreshStepUp(req({ issuedAt: now / 1000 - 30, amr: ["pwd", "mfa"] }), now)).toBe(true);
+      expect(hasFreshStepUp(req({ issuedAt: now / 1000 - 30, amr: ["fido"] }), now)).toBe(true);
+    });
+  });
+});

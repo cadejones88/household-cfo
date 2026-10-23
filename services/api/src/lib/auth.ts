@@ -1,7 +1,7 @@
 /**
  * Sign-in: Entra External ID issues the tokens; the API validates them against the tenant's JWKS and maps
- * the `oid` claim to a member row. Step-up for approvals is a fresh local authentication (Face ID) the app
- * attests with the `acr`/`amr` claims of a token issued inside the last 2 minutes, recorded on the approval.
+ * the `oid` claim to a member row. Step-up for approvals is a token issued inside the last 2 minutes that shows
+ * multifactor sign-in (see hasFreshStepUp), after the client's own presence check; recorded on the approval.
  *
  * In development with AUTH_MODE=dev, a header `x-dev-member` names a member id and no token is checked.
  */
@@ -92,11 +92,21 @@ async function lookupMember(by: { memberId?: string; entraObjectId?: string }): 
   return { memberId: row.id, householdId: row.household_id, displayName: row.display_name, role: row.role };
 }
 
-/** Step-up: the token (or the dev header x-step-up) must attest a fresh local authentication inside 2 minutes. */
+/**
+ * Step-up: a token issued inside the last 2 minutes (or the dev header x-step-up) that shows multifactor sign-in.
+ *
+ * Where the token carries `amr`, it must name MFA (mfa, fido or ngcmfa). Entra External ID issues no `amr` at all
+ * (checked on the family tenant's access and ID tokens, 10/23/2026); there, ENTRA_MFA_BY_POLICY=true says the
+ * tenant's Conditional Access policy ("Homestead MFA" on homestead-api) refuses every token to this API without the
+ * emailed code, so a valid token is itself proof of MFA. The client adds the presence check before it asks for the
+ * token: Face ID on the phone, a sign-in inside the last 15 minutes in the Console (Cade, 10/23/2026).
+ */
 export function hasFreshStepUp(req: FastifyRequest, now = Date.now()): boolean {
   if ((process.env["AUTH_MODE"] ?? "dev") === "dev") return req.headers["x-step-up"] === "true";
   const p = req.principal;
   if (!p?.issuedAt) return false;
   const ageSeconds = now / 1000 - p.issuedAt;
-  return ageSeconds <= 120 && (p.amr?.includes("mfa") || p.amr?.includes("fido") || p.amr?.includes("ngcmfa")) === true;
+  if (ageSeconds > 120) return false;
+  if (p.amr) return p.amr.includes("mfa") || p.amr.includes("fido") || p.amr.includes("ngcmfa");
+  return process.env["ENTRA_MFA_BY_POLICY"] === "true";
 }
