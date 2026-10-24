@@ -24,7 +24,9 @@ export async function plaidSyncHousehold(db: Queryable, householdId: string, dep
           for (const l of liabilities) {
             const acct = await db.query<{ id: string }>("select id from accounts where household_id = $1 and plaid_account_id = $2", [householdId, l.account_id]);
             if (!acct.rows[0]) continue;
-            if (l.nextPaymentDueDate && l.minimumPaymentAmount !== undefined) {
+            // Plaid reports the last statement: once its due date has passed (or the minimum shows $0 because it
+            // was paid) it says nothing about the next bill, so the known bill stays until a new statement arrives.
+            if (l.nextPaymentDueDate && l.nextPaymentDueDate >= now.toISOString().slice(0, 10) && typeof l.minimumPaymentAmount === "number" && l.minimumPaymentAmount > 0) {
               await db.query("update bills set next_due_date = $2, amount_cents = case when is_minimum then $3 else amount_cents end where household_id = $4 and account_id = $1 and is_minimum", [acct.rows[0].id, l.nextPaymentDueDate, Math.round(l.minimumPaymentAmount * 100), householdId]);
             }
             await audit(db, householdId, { actor, action: "account.liability_read", entity: "account", entityId: acct.rows[0].id, after: { kind: l.kind, aprPercent: l.aprPercent, nextDue: l.nextPaymentDueDate } });
