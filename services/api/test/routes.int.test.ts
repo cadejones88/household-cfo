@@ -157,6 +157,20 @@ describeDb("routes", () => {
     expect((await app.inject({ method: "POST", url: "/v1/rules", headers: as(hh.members.cade), payload: { kind: "merchant", name: "x", match: { nonsense: 1 }, action: {} } })).statusCode).toBe(400);
   });
 
+  it("rules: a seeded auto-post rule can be approved for sorting only, with no note; its auto-post flag goes off", async () => {
+    // A household of its own, so the seeded R1–R7 stay proposed for the other cases.
+    const own = await seeded("routes-sort-only");
+    const id = own.rules["R2"]!;
+    const ok = await app.inject({ method: "POST", url: `/v1/rules/${id}/approve`, headers: as(own.members.cade, true), payload: { classifyOnly: true } });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toMatchObject({ ruleNo: "R2", state: "approved", mayAutoPost: false, approvedBy: own.members.cade });
+    expect(ok.json()).not.toHaveProperty("approvalNote");
+    const a = await inHh(own, async (db) => (await db.query<{ before: unknown; after: unknown }>("select before, after from audit_log where entity = 'rule' and entity_id = $1 and action = 'rule.approved'", [id])).rows);
+    expect(a).toEqual([{ before: { state: "proposed", mayAutoPost: true }, after: { state: "approved", mayAutoPost: false, classifyOnly: true } }]);
+    // Without classifyOnly the note is still required.
+    expect((await app.inject({ method: "POST", url: `/v1/rules/${own.rules["R3"]!}/approve`, headers: as(own.members.cade, true), payload: { classifyOnly: false } })).json().error).toBe("approval_note_required");
+  });
+
   it("every screen's read carries a dataThrough: accounts, budget, goals, bills, safe-to-spend, questions, alerts", async () => {
     for (const url of ["/v1/accounts", "/v1/budget?month=2026-10", "/v1/goals", "/v1/bills", "/v1/safe-to-spend", "/v1/questions", "/v1/alerts"]) {
       const r = await app.inject({ method: "GET", url, headers: as(hh.members.vanessa) });

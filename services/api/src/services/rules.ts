@@ -138,20 +138,34 @@ function assertRegex(src: string): void {
 }
 
 /**
- * Approve: the spouse who did not propose it. An auto-post flag needs Cade's written approval in `approvalNote`.
- * Step-up is checked by the route. Approving a version retires the version it supersedes.
+ * Approve: the spouse who did not propose it. Step-up is checked by the route. Approving a version retires the
+ * version it supersedes.
+ *
+ * An auto-post rule is approved one of two ways:
+ * - `classifyOnly`: the rule sorts and approves lines into FEEDS for a person to post, and its auto-post flag is
+ *   turned off as part of the approval (the audit keeps the flag as proposed). No note is needed. Auto-post comes
+ *   later as a new version that asks for it, with Cade's written note.
+ * - with the auto-post flag kept: Cade's written approval in `approvalNote` is required.
  */
-export async function approveRule(db: Queryable, householdId: string, ruleId: string, approverMemberId: string, opts: { approvalNote?: string; effectiveFrom?: string } = {}): Promise<RuleRow> {
+export async function approveRule(db: Queryable, householdId: string, ruleId: string, approverMemberId: string, opts: { approvalNote?: string; effectiveFrom?: string; classifyOnly?: boolean } = {}): Promise<RuleRow> {
   const rule = await loadRule(db, ruleId);
   if (rule.state !== "proposed") throw conflict("not_proposed", "Only a proposed rule can be approved");
   if (rule.proposed_by === approverMemberId) throw forbidden("other_spouse_decides", "The spouse who proposed a rule cannot approve it");
-  if (rule.may_auto_post && !opts.approvalNote?.trim()) throw badRequest("approval_note_required", "An auto-post rule needs Cade's written approval note");
-  await db.query("update rules set state = 'approved', approved_by = $2, approved_at = now(), approval_note = $3, effective_from = coalesce($4, current_date) where id = $1", [ruleId, approverMemberId, opts.approvalNote ?? null, opts.effectiveFrom ?? null]);
+  const keepAutoPost = rule.may_auto_post && !opts.classifyOnly;
+  if (keepAutoPost && !opts.approvalNote?.trim()) throw badRequest("approval_note_required", "An auto-post rule needs Cade's written approval note, or approve it for sorting only with auto-post off");
+  await db.query("update rules set state = 'approved', approved_by = $2, approved_at = now(), approval_note = $3, effective_from = coalesce($4, current_date), may_auto_post = $5 where id = $1", [ruleId, approverMemberId, opts.approvalNote ?? null, opts.effectiveFrom ?? null, keepAutoPost]);
   if (rule.supersedes_rule_id) {
     await db.query("update rules set state = 'retired' where id = $1 and state <> 'retired'", [rule.supersedes_rule_id]);
     await audit(db, householdId, { actor: approverMemberId, action: "rule.retired", entity: "rule", entityId: rule.supersedes_rule_id, after: { supersededBy: ruleId } });
   }
-  await audit(db, householdId, { actor: approverMemberId, action: "rule.approved", entity: "rule", entityId: ruleId, after: { mayAutoPost: rule.may_auto_post, approvalNote: opts.approvalNote } });
+  await audit(db, householdId, {
+    actor: approverMemberId,
+    action: "rule.approved",
+    entity: "rule",
+    entityId: ruleId,
+    before: { state: rule.state, mayAutoPost: rule.may_auto_post },
+    after: { state: "approved", mayAutoPost: keepAutoPost, ...(rule.may_auto_post && !keepAutoPost ? { classifyOnly: true } : {}), approvalNote: opts.approvalNote },
+  });
   return loadRule(db, ruleId);
 }
 

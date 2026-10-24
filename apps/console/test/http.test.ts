@@ -100,6 +100,7 @@ describe("HTTP ConsoleApi", () => {
     const post = await api.postBatch("FEEDS");
     await api.retryOutbox("ob-9");
     await api.decideRule("r-1", "approve", "ok");
+    await api.decideRule("r-1", "approve", undefined, { classifyOnly: true });
     await api.decideRule("r-1", "decline");
     await api.setBusinessFlag("tx-0001", "ctj");
 
@@ -113,6 +114,7 @@ describe("HTTP ConsoleApi", () => {
 
     expect(calls.find((c) => c.path === "/v1/console/exceptions/tx-0016/resolve")?.body).toEqual({ to: "posted", entryNos: [4471], documentNo: "G01016", postingDate: "2026-10-01", note: "posted by hand" });
     expect(calls.find((c) => c.path === "/v1/rules/r-1/retire")?.body).toEqual({ reason: "declined in the Console" });
+    expect(calls.filter((c) => c.path === "/v1/rules/r-1/approve").map((c) => c.body)).toEqual([{ approvalNote: "ok" }, { classifyOnly: true }]);
     expect(post).toMatchObject({ batch: "FEEDS", outboxId: "ob-1", lineCount: 4, enqueued: false });
     expect(post.message).toMatch(/own BC sign-in/);
   });

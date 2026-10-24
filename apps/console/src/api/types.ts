@@ -83,7 +83,8 @@ export interface ConsoleApi {
   receipts(status: "unmatched" | "needs_review", q?: PageQuery): Promise<ConsolePage<ConsoleReceiptRow>>;
   matchReceipt(receiptId: string, transactionId: string): Promise<ConsoleReceiptRow>;
   rules(state: "proposed" | "approved" | "retired", q?: PageQuery): Promise<ConsolePage<RuleSummary>>;
-  decideRule(id: string, decision: "approve" | "decline" | "retire", note?: string): Promise<RuleSummary>;
+  /** `classifyOnly` approves an auto-post rule for sorting only and turns its auto-post flag off (no note needed). */
+  decideRule(id: string, decision: "approve" | "decline" | "retire", note?: string, opts?: { classifyOnly?: boolean }): Promise<RuleSummary>;
 
   // Function 2: BC sync and posting
   syncStatus(): Promise<SyncStatus>;

@@ -421,8 +421,8 @@ export function createHttpApi(opts: HttpApiOptions): ConsoleApi {
     },
 
     // The API has approve and retire (both step-up); declining a proposal retires it with the reason.
-    async decideRule(id, decision, note) {
-      if (decision === "approve") return post<RuleSummary>(`/v1/rules/${encodeURIComponent(id)}/approve`, note ? { approvalNote: note } : {}, true);
+    async decideRule(id, decision, note, opts) {
+      if (decision === "approve") return post<RuleSummary>(`/v1/rules/${encodeURIComponent(id)}/approve`, { ...(note ? { approvalNote: note } : {}), ...(opts?.classifyOnly ? { classifyOnly: true } : {}) }, true);
       return post<RuleSummary>(`/v1/rules/${encodeURIComponent(id)}/retire`, { reason: note ?? (decision === "decline" ? "declined in the Console" : "retired in the Console") }, true);
     },
 

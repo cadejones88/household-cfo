@@ -936,15 +936,19 @@ paths:
     post:
       tags: [rules]
       summary: Approve a rule (the spouse who did not propose it; step-up). An auto-post flag needs Cade's written note.
-      description: Approving a version retires the version it supersedes.
+      description: >-
+        Approving a version retires the version it supersedes. With classifyOnly, an auto-post rule is approved for
+        sorting only: its auto-post flag is turned off as part of the approval (the audit keeps the flag as proposed)
+        and no note is needed. Auto-post comes later as a new version that asks for it, with Cade's written note.
       requestBody:
         content:
           application/json:
             schema:
               type: object
               properties:
-                approvalNote: { type: string, maxLength: 2000 }
+                approvalNote: { type: string, maxLength: 2000, description: Cade's written approval; required to keep an auto-post flag }
                 effectiveFrom: { type: string, format: date }
+                classifyOnly: { type: boolean, description: Approve for sorting only; turns the rule's auto-post flag off }
       responses:
         "200": { description: Approved, content: { application/json: { schema: { $ref: "#/components/schemas/Rule" } } } }
         "400": { $ref: "#/components/responses/BadRequest" }

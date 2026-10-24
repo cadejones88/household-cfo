@@ -1,6 +1,7 @@
 /**
  * /v1/rules — the rule register: list, propose (a new rule or a new version), approve (the spouse who did not
- * propose it, step-up; an auto-post flag needs Cade's written note), retire (step-up).
+ * propose it, step-up; an auto-post flag needs Cade's written note unless the rule is approved for sorting only,
+ * which turns the flag off), retire (step-up).
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -106,8 +107,10 @@ export default async function rulesRoutes(app: FastifyInstance): Promise<void> {
   app.post("/rules/:id/approve", async (req) => {
     requireStepUp(req);
     const { id } = parse(idParam, req.params);
-    const body = parse(z.object({ approvalNote: z.string().max(2000).optional(), effectiveFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).default({}), req.body ?? {});
-    return inHousehold(req, async (db, p) => toRuleSummary(db, p.householdId, await approveRule(db, p.householdId, id, p.memberId, { ...(body.approvalNote ? { approvalNote: body.approvalNote } : {}), ...(body.effectiveFrom ? { effectiveFrom: body.effectiveFrom } : {}) })));
+    const body = parse(z.object({ approvalNote: z.string().max(2000).optional(), effectiveFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), classifyOnly: z.boolean().optional() }).default({}), req.body ?? {});
+    return inHousehold(req, async (db, p) =>
+      toRuleSummary(db, p.householdId, await approveRule(db, p.householdId, id, p.memberId, { ...(body.approvalNote ? { approvalNote: body.approvalNote } : {}), ...(body.effectiveFrom ? { effectiveFrom: body.effectiveFrom } : {}), ...(body.classifyOnly ? { classifyOnly: true } : {}) })),
+    );
   });
 
   app.post("/rules/:id/retire", async (req) => {

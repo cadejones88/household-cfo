@@ -107,7 +107,7 @@ export function useDecideRule() {
   const api = useApi();
   const invalidate = useInvalidate();
   return useMutation({
-    mutationFn: (v: { id: string; decision: "approve" | "decline" | "retire"; note?: string }) => api.decideRule(v.id, v.decision, v.note),
+    mutationFn: (v: { id: string; decision: "approve" | "decline" | "retire"; note?: string; classifyOnly?: boolean }) => api.decideRule(v.id, v.decision, v.note, v.classifyOnly ? { classifyOnly: true } : undefined),
     onSuccess: () => invalidate(["rules"], keys.authority, ["audit"]),
   });
 }

@@ -257,13 +257,15 @@ export function createMockApi(): ConsoleApi {
       );
     },
 
-    async decideRule(id, decision, note) {
+    async decideRule(id, decision, note, opts) {
       await latency();
       const r = rules.find((x) => x.id === id);
       if (!r) throw new ApiError(404, "not_found");
       if (decision === "approve" && r.proposedBy === data.CADE_ID) throw new ApiError(403, "other_spouse_decides", "The spouse who did not propose a rule approves it.");
+      if (decision === "approve" && r.mayAutoPost && !opts?.classifyOnly && !note?.trim()) throw new ApiError(400, "approval_note_required", "An auto-post rule needs Cade's written approval note, or approve it for sorting only with auto-post off");
       const before = r.state;
       if (decision === "approve") {
+        if (opts?.classifyOnly) r.mayAutoPost = false;
         r.state = "approved";
         r.approvedBy = data.CADE_ID;
         r.approvedAt = new Date().toISOString();

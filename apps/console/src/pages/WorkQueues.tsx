@@ -255,7 +255,10 @@ function RulesSection({ say }: { say: (m: string) => void }) {
   return (
     <>
       <Tabs tabs={[{ id: "proposed" as const, label: "Proposed", count: counts.proposed }, { id: "approved" as const, label: "Approved", count: counts.approved }, { id: "retired" as const, label: "Retired" }]} value={state} onChange={setState} />
-      <div className="notice">The spouse who did not propose a rule approves it, with step-up. Rules apply only once approved and inside their amount band; the auto-post flag needs Cade's written approval and the household switch, which is off.</div>
+      <div className="notice">
+        The spouse who did not propose a rule approves it, with step-up. Rules apply only once approved and inside their amount band. A rule marked “may auto-post” is approved for sorting only: it sorts matching lines and
+        you still post each batch. Auto-post needs a passed sandbox test, Cade's written approval and the household switch, which is off.
+      </div>
       {q.isLoading ? <Loading what="Loading rules" /> : q.error ? <ErrorNotice error={q.error} /> : null}
       {q.data ? (
         q.data.items.length === 0 ? (
@@ -307,9 +310,21 @@ function RulesSection({ say }: { say: (m: string) => void }) {
                       <td className="actions">
                         {r.state === "proposed" ? (
                           <>
-                            <button type="button" className="btn small primary" disabled={decide.isPending} onClick={() => decide.mutate({ id: r.id, decision: "approve" }, { onSuccess: () => say("Rule approved."), onError: (e) => say(errorMessage(e)) })}>
-                              Approve
-                            </button>{" "}
+                            {r.mayAutoPost ? (
+                              <button
+                                type="button"
+                                className="btn small primary"
+                                disabled={decide.isPending}
+                                title="The rule sorts and approves matching lines for you to post. Its auto-post flag is turned off; turning auto-post on later is a separate step with Cade's written note."
+                                onClick={() => decide.mutate({ id: r.id, decision: "approve", classifyOnly: true }, { onSuccess: () => say(`${r.ruleNo ?? "Rule"} approved for sorting. Auto-post is off for it; you still post each batch.`), onError: (e) => say(errorMessage(e)) })}
+                              >
+                                Approve for sorting
+                              </button>
+                            ) : (
+                              <button type="button" className="btn small primary" disabled={decide.isPending} onClick={() => decide.mutate({ id: r.id, decision: "approve" }, { onSuccess: () => say("Rule approved."), onError: (e) => say(errorMessage(e)) })}>
+                                Approve
+                              </button>
+                            )}{" "}
                             <button type="button" className="btn small" disabled={decide.isPending} onClick={() => decide.mutate({ id: r.id, decision: "decline" }, { onSuccess: () => say("Rule declined."), onError: (e) => say(errorMessage(e)) })}>
                               Decline
                             </button>

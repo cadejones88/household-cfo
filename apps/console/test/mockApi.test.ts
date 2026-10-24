@@ -66,6 +66,15 @@ describe("mock ConsoleApi", () => {
     expect(ok.state).toBe("approved");
   });
 
+  it("an auto-post rule is approved for sorting only without a note, and its auto-post flag goes off", async () => {
+    const api = createMockApi();
+    const r2 = (await api.rules("proposed")).items.find((r) => r.ruleNo === "R2")!;
+    expect(r2.mayAutoPost).toBe(true);
+    await expect(api.decideRule(r2.id, "approve")).rejects.toMatchObject({ code: "approval_note_required" });
+    const ok = await api.decideRule(r2.id, "approve", undefined, { classifyOnly: true });
+    expect(ok).toMatchObject({ state: "approved", mayAutoPost: false });
+  });
+
   it("retrying a dead letter requeues it with attempts reset", async () => {
     const api = createMockApi();
     const dead = await api.outbox({ deadLettered: true });
